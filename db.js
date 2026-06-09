@@ -79,7 +79,32 @@ const REQUIRED_COLLECTIONS = [
 ];
 
 export async function readDatabase(file = DATA_FILE) {
-  const content = await fs.readFile(file, 'utf8');
+  let content = '';
+
+  try {
+    content = await fs.readFile(file, 'utf8');
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      throw error;
+    }
+
+    const initialData = {
+      clients: [],
+      users: [],
+      opportunities: [],
+      curriculums: [],
+      candidates: [],
+      allocateds: [],
+      cvFilters: [],
+      selectedCandidates: []
+    };
+
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, `${JSON.stringify(initialData, null, 2)}\n`, 'utf8');
+
+    content = JSON.stringify(initialData);
+  }
+
   const data = JSON.parse(content);
 
   if (!Array.isArray(data.clients) && Array.isArray(data.companies)) {
