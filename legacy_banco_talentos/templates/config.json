@@ -1,0 +1,44 @@
+{
+  "templates": [
+    {
+      "id": "cv_alcateia",
+      "nome": "CV Alcateia",
+      "arquivo": "template_1_cv.docx",
+      "placeholders": {
+        "NOME": "nome",
+        "EMAIL": "email",
+        "NACIONALIDADE": "nacionalidade",
+        "IDADE": "idade",
+        "TELEFONE": "telefone",
+        "ENDERECO": "endereco",
+        "SKILLS": "skills",
+        "CONHECIMENTO_TECNICO": "conhecimento_tecnico",
+        "FORMACAO_ACADEMICA": "formacao_academica",
+        "EXPERIENCIA_PROFISSIONAL": "experiencia_profissional",
+        "CURSOS": "cursos_certificacoes",
+        "NIVEL_INGLES": "nivel_ingles",
+        "NIVEL_ESPANHOL": "nivel_espanhol"
+      }
+    },
+    {
+      "id": "cv_dtt",
+      "nome": "CV DTT",
+      "arquivo": "template_2_cv.docx",
+      "placeholders": {
+        "NOME": "nome",
+        "EMAIL": "email",
+        "NACIONALIDADE": "nacionalidade",
+        "IDADE": "idade",
+        "TELEFONE": "telefone",
+        "ENDERECO": "endereco",
+        "SKILLS": "skills",
+        "CONHECIMENTO_TECNICO": "conhecimento_tecnico",
+        "FORMACAO_ACADEMICA": "formacao_academica",
+        "EXPERIENCIA_PROFISSIONAL": "experiencia_profissional",
+        "CURSOS": "cursos_certificacoes",
+        "NIVEL_INGLES": "nivel_ingles",
+        "NIVEL_ESPANHOL": "nivel_espanhol"
+      }
+    }
+  ]
+}

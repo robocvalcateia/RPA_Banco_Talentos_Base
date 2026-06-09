@@ -1,0 +1,27 @@
+{
+  "name": "gestao-do-negocio-alcateia",
+  "version": "0.1.0",
+  "description": "MVP web para gestao do negocio, oportunidades, candidatos e alocados da Alcateia.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test",
+    "import:curriculums": "node scripts/import_banco_talentos_json.mjs",
+    "install:legacy": "python -m pip install -r legacy_banco_talentos/requirements.txt"
+  },
+  "keywords": [
+    "ats",
+    "recrutamento",
+    "alcateia",
+    "mvp"
+  ],
+  "author": "",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "mongodb": "^6.12.0"
+  }
+}

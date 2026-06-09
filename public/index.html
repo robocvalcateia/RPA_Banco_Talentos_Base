@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gestão do Negócio Alcateia</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css?v=20260607-banco-talentos-completo" />
+  </head>
+  <body class="auth-locked">
+    <section class="auth-screen" id="authScreen">
+      <div class="auth-card">
+        <img class="auth-logo" src="/brand/logo-alcateia.png" alt="" />
+        <p class="eyebrow">Acesso restrito</p>
+        <h1>Gestão do Negócio Alcateia</h1>
+        <form id="loginForm" class="auth-form">
+          <label>E-mail<input name="email" type="email" autocomplete="username" required /></label>
+          <label>Senha<input name="password" type="password" autocomplete="current-password" required /></label>
+          <p class="form-error" id="loginError"></p>
+          <button class="primary-action" id="loginButton" type="button">Entrar</button>
+        </form>
+      </div>
+    </section>
+
+    <section class="auth-screen hidden" id="passwordChangeScreen">
+      <div class="auth-card">
+        <img class="auth-logo" src="/brand/logo-alcateia.png" alt="" />
+        <p class="eyebrow">Primeiro acesso</p>
+        <h1>Crie uma nova senha</h1>
+        <p class="auth-copy">A senha inicial precisa ser alterada antes de acessar o painel.</p>
+        <form id="passwordChangeForm" class="auth-form">
+          <label>Nova senha<input name="newPassword" type="password" autocomplete="new-password" minlength="6" required /></label>
+          <label>Confirmar senha<input name="confirmPassword" type="password" autocomplete="new-password" minlength="6" required /></label>
+          <p class="form-error" id="passwordChangeError"></p>
+          <button class="primary-action" id="passwordChangeButton" type="button">Salvar nova senha</button>
+        </form>
+      </div>
+    </section>
+
+    <aside class="sidebar">
+      <a class="brand" href="#dashboard" aria-label="Gestão do Negócio Alcateia">
+        <img class="brand-logo" src="/brand/logo-alcateia.png" alt="" />
+        <span>
+          <strong>ALCATEIA</strong>
+          <small>Gestão do Negócio</small>
+        </span>
+      </a>
+
+      <nav class="nav" aria-label="Navegacao principal">
+        <button class="nav-item active" data-view="dashboard">Dashboard</button>
+        <button class="nav-item" data-view="opportunities">Oportunidades</button>
+        <button class="nav-item" data-view="cvFilters">Filtro de CVs</button>
+        <button class="nav-item" data-view="selectedCandidates">Candidatos Selecionados</button>
+        <button class="nav-item" data-view="candidates">Candidatos</button>
+        <button class="nav-item" data-view="allocateds">Alocados</button>
+        <button class="nav-item" data-view="curriculums">Banco de Talentos</button>
+        <button class="nav-item" data-view="clients">Clientes</button>
+        <button class="nav-item" data-view="users">Usuários</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <span class="dot"></span>
+        <span>MVP validavel antes de IA</span>
+      </div>
+    </aside>
+
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Gestão do negócio</p>
+          <h1 id="viewTitle">Dashboard</h1>
+        </div>
+        <div class="user-menu" aria-label="Usuario logado">
+          <span id="currentUserLabel">Admin</span>
+          <button class="ghost-action" id="logoutButton" type="button">Sair</button>
+        </div>
+      </header>
+
+      <section class="view active" id="dashboard">
+        <div class="metric-grid" id="metrics"></div>
+        <div class="content-grid">
+          <section class="panel">
+            <div class="panel-heading">
+              <h2>Candidatos por etapa</h2>
+              <span>Candidatos</span>
+            </div>
+            <div class="bar-list" id="stageBars"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-heading">
+              <h2>Oportunidades por status</h2>
+              <span>Operacao</span>
+            </div>
+            <div class="bar-list compact" id="statusBars"></div>
+          </section>
+          <section class="panel wide">
+            <div class="panel-heading">
+              <h2>Alocados por cliente</h2>
+              <span>Total</span>
+            </div>
+            <div class="pie-wrap" id="allocatedPie"></div>
+          </section>
+          <section class="panel wide">
+            <div class="panel-heading">
+              <h2>Tempo medio por etapa</h2>
+              <span>Dias</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Etapa</th>
+                    <th>Tempo medio</th>
+                    <th>Volume</th>
+                  </tr>
+                </thead>
+                <tbody id="averageStageTable"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="clients">
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Cadastrar cliente</h2>
+            <span>Admin</span>
+          </div>
+          <form id="clientForm" class="form-grid">
+            <label>Customer Name<input name="customerName" required /></label>
+            <label>Primary Contact Name<input name="primaryContactName" /></label>
+            <label>Primary Contact Email<input name="primaryContactEmail" type="email" /></label>
+            <label>Primary Contact Phone<input name="primaryContactPhone" /></label>
+            <label class="full">Observação<textarea name="observation" rows="3"></textarea></label>
+            <button class="primary-action" type="submit">Salvar cliente</button>
+          </form>
+        </section>
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Clientes cadastrados</h2>
+            <span id="clientCount">0</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Customer Name</th>
+                  <th>Primary Contact Name</th>
+                  <th>Primary Contact Email</th>
+                  <th>Primary Contact Phone</th>
+                  <th>Observação</th>
+                </tr>
+              </thead>
+              <tbody id="clientTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" id="opportunities">
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Cadastrar oportunidade</h2>
+            <span>Recrutador</span>
+          </div>
+          <form id="opportunityForm" class="form-grid">
+            <label>Oportunidade<input name="opportunity" required /></label>
+            <label>Id_Oportunidade<input name="opportunityCode" /></label>
+            <label>Cliente<select name="clientId" required></select></label>
+            <label>Status<select name="status"></select></label>
+            <label>Abertura<input name="openingDate" type="date" /></label>
+            <label>Fechamento<input name="closingDate" type="date" /></label>
+            <label>Modelo<select name="model"></select></label>
+            <label>Responsável<input name="owner" /></label>
+            <label>Quantidade<input name="quantity" type="number" min="0" /></label>
+            <label>Qtde Fechada<input name="closedQuantity" type="number" min="0" /></label>
+            <label>Valor Contrato<input name="contractValue" type="number" min="0" step="0.01" /></label>
+            <label class="full">Observação<textarea name="observation" rows="3"></textarea></label>
+            <button class="primary-action" type="submit">Salvar oportunidade</button>
+          </form>
+        </section>
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Oportunidades</h2>
+            <span id="opportunityCount">0</span>
+          </div>
+          <div class="filter-bar">
+            <label>Consultar por
+              <select id="opportunityFilterType">
+                <option value="">Todos</option>
+                <option value="client">Cliente</option>
+                <option value="opportunity">Oportunidade</option>
+              </select>
+            </label>
+            <label>Filtro
+              <select id="opportunityFilterValue" disabled>
+                <option value="">Todos</option>
+              </select>
+            </label>
+            <label>Status
+              <select id="opportunityStatusFilter">
+                <option value="">Todos</option>
+              </select>
+            </label>
+            <label>Mês de Fechamento
+              <input id="opportunityClosingMonthFilter" type="month" />
+            </label>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Oportunidade</th>
+                  <th>Id_Oportunidade</th>
+                  <th>Cliente</th>
+                  <th>Status</th>
+                  <th>Abertura</th>
+                  <th>Fechamento</th>
+                  <th>Modelo</th>
+                  <th>Responsável</th>
+                  <th>Quantidade</th>
+                  <th>Qtde Fechada</th>
+                  <th>Valor Contrato</th>
+                  <th>Observação</th>
+                </tr>
+              </thead>
+              <tbody id="opportunityTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" id="cvFilters">
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Cadastrar filtro de CVs</h2>
+            <span>Manutenção</span>
+          </div>
+          <form id="cvFilterForm" class="form-grid">
+            <label>Oportunidade<select name="opportunityId" required></select></label>
+            <label>Estado<select name="state" required></select></label>
+            <label>Cidade<select name="city" required disabled></select></label>
+            <label>Nível de Inglês<select name="englishLevel">
+              <option value="">Selecione</option>
+              <option value="Técnico">Técnico</option>
+              <option value="Intermediário">Intermediário</option>
+              <option value="Fluente">Fluente</option>
+            </select></label>
+            <label>Percentual de Acerto<input name="matchPercent" type="number" min="0" max="100" step="1" /></label>
+            <label>Qtde de Retorno<input name="resultLimit" type="number" min="1" max="50" step="1" value="10" /></label>
+            <label class="full">Habilidades Obrigatórias<textarea name="mandatorySkills" rows="2" maxlength="20" placeholder="Ex.: PL SQL"></textarea></label>
+            <label class="full">Job_description<textarea name="jobDescription" rows="4" required></textarea></label>
+            <fieldset class="full checkbox-group">
+              <legend>Fontes de busca</legend>
+              <label class="checkbox-field"><input name="searchApinfo" type="checkbox" checked /> APINFO</label>
+              <label class="checkbox-field"><input name="searchLinkedin" type="checkbox" checked /> LINKEDIN</label>
+              <label class="checkbox-field"><input name="searchAlcateia" type="checkbox" checked /> ALCATEIA</label>
+            </fieldset>
+            <button class="primary-action" type="submit">Salvar filtro</button>
+            <button class="primary-action full" id="cvSearchButton" type="button" disabled>Buscar Candidatos</button>
+            <button class="primary-action full" id="saveSelectedCandidatesButton" type="button" disabled>Salvar Selecionados</button>
+          </form>
+        </section>
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Filtros de CVs</h2>
+            <span id="cvFilterCount">0</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Oportunidade</th>
+                  <th>Job_description</th>
+                  <th>Habilidades Obrigatórias</th>
+                  <th>Estado</th>
+                  <th>Cidade</th>
+                  <th>Inglês</th>
+                  <th>% Acerto</th>
+                  <th>Qtde</th>
+                  <th>Fontes</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="cvFilterTable"></tbody>
+            </table>
+          </div>
+        </section>
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Resultados da busca</h2>
+            <span id="cvSearchStatus">Selecione um filtro salvo</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Selecionar</th>
+                  <th>Nome</th>
+                  <th>Fonte</th>
+                  <th>Link</th>
+                  <th>Score</th>
+                  <th>Observação</th>
+                </tr>
+              </thead>
+              <tbody id="cvSearchResultTable"></tbody>
+            </table>
+          </div>
+        </section>
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Rejeitados</h2>
+            <span id="cvRejectedStatus">Selecione um filtro salvo</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Selecionar</th>
+                  <th>Nome</th>
+                  <th>Fonte</th>
+                  <th>Link</th>
+                  <th>Score</th>
+                  <th>Observação</th>
+                </tr>
+              </thead>
+              <tbody id="cvRejectedResultTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" id="selectedCandidates">
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Candidatos Selecionados</h2>
+            <span id="selectedCandidateCount">0</span>
+          </div>
+          <div class="filter-bar">
+            <label>Oportunidade
+              <select id="selectedCandidateOpportunityFilter" name="opportunityId">
+                <option value="">Selecione</option>
+              </select>
+            </label>
+          </div>
+          <form id="selectedCandidateMessageForm" class="form-grid">
+            <label class="full">Mensagem ao candidato<textarea name="candidateMessage" rows="3"></textarea></label>
+            <button class="primary-action" type="submit">Salvar mensagem</button>
+            <button class="primary-action full" id="sendSelectedCandidateMessageButton" type="button">Enviar mensagem</button>
+          </form>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Enviar</th>
+                  <th>Nome</th>
+                  <th>Fonte</th>
+                  <th>Link</th>
+                  <th>Score</th>
+                  <th>Oportunidade</th>
+                  <th>Origem</th>
+                  <th>Mensagem</th>
+                  <th>Observação</th>
+                  <th>Salvo em</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="selectedCandidateTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+<section class="view" id="curriculums"></section>
+<section class="panel" id="curriculumSearchPanel">
+  <div class="panel-heading">
+    <h2>Consultar Talentos</h2>
+    <span id="curriculumSourceLabel">Nome e qualquer palavra do currículo</span>
+  </div>
+
+  <div class="filter-bar curriculum-search">
+    <label>Nome<input id="curriculumSearchName" type="text" /></label>
+    <label>Palavra no Currículo<input id="curriculumSearchSkills" type="text" placeholder="Ex.: Python, SQL, UiPath, SAP" /></label>
+    <button class="primary-action" id="curriculumSearchButton" type="button">Pesquisar</button>
+    <button class="secondary-action" id="processEmailsButton" type="button">Processar Leitura de E-mails</button>
+  </div>
+
+  <p class="helper-text" id="emailProcessingStatus"></p>
+</section>
+
+<div class="curriculum-subtabs">
+  <button class="curriculum-subtab active" id="curriculumListTabButton" type="button">
+    Lista de talentos
+  </button>
+  <button class="curriculum-subtab" id="curriculumDetailTabButton" type="button" disabled>
+    Detalhes do candidato
+  </button>
+</div>
+
+<section class="panel" id="curriculumListPanel">
+  <div class="panel-heading">
+    <h2>Talentos</h2>
+    <span id="curriculumCount">0</span>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>id_controle</th>
+          <th>Nome</th>
+          <th>Email</th>
+          <th>Telefone</th>
+          <th>LinkedIn</th>
+          <th>Skills</th>
+          <th>Atualizacao</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody id="curriculumTable"></tbody>
+    </table>
+  </div>
+</section>
+
+        <section class="panel hidden" id="curriculumDetailPanel">
+          <div class="panel-heading">
+            <div>
+              <h2>Candidato selecionado</h2>
+              <span id="selectedCurriculumName">Selecione um talento na tabela acima</span>
+            </div>
+            <span id="selectedCurriculumId"></span>
+          </div>
+
+          <div class="detail-actions">
+            <button class="secondary-action" id="editCurriculumButton" type="button">Editar</button>
+            <button class="primary-action" id="saveCurriculumButton" type="button" disabled>Salvar dados</button>
+            <button class="secondary-action" id="cancelCurriculumEditButton" type="button" disabled>Cancelar</button>
+            <label class="template-field">Template
+              <select id="curriculumTemplateSelect"></select>
+            </label>
+            <button class="secondary-action" id="exportCurriculumTemplateButton" type="button">Exportar template</button>
+          </div>
+
+          <form id="curriculumDetailForm" class="form-grid curriculum-detail-form">
+            <label>id_controle<input name="id_controle" /></label>
+            <label>Nome<input name="nome" required /></label>
+            <label>E-mail<input name="email" type="email" /></label>
+            <label>Telefone<input name="telefone" /></label>
+            <label>LinkedIn<input name="linkedin" /></label>
+            <label>Nacionalidade<input name="nacionalidade" /></label>
+            <label>Estado civil<input name="estado_civil" /></label>
+            <label>Idade<input name="idade" /></label>
+            <label>Data nascimento<input name="data_nascimento" /></label>
+            <label>Fonte<input name="fonte" /></label>
+            <label class="full">Endereço<textarea name="endereco" rows="2"></textarea></label>
+            <label class="full">Skills<textarea name="skills" rows="3"></textarea></label>
+            <label class="full">Conhecimento técnico<textarea name="conhecimento_tecnico" rows="4"></textarea></label>
+            <label class="full">Formação acadêmica<textarea name="formacao_academica" rows="4"></textarea></label>
+            <label class="full">Cursos e certificações<textarea name="cursos_certificacoes" rows="4"></textarea></label>
+            <label class="full">Experiência profissional<textarea name="experiencia_profissional" rows="6"></textarea></label>
+            <label>Nível inglês<input name="nivel_ingles" /></label>
+            <label>Nível espanhol<input name="nivel_espanhol" /></label>
+          </form>
+        </section>
+      </section>
+
+      <section class="view" id="candidates">
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Cadastrar candidato</h2>
+            <span>Vinculo com oportunidade</span>
+          </div>
+          <form id="candidateForm" class="form-grid">
+            <label>Name<input name="name" required /></label>
+            <label>Id Nome<select name="curriculumId" required></select></label>
+            <label>Oportunidade<select name="opportunityId" required></select></label>
+            <label>Etapa<select name="stage"></select></label>
+            <label>Aderencia (%)<select name="aderencia"></select></label>
+            <label>Valor Hora<input name="hourlyRate" type="number" min="0" step="0.01" /></label>
+            <label class="full">Observação<textarea name="observation" rows="3"></textarea></label>
+            <label class="checkbox-field"><input name="approved" type="checkbox" /> Aprovado</label>
+            <button class="primary-action" type="submit">Salvar candidato</button>
+          </form>
+        </section>
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Candidatos</h2>
+            <span id="candidateCount">0</span>
+          </div>
+          <div class="filter-bar">
+            <label>Consultar por
+              <select id="candidateFilterType">
+                <option value="">Todos</option>
+                <option value="opportunity">Oportunidade</option>
+                <option value="consultor">Consultor</option>
+              </select>
+            </label>
+            <label>Filtro
+              <select id="candidateFilterValue" disabled>
+                <option value="">Todos</option>
+              </select>
+            </label>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Id Nome</th>
+                  <th>Oportunidade</th>
+                  <th>Id Oportunidade</th>
+                  <th>Etapa</th>
+                  <th>Aderencia</th>
+                  <th>Valor Hora</th>
+                  <th>Observação</th>
+                  <th>Aprovado</th>
+                  <th>Acoes</th>
+                </tr>
+              </thead>
+              <tbody id="candidateTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" id="users">
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Cadastrar usuário</h2>
+            <span>Admin</span>
+          </div>
+          <form id="userForm" class="form-grid">
+            <label>Nome<input name="name" required /></label>
+            <label>E-mail<input name="email" type="email" required /></label>
+            <label>Perfil<input name="role" value="Admin" readonly /></label>
+            <label>Senha inicial<input value="alcateia" readonly /></label>
+            <button class="primary-action" type="submit">Salvar usuário</button>
+          </form>
+        </section>
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Usuários cadastrados</h2>
+            <span id="userCount">0</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Nome</th>
+                  <th>E-mail</th>
+                  <th>Perfil</th>
+                  <th>Troca obrigatória</th>
+                </tr>
+              </thead>
+              <tbody id="userTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" id="allocateds">
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Cadastrar alocado</h2>
+            <span>Operacao</span>
+          </div>
+          <form id="allocatedForm" class="form-grid">
+            <label>ID<input name="externalId" /></label>
+            <label>Codigo<input name="code" required /></label>
+            <label>Consultor<input name="consultant" required /></label>
+            <label>Skill<input name="skill" /></label>
+            <label>Cliente<select name="clientId" required></select></label>
+            <label>Valor Hora<input name="hourlyRate" type="number" min="0" step="0.01" /></label>
+            <label>Fone<input name="phone" /></label>
+            <label>Email Consultor<input name="consultantEmail" type="email" /></label>
+            <label>Inicio<input name="startDate" type="date" /></label>
+            <label class="checkbox-field"><input name="active" type="checkbox" /> Ativo</label>
+            <label>Termino<input name="endDate" type="date" /></label>
+            <label>Gestor<input name="manager" /></label>
+            <label>Email Gestor<input name="managerEmail" type="email" /></label>
+            <label>Fone Gestor<input name="managerPhone" /></label>
+            <button class="primary-action" type="submit">Salvar alocado</button>
+          </form>
+        </section>
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Alocados</h2>
+            <span id="allocatedCount">0</span>
+          </div>
+          <div class="filter-bar">
+            <label>Consultar por
+              <select id="allocatedFilterType">
+                <option value="">Todos</option>
+                <option value="consultant">Consultor</option>
+                <option value="client">Cliente</option>
+              </select>
+            </label>
+            <label>Filtro
+              <select id="allocatedFilterValue" disabled>
+                <option value="">Todos</option>
+              </select>
+            </label>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Codigo</th>
+                  <th>Consultor</th>
+                  <th>Skill</th>
+                  <th>Cliente</th>
+                  <th>Valor Hora</th>
+                  <th>Fone</th>
+                  <th>Email Consultor</th>
+                  <th>Inicio</th>
+                  <th>Ativo</th>
+                  <th>Termino</th>
+                  <th>Gestor</th>
+                  <th>Email Gestor</th>
+                  <th>Fone Gestor</th>
+                </tr>
+              </thead>
+              <tbody id="allocatedTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+    </main>
+
+    <div class="modal-backdrop hidden" id="candidateSelectModal" role="dialog" aria-modal="true" aria-labelledby="candidateSelectTitle">
+      <section class="modal-panel">
+        <div class="panel-heading">
+          <h2 id="candidateSelectTitle">Completar alocacao</h2>
+          <button class="ghost-action" id="closeCandidateSelectModal" type="button" aria-label="Fechar">Fechar</button>
+        </div>
+        <p class="modal-copy" id="candidateSelectSummary"></p>
+        <form id="candidateSelectForm" class="form-grid">
+          <label>ID<input name="externalId" /></label>
+          <label>Codigo<input name="code" required /></label>
+          <label>Consultor<input name="consultant" required /></label>
+          <label>Skill<input name="skill" /></label>
+          <label>Cliente<select name="clientId" required></select></label>
+          <label>Valor Hora<input name="hourlyRate" type="number" min="0" step="0.01" /></label>
+          <label>Fone<input name="phone" /></label>
+          <label>Email Consultor<input name="consultantEmail" type="email" /></label>
+          <label>Inicio<input name="startDate" type="date" /></label>
+          <label class="checkbox-field"><input name="active" type="checkbox" checked /> Ativo</label>
+          <label>Termino<input name="endDate" type="date" /></label>
+          <label>Gestor<input name="manager" /></label>
+          <label>Email Gestor<input name="managerEmail" type="email" /></label>
+          <label>Fone Gestor<input name="managerPhone" /></label>
+          <button class="primary-action" type="submit">Criar alocado</button>
+        </form>
+      </section>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        var loginButton = document.getElementById('loginButton');
+        var loginForm = document.getElementById('loginForm');
+        var loginError = document.getElementById('loginError');
+        var passwordChangeButton = document.getElementById('passwordChangeButton');
+        var passwordChangeForm = document.getElementById('passwordChangeForm');
+        var passwordChangeError = document.getElementById('passwordChangeError');
+        var authScreen = document.getElementById('authScreen');
+        var passwordChangeScreen = document.getElementById('passwordChangeScreen');
+        var activeToken = '';
+
+        if (!loginButton || !loginForm) return;
+
+        loginButton.addEventListener('click', function () {
+          loginError.textContent = '';
+          var payload = Object.fromEntries(new FormData(loginForm).entries());
+
+          fetch('/api/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          })
+            .then(function (response) {
+              return response.json().then(function (body) {
+                if (!response.ok) throw new Error(body.error || 'Nao foi possivel entrar.');
+                return body;
+              });
+            })
+            .then(function (body) {
+              activeToken = body.token;
+              try {
+                localStorage.setItem('talentos_token', body.token);
+                localStorage.setItem('talentos_user', JSON.stringify(body.user));
+              } catch {}
+
+              loginForm.reset();
+
+              if (body.user && body.user.mustChangePassword) {
+                authScreen.classList.add('hidden');
+                passwordChangeScreen.classList.remove('hidden');
+                return;
+              }
+
+              window.location.reload();
+            })
+            .catch(function (error) {
+              loginError.textContent = error.message;
+            });
+        });
+
+        if (passwordChangeButton && passwordChangeForm) {
+          passwordChangeButton.addEventListener('click', function () {
+            passwordChangeError.textContent = '';
+            var payload = Object.fromEntries(new FormData(passwordChangeForm).entries());
+
+            try {
+              activeToken = activeToken || localStorage.getItem('talentos_token') || '';
+            } catch {}
+
+            fetch('/api/change-password', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: 'Bearer ' + activeToken
+              },
+              body: JSON.stringify(payload)
+            })
+              .then(function (response) {
+                return response.json().then(function (body) {
+                  if (!response.ok) throw new Error(body.error || 'Nao foi possivel trocar a senha.');
+                  return body;
+                });
+              })
+              .then(function (body) {
+                try {
+                  localStorage.setItem('talentos_user', JSON.stringify(body.user));
+                } catch {}
+                window.location.reload();
+              })
+              .catch(function (error) {
+                passwordChangeError.textContent = error.message;
+              });
+          });
+        }
+      });
+    </script>
+    <script src="/app.js?v=20260529-candidate-select-2" defer></script>
+  </body>
+</html>

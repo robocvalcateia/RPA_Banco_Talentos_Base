@@ -1,0 +1,2402 @@
+const state = {
+  clients: [],
+  opportunities: [],
+  cvFilters: [],
+  selectedCandidates: [],
+  curriculums: [],
+  curriculumTemplates: [],
+  candidates: [],
+  allocateds: [],
+  users: [],
+  currentUser: null,
+  talentSource: 'local_json',
+  talentStats: {},
+  talentError: '',
+  emailProcessing: null,
+  stages: [],
+  aderenciaOptions: [0, 25, 50, 75, 100],
+  opportunityModels: ['Alocação', 'Hunting', 'Projeto', 'Consultoria'],
+  opportunityStatuses: [],
+  brazilUfs: [],
+  opportunityFilter: { type: '', value: '', status: '', closingMonth: '' },
+  selectedCandidateFilter: { opportunityId: '' },
+  allocatedFilter: { type: '', value: '' },
+  curriculumSearch: { name: '', skills: '', hasSearched: false },
+  selectedCurriculumId: '',
+  curriculumEditing: false,
+  curriculumActiveTab: 'list',
+  editing: {
+    clientId: '',
+    opportunityId: '',
+    cvFilterId: '',
+    candidateId: '',
+    allocatedId: '',
+    userId: '',
+    selectingCandidateId: ''
+  },
+  indicators: null
+};
+
+function readStorage(key) {
+  try {
+    if (!globalThis.localStorage) return '';
+    return localStorage.getItem(key) || '';
+  } catch {
+    return '';
+  }
+}
+
+function writeStorage(key, value) {
+  try {
+    if (globalThis.localStorage) {
+      localStorage.setItem(key, value);
+    }
+  } catch {
+    // Storage can be unavailable in restricted browser contexts.
+  }
+}
+
+function removeStorage(key) {
+  try {
+    if (globalThis.localStorage) {
+      localStorage.removeItem(key);
+    }
+  } catch {
+    // Storage can be unavailable in restricted browser contexts.
+  }
+}
+
+function readStoredUser() {
+  const rawUser = readStorage('talentos_user');
+  if (!rawUser) return null;
+
+  try {
+    return JSON.parse(rawUser);
+  } catch {
+    removeStorage('talentos_user');
+    removeStorage('talentos_token');
+    return null;
+  }
+}
+
+const session = {
+  token: readStorage('talentos_token'),
+  user: readStoredUser()
+};
+
+const viewTitles = {
+  dashboard: 'Dashboard',
+  clients: 'Clientes',
+  opportunities: 'Oportunidades',
+  cvFilters: 'Filtro de CVs',
+  selectedCandidates: 'Candidatos Selecionados',
+  curriculums: 'Banco de Talentos',
+  candidates: 'Candidatos',
+  allocateds: 'Alocados',
+  users: 'Usuários',
+};
+
+const $ = (selector, root = document) => root.querySelector(selector);
+const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+const fallbackCitiesByUf = {
+  AC: ['Rio Branco'],
+  AL: ['Maceió'],
+  AP: ['Macapá'],
+  AM: ['Manaus'],
+  BA: ['Salvador', 'Feira de Santana'],
+  CE: ['Fortaleza'],
+  DF: ['Brasília'],
+  ES: ['Vitória', 'Vila Velha'],
+  GO: ['Goiânia', 'Aparecida de Goiânia'],
+  MA: ['São Luís'],
+  MT: ['Cuiabá'],
+  MS: ['Campo Grande'],
+  MG: ['Belo Horizonte', 'Uberlândia', 'Contagem'],
+  PA: ['Belém'],
+  PB: ['João Pessoa'],
+  PR: ['Curitiba', 'Londrina'],
+  PE: ['Recife'],
+  PI: ['Teresina'],
+  RJ: ['Rio de Janeiro', 'Niterói'],
+  RN: ['Natal'],
+  RS: ['Porto Alegre', 'Caxias do Sul'],
+  RO: ['Porto Velho'],
+  RR: ['Boa Vista'],
+  SC: ['Florianópolis', 'Joinville'],
+  SP: ['São Paulo', 'Campinas', 'Santos', 'Barueri'],
+  SE: ['Aracaju'],
+  TO: ['Palmas']
+};
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(session.token ? { Authorization: `Bearer ${session.token}` } : {}),
+      ...(options.headers ?? {})
+    },
+    ...options
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    if (response.status === 401) {
+      clearSession();
+      showLogin();
+    }
+    if (response.status === 403 && payload.error?.includes('senha')) {
+      showPasswordChange();
+    }
+    throw new Error(payload.error || 'Nao foi possivel concluir a acao.');
+  }
+  return payload;
+}
+
+
+async function apiDownload(path, options = {}) {
+  const response = await fetch(path, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(session.token ? { Authorization: `Bearer ${session.token}` } : {}),
+      ...(options.headers ?? {})
+    },
+    ...options
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || 'Nao foi possivel baixar o arquivo.');
+  }
+
+  const blob = await response.blob();
+  const disposition = response.headers.get('content-disposition') || '';
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  const filename = match?.[1] || 'curriculo.docx';
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function toast(message) {
+  const element = $('#toast');
+  element.textContent = message;
+  element.classList.add('visible');
+  window.setTimeout(() => element.classList.remove('visible'), 2800);
+}
+
+function setAuthMessage(selector, message = '') {
+  const element = $(selector);
+  if (element) {
+    element.textContent = message;
+  }
+}
+
+function formPayload(form) {
+  return Object.fromEntries(new FormData(form).entries());
+}
+
+async function refresh() {
+  const payload = await api('/api/bootstrap');
+  Object.assign(state, payload);
+  state.currentUser = payload.currentUser ?? state.currentUser;
+  render();
+  showApp();
+}
+
+function setSession(token, user) {
+  session.token = token;
+  session.user = user;
+  writeStorage('talentos_token', token);
+  writeStorage('talentos_user', JSON.stringify(user));
+}
+
+function updateSessionUser(user) {
+  session.user = user;
+  writeStorage('talentos_user', JSON.stringify(user));
+}
+
+function clearSession() {
+  session.token = '';
+  session.user = null;
+  removeStorage('talentos_token');
+  removeStorage('talentos_user');
+}
+
+function showLogin() {
+  document.body.classList.add('auth-locked');
+  $('#authScreen').classList.remove('hidden');
+  $('#passwordChangeScreen').classList.add('hidden');
+}
+
+function showPasswordChange() {
+  document.body.classList.add('auth-locked');
+  $('#authScreen').classList.add('hidden');
+  $('#passwordChangeScreen').classList.remove('hidden');
+}
+
+function showApp() {
+  document.body.classList.remove('auth-locked');
+  $('#authScreen').classList.add('hidden');
+  $('#passwordChangeScreen').classList.add('hidden');
+  $('#currentUserLabel').textContent = `${state.currentUser?.name ?? session.user?.name ?? 'Usuário'} · ${state.currentUser?.role ?? session.user?.role ?? 'Admin'}`;
+}
+
+function opportunityLabel(opportunity) {
+  return [opportunity.opportunityCode, opportunity.opportunity].filter(Boolean).join(' - ');
+}
+
+function byOpportunityCode(first, second) {
+  return String(first.opportunityCode || first.opportunity).localeCompare(String(second.opportunityCode || second.opportunity), 'pt-BR', {
+    numeric: true,
+    sensitivity: 'base'
+  });
+}
+
+function curriculumLabel(curriculum) {
+  return [curriculum.id_controle, curriculum.nome].filter(Boolean).join(' - ');
+}
+
+function byCurriculumControl(first, second) {
+  return String(first.id_controle || first.nome).localeCompare(String(second.id_controle || second.nome), 'pt-BR', {
+    numeric: true,
+    sensitivity: 'base'
+  });
+}
+
+
+function normalizeSearchValue(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase();
+}
+
+function splitSearchTerms(value) {
+  return normalizeSearchValue(value)
+    .split(/\s+/)
+    .map((term) => term.trim())
+    .filter(Boolean);
+}
+
+function curriculumFullText(curriculum) {
+  return [
+    curriculum.nome,
+    curriculum.email,
+    curriculum.telefone,
+    curriculum.endereco,
+    curriculum.nacionalidade,
+    curriculum.estado_civil,
+    curriculum.idade,
+    curriculum.linkedin,
+    curriculum.skills,
+    curriculum.formacao_academica,
+    curriculum.nivel_ingles,
+    curriculum.nivel_espanhol,
+    curriculum.cursos_certificacoes,
+    curriculum.conhecimento_tecnico,
+    curriculum.experiencia_profissional,
+    curriculum.fonte,
+    curriculum.id_controle
+  ].filter(Boolean).join(' ');
+}
+
+function matchesEveryTerm(text, rawQuery) {
+  const terms = splitSearchTerms(rawQuery);
+  if (!terms.length) return true;
+  const normalizedText = normalizeSearchValue(text);
+  return terms.every((term) => normalizedText.includes(term));
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function formatCurriculumDate(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return escapeHtml(value);
+  return date.toLocaleDateString('pt-BR');
+}
+
+function renderOptions() {
+  const emptyOption = '<option value="">Selecione</option>';
+  const clientOptions = emptyOption + state.clients.map((client) => `<option value="${client.id}">${client.customerName}</option>`).join('');
+  const opportunityOptions = emptyOption + state.opportunities
+    .sort(byOpportunityCode)
+    .map((opportunity) => `<option value="${opportunity.id}">${opportunityLabel(opportunity)}</option>`)
+    .join('');
+  const statusOptions = emptyOption + state.opportunityStatuses.map((status) => `<option>${status}</option>`).join('');
+  const modelOptions = emptyOption + state.opportunityModels.map((model) => `<option>${model}</option>`).join('');
+  const stageOptions = emptyOption + state.stages.map((stage) => `<option>${stage}</option>`).join('');
+  const aderenciaOptions = emptyOption + state.aderenciaOptions.map((value) => `<option value="${value}">${value}</option>`).join('');
+  const ufOptions = emptyOption + (state.brazilUfs?.length ? state.brazilUfs : Object.keys(fallbackCitiesByUf)).map((uf) => `<option value="${uf}">${uf}</option>`).join('');
+  const curriculumOptions = emptyOption + state.curriculums
+    .slice()
+    .sort(byCurriculumControl)
+    .map((curriculum) => `<option value="${curriculum.id}">${curriculumLabel(curriculum)}</option>`)
+    .join('');
+
+  $$('select[name="clientId"]').forEach((select) => {
+    const currentValue = select.value;
+    select.innerHTML = clientOptions;
+    if (currentValue && [...select.options].some((option) => option.value === currentValue)) {
+      select.value = currentValue;
+    }
+  });
+  $$('select[name="opportunityId"]').forEach((select) => {
+    const currentValue = select.value;
+    select.innerHTML = opportunityOptions;
+    if (currentValue && [...select.options].some((option) => option.value === currentValue)) {
+      select.value = currentValue;
+    }
+  });
+  $$('select[name="curriculumId"]').forEach((select) => {
+    select.innerHTML = curriculumOptions;
+  });
+  $$('select[name="status"]').forEach((select) => {
+    select.innerHTML = statusOptions;
+  });
+  $$('select[name="model"]').forEach((select) => {
+    select.innerHTML = modelOptions;
+  });
+  $$('select[name="stage"]').forEach((select) => {
+    select.innerHTML = stageOptions;
+  });
+  $$('select[name="aderencia"]').forEach((select) => {
+    select.innerHTML = aderenciaOptions;
+  });
+  $$('select[name="state"]').forEach((select) => {
+    select.innerHTML = ufOptions;
+  });
+
+}
+
+function renderMetrics() {
+  const totals = state.indicators.totals;
+  const wonContractValueCurrentMonth = totals.wonContractValueCurrentMonth || calculateWonContractValueCurrentMonth();
+  $('#metrics').innerHTML = [
+    ['WON no mês', totals.wonCurrentMonth ?? 0],
+    ['WON no mês por modelo', renderMiniBars(state.indicators.wonByModelCurrentMonth ?? {})],
+    ['Valor fechado no mês', formatCurrencyK(wonContractValueCurrentMonth)],
+    ['Oportunidades em aberto', formatCurrencyK(totals.activeContractValue ?? 0)],
+    ['Oportunidades abertas', totals.openOpportunities],
+    ['Candidatos', totals.candidates],
+    ['Clientes', totals.clients],
+    ['Aderencia media', `${totals.averageAderencia ?? 0}%`]
+  ]
+    .map(([label, value]) => `<article class="metric-card"><span>${label}</span>${String(value).includes('mini-bars') ? value : `<strong>${value}</strong>`}</article>`)
+    .join('');
+}
+
+function monthKeyFromValue(value) {
+  return String(value || '').trim().slice(0, 7);
+}
+
+function currentMonthKey() {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function calculateWonContractValueCurrentMonth() {
+  const month = currentMonthKey();
+  return state.opportunities
+    .filter((opportunity) => opportunity.status === 'WON' && monthKeyFromValue(opportunity.closingDate) === month)
+    .reduce((sum, opportunity) => {
+      return sum + Number(opportunity.closedQuantity ?? 0) * Number(opportunity.contractValue ?? 0);
+    }, 0);
+}
+
+function renderMiniBars(values) {
+  const entries = Object.entries(values);
+  const max = Math.max(1, ...entries.map(([, value]) => value));
+  return `
+    <div class="mini-bars">
+      ${entries
+        .map(([label, value]) => {
+          const width = Math.max(4, (value / max) * 100);
+          return `
+            <div class="mini-bar-row">
+              <span>${label}</span>
+              <div class="bar-track"><div class="bar-fill" style="width: ${width}%"></div></div>
+              <b>${value}</b>
+            </div>
+          `;
+        })
+        .join('')}
+    </div>
+  `;
+}
+
+function formatMonthLabel(monthKey) {
+  const [year, month] = String(monthKey).split('-').map(Number);
+  if (!year || !month) return monthKey;
+  return new Date(year, month - 1, 1).toLocaleDateString('pt-BR', {
+    month: 'short',
+    year: '2-digit'
+  }).replace('.', '');
+}
+
+function formatCurrencyK(value) {
+  const thousands = Math.round(Number(value || 0) / 1000);
+  return `R$ ${thousands.toLocaleString('pt-BR')}K`;
+}
+
+function renderValueMiniBars(values) {
+  const entries = Object.entries(values);
+  const max = Math.max(1, ...entries.map(([, value]) => Number(value || 0)));
+  return `
+    <div class="mini-bars">
+      ${entries
+        .map(([label, value]) => {
+          const numericValue = Number(value || 0);
+          const width = Math.max(4, (numericValue / max) * 100);
+          return `
+            <div class="mini-bar-row value-row">
+              <span>${formatMonthLabel(label)}</span>
+              <div class="bar-track"><div class="bar-fill" style="width: ${width}%"></div></div>
+              <b>${formatCurrencyK(numericValue)}</b>
+            </div>
+          `;
+        })
+        .join('')}
+    </div>
+  `;
+}
+
+function renderBars(containerId, values) {
+  const max = Math.max(1, ...Object.values(values));
+  $(`#${containerId}`).innerHTML = Object.entries(values)
+    .map(([label, value]) => {
+      const width = Math.max(4, (value / max) * 100);
+      return `
+        <div class="bar-row">
+          <span>${label}</span>
+          <div class="bar-track"><div class="bar-fill" style="width: ${width}%"></div></div>
+          <strong>${value}</strong>
+        </div>
+      `;
+    })
+    .join('');
+}
+
+function renderAllocatedPie() {
+  const values = getAllocatedsByClient();
+  const entries = Object.entries(values).filter(([, value]) => Number(value || 0) > 0);
+  const total = entries.reduce((sum, [, value]) => sum + Number(value || 0), 0);
+  const container = $('#allocatedPie');
+
+  if (!entries.length || !total) {
+    container.innerHTML = '<p class="empty-state">Sem alocados cadastrados.</p>';
+    return;
+  }
+
+  const colors = ['#00b894', '#121212', '#2d9cdb', '#f5a524', '#dc4c64', '#7b61ff', '#20c997', '#6c757d'];
+
+  container.innerHTML = `
+    ${renderPieSvg(entries, total, colors)}
+    <div class="pie-legend">
+      ${entries
+        .map(([label, value], index) => `
+          <div class="pie-legend-row">
+            <span class="legend-dot" style="background: ${colors[index % colors.length]}"></span>
+            <strong>${label}</strong>
+            <b>${value} (${formatPercent(Number(value || 0), total)})</b>
+          </div>
+        `)
+        .join('')}
+    </div>
+  `;
+}
+
+function getAllocatedsByClient() {
+  const serverValues = state.indicators.allocatedsByClient ?? {};
+  const serverTotal = Object.values(serverValues).reduce((sum, value) => sum + Number(value || 0), 0);
+  if (serverTotal > 0) return serverValues;
+
+  const values = Object.fromEntries(state.clients.map((client) => [client.customerName, 0]));
+  state.allocateds
+    .filter((allocated) => allocated.active === true)
+    .forEach((allocated) => {
+      const client = state.clients.find((item) => item.id === allocated.clientId);
+      const clientName = client?.customerName || allocated.clientName || 'Sem cliente';
+      values[clientName] = (values[clientName] ?? 0) + 1;
+    });
+  return values;
+}
+
+function renderPieSvg(entries, total, colors) {
+  let offset = 25;
+  const slices = entries
+    .map(([, value], index) => {
+      const percentage = (Number(value || 0) / total) * 100;
+      const circle = `
+        <circle
+          class="pie-slice"
+          cx="20"
+          cy="20"
+          r="15.915"
+          fill="transparent"
+          stroke="${colors[index % colors.length]}"
+          stroke-width="11"
+          stroke-dasharray="${percentage} ${100 - percentage}"
+          stroke-dashoffset="${offset}"
+        />
+      `;
+      offset -= percentage;
+      return circle;
+    })
+    .join('');
+
+  return `
+    <svg class="pie-chart" viewBox="0 0 40 40" role="img" aria-label="Alocados ativos por cliente">
+      <circle cx="20" cy="20" r="15.915" fill="transparent" stroke="#e4eeee" stroke-width="11"></circle>
+      ${slices}
+    </svg>
+  `;
+}
+
+function formatPercent(value, total) {
+  if (!total) return '0%';
+  return `${Math.round((value / total) * 100)}%`;
+}
+
+function renderAverageTable() {
+  $('#averageStageTable').innerHTML = state.stages
+    .map((stage) => {
+      const average = state.indicators.averageDaysByStage[stage] ?? 0;
+      const volume = state.indicators.candidatesByStage[stage] ?? 0;
+      return `<tr><td>${stage}</td><td>${average} dia(s)</td><td>${volume}</td></tr>`;
+    })
+    .join('');
+}
+
+function renderClients() {
+  $('#clientCount').textContent = state.clients.length;
+  $('#clientTable').innerHTML = state.clients
+    .map(
+      (client) => `
+        <tr class="clickable-row" data-edit-client="${client.id}">
+          <td><strong>${client.customerName}</strong></td>
+          <td>${client.primaryContactName || '-'}</td>
+          <td>${client.primaryContactEmail || '-'}</td>
+          <td>${client.primaryContactPhone || '-'}</td>
+          <td>${client.observation || '-'}</td>
+        </tr>
+      `
+    )
+    .join('');
+}
+
+function renderOpportunityFilters() {
+  const typeSelect = $('#opportunityFilterType');
+  const valueSelect = $('#opportunityFilterValue');
+  const statusSelect = $('#opportunityStatusFilter');
+  const closingMonthInput = $('#opportunityClosingMonthFilter');
+  if (!typeSelect || !valueSelect) return;
+
+  const type = state.opportunityFilter.type || typeSelect.value;
+  const selected = state.opportunityFilter.value || valueSelect.value;
+  const selectedStatus = state.opportunityFilter.status || statusSelect?.value || '';
+  let options = [{ value: '', label: 'Todos' }];
+
+  typeSelect.value = type;
+
+  if (type === 'client') {
+    options = options.concat(
+      state.clients
+        .slice()
+        .sort((first, second) => first.customerName.localeCompare(second.customerName, 'pt-BR', { sensitivity: 'base' }))
+        .map((client) => ({ value: client.id, label: client.customerName }))
+    );
+  }
+
+  if (type === 'opportunity') {
+    options = options.concat(
+      state.opportunities
+        .slice()
+        .sort(byOpportunityCode)
+        .map((opportunity) => ({ value: opportunity.id, label: opportunityLabel(opportunity) }))
+    );
+  }
+
+  valueSelect.disabled = !type;
+  valueSelect.innerHTML = options.map((option) => `<option value="${option.value}">${option.label}</option>`).join('');
+  valueSelect.value = options.some((option) => option.value === selected) ? selected : '';
+  state.opportunityFilter.value = valueSelect.value;
+
+  if (statusSelect) {
+    const statusOptions = [{ value: '', label: 'Todos' }].concat(
+      state.opportunityStatuses.map((status) => ({ value: status, label: status }))
+    );
+    statusSelect.innerHTML = statusOptions.map((option) => `<option value="${option.value}">${option.label}</option>`).join('');
+    statusSelect.value = statusOptions.some((option) => option.value === selectedStatus) ? selectedStatus : '';
+    state.opportunityFilter.status = statusSelect.value;
+  }
+
+  if (closingMonthInput) {
+    closingMonthInput.value = state.opportunityFilter.closingMonth || closingMonthInput.value || '';
+  }
+}
+
+function getFilteredOpportunities() {
+  const { type, value, status, closingMonth } = state.opportunityFilter;
+  let opportunities = state.opportunities;
+
+  if (type === 'client') {
+    opportunities = opportunities.filter((opportunity) => !value || opportunity.clientId === value);
+  }
+
+  if (type === 'opportunity') {
+    opportunities = opportunities.filter((opportunity) => !value || opportunity.id === value);
+  }
+
+  if (status) {
+    opportunities = opportunities.filter((opportunity) => opportunity.status === status);
+  }
+
+  if (closingMonth) {
+    opportunities = opportunities.filter((opportunity) => String(opportunity.closingDate || '').slice(0, 7) === closingMonth);
+  }
+
+  return opportunities;
+}
+
+function renderOpportunities() {
+  const opportunities = getFilteredOpportunities();
+  $('#opportunityCount').textContent = opportunities.length;
+  $('#opportunityTable').innerHTML = opportunities
+    .map((opportunity) => {
+      const client = state.clients.find((item) => item.id === opportunity.clientId);
+      return `
+        <tr class="clickable-row" data-edit-opportunity="${opportunity.id}">
+          <td><strong>${opportunity.opportunity}</strong></td>
+          <td>${opportunity.opportunityCode || '-'}</td>
+          <td>${client?.customerName || 'Cliente nao encontrado'}</td>
+          <td>${opportunity.status}</td>
+          <td>${opportunity.openingDate || '-'}</td>
+          <td>${opportunity.closingDate || '-'}</td>
+          <td>${opportunity.model || '-'}</td>
+          <td>${opportunity.owner || '-'}</td>
+          <td>${opportunity.quantity ?? 0}</td>
+          <td>${opportunity.closedQuantity ?? 0}</td>
+          <td>${formatCurrency(opportunity.contractValue)}</td>
+          <td>${opportunity.observation || '-'}</td>
+        </tr>
+      `;
+    })
+    .join('');
+}
+
+function shortText(value, maxLength = 90) {
+  const text = String(value || '').trim();
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
+function renderCvFilters() {
+  $('#cvFilterCount').textContent = state.cvFilters.length;
+  $('#cvFilterTable').innerHTML = state.cvFilters
+    .map((filter) => {
+      const opportunity = state.opportunities.find((item) => item.id === filter.opportunityId);
+      return `
+        <tr class="clickable-row" data-edit-cv-filter="${filter.id}">
+          <td><strong>${filter.opportunityCode || opportunity?.opportunityCode || '-'}</strong><br>${filter.opportunityName || opportunity?.opportunity || '-'}</td>
+          <td>${shortText(filter.jobDescription)}</td>
+          <td>${shortText(filter.mandatorySkills)}</td>
+          <td>${filter.state || '-'}</td>
+          <td>${filter.city || '-'}</td>
+          <td>${filter.englishLevel || '-'}</td>
+          <td>${filter.matchPercent ?? 0}%</td>
+          <td>${filter.resultLimit ?? 10}</td>
+          <td>${enabledSourceLabels(filter).join(', ') || '-'}</td>
+          <td><button class="ghost-action" type="button" data-delete-cv-filter="${filter.id}" aria-label="Excluir filtro">🗑</button></td>
+        </tr>
+      `;
+    })
+    .join('');
+}
+
+function enabledSourceLabels(filter) {
+  return [
+    filter.searchApinfo ? 'APINFO' : '',
+    filter.searchLinkedin ? 'LINKEDIN' : '',
+    filter.searchAlcateia ? 'ALCATEIA' : ''
+  ].filter(Boolean);
+}
+
+function selectedCvFilter() {
+  return state.cvFilters.find((filter) => filter.id === state.editing.cvFilterId);
+}
+
+function renderCvResultRows(results, emptyMessage, group) {
+  if (!results.length) {
+    return `<tr><td colspan="6">${emptyMessage}</td></tr>`;
+  }
+
+  return results
+    .map((result) => `
+      <tr>
+        <td><input type="checkbox" data-select-cv-result="${result.id}" data-result-group="${group}" aria-label="Selecionar ${result.name || 'candidato'}" /></td>
+        <td><strong>${result.name || '-'}</strong></td>
+        <td>${result.source || 'APINFO'}</td>
+        <td>${result.link ? `<a href="${result.link}" target="_blank" rel="noopener">Abrir</a>` : '-'}</td>
+        <td>${result.score ?? 0}</td>
+        <td>${result.observation || '-'}</td>
+      </tr>
+    `)
+    .join('');
+}
+
+function renderCvSearchResults() {
+  const filter = selectedCvFilter();
+  const status = $('#cvSearchStatus');
+  const table = $('#cvSearchResultTable');
+  const rejectedStatus = $('#cvRejectedStatus');
+  const rejectedTable = $('#cvRejectedResultTable');
+  const button = $('#cvSearchButton');
+  const saveButton = $('#saveSelectedCandidatesButton');
+
+  if (button) {
+    button.disabled = !filter;
+  }
+  if (saveButton) {
+    saveButton.disabled = true;
+  }
+  if (!status || !table) return;
+
+  if (!filter) {
+    status.textContent = 'Selecione um filtro salvo';
+    table.innerHTML = '<tr><td colspan="6">Salve ou clique em um filtro para buscar candidatos.</td></tr>';
+    if (rejectedStatus) rejectedStatus.textContent = 'Selecione um filtro salvo';
+    if (rejectedTable) rejectedTable.innerHTML = '<tr><td colspan="6">Salve ou clique em um filtro para visualizar rejeitados.</td></tr>';
+    return;
+  }
+
+  status.textContent = filter.searchMessage || `Pronto para buscar em ${enabledSourceLabels(filter).join(', ') || 'nenhuma fonte'}`;
+  const results = Array.isArray(filter.searchResults) ? filter.searchResults : [];
+  const rejectedResults = Array.isArray(filter.searchRejectedResults) ? filter.searchRejectedResults : [];
+
+  table.innerHTML = renderCvResultRows(results, 'Nenhum candidato aprovado pela regra.', 'resultado');
+  if (rejectedStatus) {
+    rejectedStatus.textContent = rejectedResults.length ? `${rejectedResults.length} rejeitados analisados` : 'Nenhum rejeitado registrado';
+  }
+  if (rejectedTable) {
+    rejectedTable.innerHTML = renderCvResultRows(rejectedResults, 'Nenhum candidato rejeitado registrado.', 'rejeitado');
+  }
+}
+
+function getFilteredCurriculums() {
+  const name = state.curriculumSearch.name || '';
+  const curriculumKeyword = state.curriculumSearch.skills || '';
+
+  return state.curriculums.filter((curriculum) => {
+    const matchesName = !name || matchesEveryTerm(curriculum.nome, name);
+    const matchesCurriculumKeyword = !curriculumKeyword || matchesEveryTerm(curriculumFullText(curriculum), curriculumKeyword);
+    return matchesName && matchesCurriculumKeyword;
+  });
+}
+
+
+function talentSourceLabel() {
+  const labels = {
+    mongodb: 'MongoDB Banco_de_Talentos/candidatos',
+    local_json: 'data/database.json',
+    local_json_fallback: 'data/database.json (fallback)'
+  };
+  return labels[state.talentSource] || state.talentSource || 'data/database.json';
+}
+
+function renderEmailProcessingStatus() {
+  const sourceLabel = $('#curriculumSourceLabel');
+  const statusElement = $('#emailProcessingStatus');
+  const button = $('#processEmailsButton');
+  const stats = state.talentStats || {};
+  const totalBanco = stats.total_candidatos ?? state.curriculums.length;
+  const lidos = stats.total_lido_na_tela ?? state.curriculums.length;
+
+  if (sourceLabel) {
+    sourceLabel.textContent = `Fonte: ${talentSourceLabel()} · Banco: ${totalBanco} · Tela: ${lidos}`;
+  }
+
+  if (!statusElement) return;
+
+  if (state.talentError) {
+    statusElement.textContent = state.talentError;
+    return;
+  }
+
+  const processing = state.emailProcessing;
+  if (!processing || processing.status === 'idle') {
+    statusElement.textContent = 'A tela é carregada a partir do MongoDB quando MONGODB_URL estiver configurado. A busca por Skill procura em qualquer campo textual do currículo.';
+    if (button) button.disabled = false;
+    return;
+  }
+
+  if (button) button.disabled = Boolean(processing.running);
+
+  const resultado = processing.resultado;
+  const statsMsg = resultado?.stats
+    ? ` Novos: ${resultado.stats.novos_candidatos ?? 0}; Atualizados: ${resultado.stats.candidatos_atualizados ?? 0}; Sem mudanças: ${resultado.stats.sem_mudancas ?? 0}; Erros: ${resultado.stats.erros ?? 0}.`
+    : '';
+
+  statusElement.textContent = processing.running
+    ? `Leitura de e-mails em andamento desde ${processing.startedAt || processing.started_at || '-'}. Aguarde finalizar para liberar novo processamento.`
+    : `Último processamento: ${processing.status || '-'}. ${resultado?.message || processing.erro || ''}${statsMsg}`;
+}
+
+function curriculumIdentifier(curriculum) {
+  return String(curriculum?.id || curriculum?.mongoId || curriculum?.id_controle || '').trim();
+}
+
+function selectedCurriculum() {
+  if (!state.selectedCurriculumId) return null;
+  return state.curriculums.find((curriculum) => curriculumIdentifier(curriculum) === state.selectedCurriculumId) || null;
+}
+
+function renderCurriculumTemplates() {
+  const select = $('#curriculumTemplateSelect');
+  if (!select) return;
+
+  const templates = Array.isArray(state.curriculumTemplates) ? state.curriculumTemplates : [];
+  select.innerHTML = templates.length
+    ? templates.map((template) => `<option value="${escapeHtml(template.id)}">${escapeHtml(template.nome || template.id)}</option>`).join('')
+    : '<option value="">Nenhum template encontrado</option>';
+}
+
+function setCurriculumDetailEditing(isEditing) {
+  state.curriculumEditing = Boolean(isEditing);
+  const form = $('#curriculumDetailForm');
+  if (form) {
+    Array.from(form.elements).forEach((field) => {
+      field.disabled = !state.curriculumEditing;
+    });
+  }
+
+  const editButton = $('#editCurriculumButton');
+  const saveButton = $('#saveCurriculumButton');
+  const cancelButton = $('#cancelCurriculumEditButton');
+  if (editButton) editButton.disabled = state.curriculumEditing;
+  if (saveButton) saveButton.disabled = !state.curriculumEditing;
+  if (cancelButton) cancelButton.disabled = !state.curriculumEditing;
+}
+
+function fillCurriculumDetailForm(curriculum) {
+  const form = $('#curriculumDetailForm');
+  if (!form || !curriculum) return;
+
+  [
+    'id_controle',
+    'nome',
+    'email',
+    'telefone',
+    'linkedin',
+    'nacionalidade',
+    'estado_civil',
+    'idade',
+    'data_nascimento',
+    'fonte',
+    'endereco',
+    'skills',
+    'conhecimento_tecnico',
+    'formacao_academica',
+    'cursos_certificacoes',
+    'experiencia_profissional',
+    'nivel_ingles',
+    'nivel_espanhol'
+  ].forEach((fieldName) => setFieldValue(form, fieldName, curriculum[fieldName] || ''));
+}
+
+function readCurriculumDetailForm() {
+  const form = $('#curriculumDetailForm');
+  const payload = formPayload(form);
+  const current = selectedCurriculum();
+  return {
+    ...payload,
+    id: current?.id || '',
+    mongoId: current?.mongoId || '',
+    data_criacao: current?.data_criacao || '',
+    data_origem: current?.data_origem || ''
+  };
+}
+
+function selectCurriculum(curriculumId) {
+  const curriculum = state.curriculums.find((item) => curriculumIdentifier(item) === String(curriculumId || '').trim());
+
+  if (!curriculum) {
+    toast('Candidato nao encontrado na lista atual.');
+    return;
+  }
+
+  state.selectedCurriculumId = curriculumIdentifier(curriculum);
+  state.curriculumEditing = false;
+  state.curriculumActiveTab = 'detail';
+
+  setCurriculumDetailEditing(false);
+  renderCurriculums();
+}
+
+function openCurriculumTab(tab) {
+  if (tab === 'detail' && !selectedCurriculum()) {
+    toast('Selecione um candidato antes de abrir os detalhes.');
+    return;
+  }
+
+  state.curriculumActiveTab = tab;
+  renderCurriculums();
+}
+
+function renderCurriculumTabs() {
+  const listButton = $('#curriculumListTabButton');
+  const detailButton = $('#curriculumDetailTabButton');
+  const hasSelected = Boolean(selectedCurriculum());
+
+  if (listButton) {
+    listButton.classList.toggle('active', state.curriculumActiveTab === 'list');
+  }
+
+  if (detailButton) {
+    detailButton.disabled = !hasSelected;
+    detailButton.classList.toggle('active', state.curriculumActiveTab === 'detail');
+  }
+
+  const listPanel = $('#curriculumListPanel');
+  if (listPanel) {
+    listPanel.classList.toggle('hidden', state.curriculumActiveTab !== 'list');
+  }
+}
+
+function renderCurriculumDetail() {
+  renderCurriculumTemplates();
+  const panel = $('#curriculumDetailPanel');
+  const curriculum = selectedCurriculum();
+
+  if (!panel) return;
+
+const shouldShowDetail = Boolean(curriculum) && state.curriculumActiveTab === 'detail';
+
+if (!shouldShowDetail) {
+  panel.classList.add('hidden');
+  return;
+}
+
+panel.classList.remove('hidden');
+  $('#selectedCurriculumName').textContent = curriculum.nome || 'Candidato sem nome';
+  $('#selectedCurriculumId').textContent = curriculum.id_controle || curriculum.id || curriculum.mongoId || '';
+  fillCurriculumDetailForm(curriculum);
+  setCurriculumDetailEditing(state.curriculumEditing);
+}
+
+async function saveCurriculumDetail() {
+  const current = selectedCurriculum();
+  if (!current) {
+    toast('Selecione um candidato antes de salvar.');
+    return;
+  }
+
+  const payload = readCurriculumDetailForm();
+  if (!payload.nome?.trim()) {
+    toast('Informe o nome do candidato.');
+    return;
+  }
+
+  const saveButton = $('#saveCurriculumButton');
+  try {
+    if (saveButton) saveButton.disabled = true;
+    const updated = await api(`/api/curriculums/${encodeURIComponent(curriculumIdentifier(current))}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload)
+    });
+
+    const currentIndex = state.curriculums.findIndex((item) => curriculumIdentifier(item) === curriculumIdentifier(current));
+    if (currentIndex >= 0) {
+      state.curriculums[currentIndex] = updated;
+    }
+    state.selectedCurriculumId = curriculumIdentifier(updated);
+    setCurriculumDetailEditing(false);
+    render();
+    toast('Dados do candidato salvos com sucesso.');
+  } catch (error) {
+    toast(error.message || 'Nao foi possivel salvar o candidato.');
+  } finally {
+    if (saveButton) saveButton.disabled = !state.curriculumEditing;
+  }
+}
+
+async function exportSelectedCurriculumTemplate() {
+  const current = selectedCurriculum();
+  const templateId = $('#curriculumTemplateSelect')?.value || '';
+
+  if (!current) {
+    toast('Selecione um candidato antes de exportar.');
+    return;
+  }
+  if (!templateId) {
+    toast('Selecione um template para exportar.');
+    return;
+  }
+
+  const button = $('#exportCurriculumTemplateButton');
+  const originalText = button?.textContent || 'Exportar template';
+  try {
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Exportando...';
+    }
+
+    const curriculumPayload = $('#curriculumDetailForm') ? readCurriculumDetailForm() : current;
+    await apiDownload(`/api/curriculums/${encodeURIComponent(curriculumIdentifier(current))}/export-template`, {
+      method: 'POST',
+      body: JSON.stringify({ templateId, curriculum: curriculumPayload })
+    });
+    toast('Template exportado com sucesso.');
+  } catch (error) {
+    toast(error.message || 'Nao foi possivel exportar o template.');
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
+}
+
+function renderCurriculums() {
+  renderEmailProcessingStatus();
+  const curriculums = getFilteredCurriculums();
+  $('#curriculumCount').textContent = curriculums.length;
+
+  if (!curriculums.some((curriculum) => curriculumIdentifier(curriculum) === state.selectedCurriculumId)) {
+    state.selectedCurriculumId = '';
+    state.curriculumEditing = false;
+  }
+  if (!state.selectedCurriculumId && state.curriculumActiveTab === 'detail') {
+    state.curriculumActiveTab = 'list';
+  }
+
+  renderCurriculumTabs();
+  if (!curriculums.length) {
+    $('#curriculumTable').innerHTML = '<tr><td colspan="8">Nenhum talento encontrado.</td></tr>';
+    renderCurriculumDetail();
+    return;
+  }
+
+  $('#curriculumTable').innerHTML = curriculums
+    .slice()
+    .sort(byCurriculumControl)
+    .map((curriculum) => {
+      const id = curriculumIdentifier(curriculum);
+      const isSelected = id === state.selectedCurriculumId;
+      const linkedin = curriculum.linkedin
+        ? `<a href="${escapeHtml(curriculum.linkedin)}" target="_blank" rel="noopener noreferrer">${escapeHtml(curriculum.linkedin)}</a>`
+        : '-';
+
+      return `
+        <tr class="${isSelected ? 'selected-row' : ''}" data-select-curriculum="${escapeHtml(id)}">
+          <td>${escapeHtml(curriculum.id_controle || '-')}</td>
+          <td><strong>${escapeHtml(curriculum.nome || '-')}</strong></td>
+          <td>${escapeHtml(curriculum.email || '-')}</td>
+          <td>${escapeHtml(curriculum.telefone || '-')}</td>
+          <td>${linkedin}</td>
+          <td>${escapeHtml(curriculum.skills || curriculum.conhecimento_tecnico || '-')}</td>
+          <td>${formatCurriculumDate(curriculum.data_atualizacao || curriculum.data_criacao)}</td>
+          <td><button class="secondary-action small-action" type="button" data-select-curriculum-button="${escapeHtml(id)}">Selecionar</button></td>
+        </tr>
+      `;
+    })
+    .join('');
+
+  renderCurriculumDetail();
+}
+
+function formatCurrency(value) {
+  return Number(value || 0).toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL'
+  });
+}
+
+function renderAllocatedFilters() {
+  const typeSelect = $('#allocatedFilterType');
+  const valueSelect = $('#allocatedFilterValue');
+  if (!typeSelect || !valueSelect) return;
+
+  const type = state.allocatedFilter.type || typeSelect.value;
+  const selected = state.allocatedFilter.value || valueSelect.value;
+  let options = [{ value: '', label: 'Todos' }];
+
+  typeSelect.value = type;
+
+  if (type === 'consultant') {
+    const consultants = [...new Set(state.allocateds.map((allocated) => allocated.consultant).filter(Boolean))];
+    options = options.concat(
+      consultants
+        .sort((first, second) => first.localeCompare(second, 'pt-BR', { sensitivity: 'base' }))
+        .map((consultant) => ({ value: consultant, label: consultant }))
+    );
+  }
+
+  if (type === 'client') {
+    options = options.concat(
+      state.clients
+        .slice()
+        .sort((first, second) => first.customerName.localeCompare(second.customerName, 'pt-BR', { sensitivity: 'base' }))
+        .map((client) => ({ value: client.id, label: client.customerName }))
+    );
+  }
+
+  valueSelect.disabled = !type;
+  valueSelect.innerHTML = options.map((option) => `<option value="${option.value}">${option.label}</option>`).join('');
+  valueSelect.value = options.some((option) => option.value === selected) ? selected : '';
+  state.allocatedFilter.value = valueSelect.value;
+}
+
+function getFilteredAllocateds() {
+  const { type, value } = state.allocatedFilter;
+  if (!type || !value) return state.allocateds;
+
+  if (type === 'consultant') {
+    return state.allocateds.filter((allocated) => allocated.consultant === value);
+  }
+
+  if (type === 'client') {
+    return state.allocateds.filter((allocated) => allocated.clientId === value);
+  }
+
+  return state.allocateds;
+}
+
+function renderAllocateds() {
+  const allocateds = getFilteredAllocateds();
+  $('#allocatedCount').textContent = allocateds.length;
+  $('#allocatedTable').innerHTML = allocateds
+    .map((allocated) => {
+      const client = state.clients.find((item) => item.id === allocated.clientId);
+      return `
+        <tr class="clickable-row" data-edit-allocated="${allocated.id}">
+          <td>${allocated.externalId || allocated.id}</td>
+          <td><strong>${allocated.code}</strong></td>
+          <td>${allocated.consultant || '-'}</td>
+          <td>${allocated.skill || '-'}</td>
+          <td>${allocated.clientName || client?.customerName || '-'}</td>
+          <td>${formatCurrency(allocated.hourlyRate)}</td>
+          <td>${allocated.phone || '-'}</td>
+          <td>${allocated.consultantEmail || '-'}</td>
+          <td>${allocated.startDate || '-'}</td>
+          <td>${allocated.active ? 'Sim' : 'Nao'}</td>
+          <td>${allocated.endDate || '-'}</td>
+          <td>${allocated.manager || '-'}</td>
+          <td>${allocated.managerEmail || '-'}</td>
+          <td>${allocated.managerPhone || '-'}</td>
+        </tr>
+      `;
+    })
+    .join('');
+}
+
+function renderCandidateFilters() {
+  const typeSelect = $('#candidateFilterType');
+  const valueSelect = $('#candidateFilterValue');
+  if (!typeSelect || !valueSelect) return;
+
+  const type = typeSelect.value;
+  const selected = valueSelect.value;
+  let options = [{ value: '', label: 'Todos' }];
+
+  if (type === 'opportunity') {
+    options = options.concat(
+      state.opportunities
+        .slice()
+        .sort(byOpportunityCode)
+        .map((opportunity) => ({
+          value: opportunity.id,
+          label: opportunityLabel(opportunity)
+        }))
+    );
+  }
+
+  if (type === 'consultor') {
+    options = options.concat(
+      state.candidates
+        .slice()
+        .sort((first, second) => first.name.localeCompare(second.name, 'pt-BR', { sensitivity: 'base' }))
+        .map((candidate) => ({
+          value: candidate.id,
+          label: candidate.name
+        }))
+    );
+  }
+
+  valueSelect.disabled = !type;
+  valueSelect.innerHTML = options.map((option) => `<option value="${option.value}">${option.label}</option>`).join('');
+  valueSelect.value = options.some((option) => option.value === selected) ? selected : '';
+}
+
+function allocatedCodeFromCandidate(candidate) {
+  const source = candidate.curriculumControlId || candidate.opportunityCode || candidate.id || candidate.name || 'alocado';
+  return String(source)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 24)
+    .toUpperCase();
+}
+
+function getFilteredCandidates() {
+  const type = $('#candidateFilterType')?.value;
+  const value = $('#candidateFilterValue')?.value;
+  if (!type || !value) return state.candidates;
+
+  if (type === 'opportunity') {
+    return state.candidates.filter((candidate) => candidate.opportunityId === value);
+  }
+
+  if (type === 'consultor') {
+    return state.candidates.filter((candidate) => candidate.id === value);
+  }
+
+  return state.candidates;
+}
+
+function renderCandidates() {
+  const candidates = getFilteredCandidates();
+  $('#candidateCount').textContent = candidates.length;
+  $('#candidateTable').innerHTML = candidates
+    .map(
+      (candidate) => {
+        const opportunity = state.opportunities.find((item) => item.id === candidate.opportunityId);
+        return `
+        <tr class="clickable-row" data-edit-candidate="${candidate.id}">
+          <td><strong>${candidate.name}</strong></td>
+          <td>${candidate.curriculumControlId || candidate.curriculumId || '-'}</td>
+          <td>${candidate.opportunityName || opportunity?.opportunity || '-'}</td>
+          <td>${candidate.opportunityCode || opportunity?.opportunityCode || '-'}</td>
+          <td><span class="tag">${candidate.stage || 'Triagem'}</span></td>
+          <td><span class="score">${candidate.aderencia ?? 0}%</span></td>
+          <td>${formatCurrency(candidate.hourlyRate)}</td>
+          <td>${candidate.observation || '-'}</td>
+          <td>${candidate.approved ? 'Sim' : 'Não'}</td>
+          <td>
+            <div class="stage-actions">
+              <button class="primary-action compact-action" type="button" data-select-candidate="${candidate.id}">Selecionado</button>
+              ${renderCandidateStageActions(candidate)}
+            </div>
+          </td>
+        </tr>
+      `;
+      }
+    )
+    .join('');
+}
+
+function getFilteredSelectedCandidates() {
+  const opportunityId = state.selectedCandidateFilter.opportunityId || $('#selectedCandidateOpportunityFilter')?.value || '';
+  if (!opportunityId) return [];
+  return state.selectedCandidates.filter((candidate) => candidate.opportunityId === opportunityId);
+}
+
+function renderSelectedCandidates() {
+  const select = $('#selectedCandidateOpportunityFilter');
+  const form = $('#selectedCandidateMessageForm');
+  const table = $('#selectedCandidateTable');
+  const count = $('#selectedCandidateCount');
+  if (!select || !table || !count) return;
+
+  select.value = state.selectedCandidateFilter.opportunityId || '';
+  const candidates = getFilteredSelectedCandidates();
+  count.textContent = candidates.length;
+  if (form) {
+    form.elements.candidateMessage.value = candidates[0]?.candidateMessage || '';
+  }
+
+  if (!state.selectedCandidateFilter.opportunityId) {
+    table.innerHTML = '<tr><td colspan="11">Selecione uma oportunidade para consultar os candidatos salvos.</td></tr>';
+    return;
+  }
+
+  if (!candidates.length) {
+    table.innerHTML = '<tr><td colspan="11">Nenhum candidato selecionado para esta oportunidade.</td></tr>';
+    return;
+  }
+
+  table.innerHTML = candidates
+    .map((candidate) => `
+      <tr>
+        <td><input type="checkbox" data-send-selected-candidate="${candidate.id}" aria-label="Selecionar para envio" /></td>
+        <td><strong>${candidate.name || '-'}</strong></td>
+        <td>${candidate.source || 'APINFO'}</td>
+        <td>${candidate.link ? `<a href="${candidate.link}" target="_blank" rel="noopener">Abrir</a>` : '-'}</td>
+        <td>${candidate.score ?? 0}</td>
+        <td>${candidate.opportunityCode || '-'}<br>${candidate.opportunityName || '-'}</td>
+        <td>${candidate.origin || '-'}</td>
+        <td>${candidate.candidateMessage || '-'}</td>
+        <td>${candidate.observation || '-'}</td>
+        <td>${candidate.createdAt ? new Date(candidate.createdAt).toLocaleDateString('pt-BR') : '-'}</td>
+        <td><button class="ghost-action" type="button" data-delete-selected-candidate="${candidate.id}" aria-label="Excluir candidato selecionado">🗑</button></td>
+      </tr>
+    `)
+    .join('');
+}
+
+function renderUsers() {
+  $('#userCount').textContent = state.users.length;
+  $('#userTable').innerHTML = state.users
+    .map(
+      (user) => `
+        <tr class="clickable-row" data-edit-user="${user.id}">
+          <td><strong>${user.name}</strong></td>
+          <td>${user.email}</td>
+          <td>${user.role}</td>
+          <td>${user.mustChangePassword ? 'Sim' : 'Não'}</td>
+        </tr>
+      `
+    )
+    .join('');
+}
+
+function stageIndex(stage) {
+  return state.stages.indexOf(stage);
+}
+
+function renderCandidateStageActions(candidate) {
+  const current = stageIndex(candidate.stage);
+  const previous = state.stages[current - 1];
+  const next = state.stages[current + 1];
+  return `
+    <div class="stage-actions">
+      ${previous ? `<button class="ghost-action" data-move-candidate="${candidate.id}" data-stage="${previous}">Voltar</button>` : ''}
+      ${next ? `<button class="ghost-action" data-move-candidate="${candidate.id}" data-stage="${next}">Mover</button>` : ''}
+    </div>
+  `;
+}
+
+function render() {
+  renderOptions();
+  renderMetrics();
+  renderBars('stageBars', state.indicators.candidatesByStage);
+  renderBars('statusBars', state.indicators.opportunitiesByStatus);
+  renderAllocatedPie();
+  renderAverageTable();
+  renderClients();
+  renderOpportunityFilters();
+  renderOpportunities();
+  renderCvFilters();
+  renderCvSearchResults();
+  renderCurriculums();
+  renderCandidateFilters();
+  renderCandidates();
+  renderSelectedCandidates();
+  renderAllocatedFilters();
+  renderAllocateds();
+  renderUsers();
+}
+
+function showView(viewId) {
+  $$('.view').forEach((view) => view.classList.toggle('active', view.id === viewId));
+  $$('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === viewId));
+  $('#viewTitle').textContent = viewTitles[viewId] || 'Gestão do Negócio Alcateia';
+}
+
+function setSubmitLabel(form, label) {
+  const button = $('button[type="submit"]', form);
+  if (button) button.textContent = label;
+}
+
+function setFieldValue(form, name, value) {
+  const field = form.elements.namedItem(name);
+  if (!field) return;
+
+  if (field.type === 'checkbox') {
+    field.checked = Boolean(value);
+    return;
+  }
+
+  field.value = value ?? '';
+}
+
+function fillForm(selector, values, submitLabel) {
+  const form = $(selector);
+  Object.entries(values).forEach(([name, value]) => setFieldValue(form, name, value));
+  setSubmitLabel(form, submitLabel);
+  if (!form.closest('.modal-backdrop')) {
+    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+function clearEditing(form, key, submitLabel) {
+  state.editing[key] = '';
+  form.reset();
+  setSubmitLabel(form, submitLabel);
+}
+
+function loadClientForEdit(client) {
+  state.editing.clientId = client.id;
+  fillForm('#clientForm', {
+    customerName: client.customerName,
+    primaryContactName: client.primaryContactName,
+    primaryContactEmail: client.primaryContactEmail,
+    primaryContactPhone: client.primaryContactPhone,
+    observation: client.observation
+  }, 'Atualizar cliente');
+  toast('Cliente carregado para atualização.');
+}
+
+function loadOpportunityForEdit(opportunity) {
+  state.editing.opportunityId = opportunity.id;
+  fillForm('#opportunityForm', {
+    opportunity: opportunity.opportunity,
+    opportunityCode: opportunity.opportunityCode,
+    clientId: opportunity.clientId,
+    status: opportunity.status,
+    openingDate: opportunity.openingDate,
+    closingDate: opportunity.closingDate,
+    model: opportunity.model,
+    owner: opportunity.owner,
+    quantity: opportunity.quantity,
+    closedQuantity: opportunity.closedQuantity,
+    contractValue: opportunity.contractValue,
+    observation: opportunity.observation
+  }, 'Atualizar oportunidade');
+  toast('Oportunidade carregada para atualização.');
+}
+
+async function loadCvFilterForEdit(filter) {
+  state.editing.cvFilterId = filter.id;
+  fillForm('#cvFilterForm', {
+    opportunityId: filter.opportunityId,
+    jobDescription: filter.jobDescription,
+    mandatorySkills: filter.mandatorySkills,
+    searchApinfo: filter.searchApinfo,
+    searchLinkedin: filter.searchLinkedin,
+    searchAlcateia: filter.searchAlcateia,
+    state: filter.state,
+    englishLevel: filter.englishLevel,
+    matchPercent: filter.matchPercent,
+    resultLimit: filter.resultLimit ?? 10
+  }, 'Atualizar filtro');
+  await populateCityOptions(filter.state, filter.city);
+  renderCvSearchResults();
+  toast('Filtro de CV carregado para atualização.');
+}
+
+function loadCandidateForEdit(candidate) {
+  const curriculum = state.curriculums.find((item) => item.id === candidate.curriculumId || item.id_controle === candidate.curriculumId);
+  state.editing.candidateId = candidate.id;
+  fillForm('#candidateForm', {
+    name: candidate.name,
+    curriculumId: curriculum?.id ?? candidate.curriculumId,
+    opportunityId: candidate.opportunityId,
+    stage: candidate.stage,
+    aderencia: candidate.aderencia,
+    hourlyRate: candidate.hourlyRate,
+    observation: candidate.observation,
+    approved: candidate.approved
+  }, 'Atualizar candidato');
+  toast('Candidato carregado para atualização.');
+}
+
+function loadAllocatedForEdit(allocated) {
+  state.editing.allocatedId = allocated.id;
+  fillForm('#allocatedForm', {
+    externalId: allocated.externalId,
+    code: allocated.code,
+    consultant: allocated.consultant,
+    skill: allocated.skill,
+    clientId: allocated.clientId,
+    hourlyRate: allocated.hourlyRate,
+    phone: allocated.phone,
+    consultantEmail: allocated.consultantEmail,
+    startDate: allocated.startDate,
+    active: allocated.active,
+    endDate: allocated.endDate,
+    manager: allocated.manager,
+    managerEmail: allocated.managerEmail,
+    managerPhone: allocated.managerPhone
+  }, 'Atualizar alocado');
+  toast('Alocado carregado para atualizacao.');
+}
+
+function closeCandidateSelectModal() {
+  const modal = $('#candidateSelectModal');
+  const form = $('#candidateSelectForm');
+  state.editing.selectingCandidateId = '';
+  modal?.classList.add('hidden');
+  form?.reset();
+}
+
+function openCandidateSelectModal(candidate) {
+  const modal = $('#candidateSelectModal');
+  const form = $('#candidateSelectForm');
+  if (!modal || !form) return;
+
+  const curriculum = state.curriculums.find((item) => item.id === candidate.curriculumId || item.id_controle === candidate.curriculumId);
+  const opportunity = state.opportunities.find((item) => item.id === candidate.opportunityId);
+  state.editing.selectingCandidateId = candidate.id;
+  $('#candidateSelectSummary').textContent = `Candidato: ${candidate.name}. Complete os campos para criar o alocado.`;
+  fillForm('#candidateSelectForm', {
+    externalId: '',
+    code: allocatedCodeFromCandidate(candidate),
+    consultant: candidate.name,
+    skill: curriculum?.skills || candidate.observation,
+    clientId: opportunity?.clientId || '',
+    hourlyRate: candidate.hourlyRate,
+    phone: curriculum?.telefone || '',
+    consultantEmail: curriculum?.email || '',
+    startDate: new Date().toISOString().slice(0, 10),
+    active: true,
+    endDate: '',
+    manager: '',
+    managerEmail: '',
+    managerPhone: ''
+  }, 'Criar alocado');
+  modal.classList.remove('hidden');
+}
+
+function loadUserForEdit(user) {
+  state.editing.userId = user.id;
+  fillForm('#userForm', {
+    name: user.name,
+    email: user.email,
+    role: user.role
+  }, 'Atualizar usuário');
+  toast('Usuário carregado para atualização.');
+}
+
+function bindNavigation() {
+  $$('.nav-item').forEach((button) => {
+    button.addEventListener('click', () => showView(button.dataset.view));
+  });
+}
+
+async function getCitiesForUf(uf) {
+  if (!uf) return [];
+
+  try {
+    const response = await fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/estados/${uf}/municipios?orderBy=nome`);
+    if (!response.ok) throw new Error('IBGE indisponivel');
+    const cities = await response.json();
+    return cities.map((city) => city.nome).filter(Boolean);
+  } catch {
+    return fallbackCitiesByUf[uf] ?? [];
+  }
+}
+
+async function populateCityOptions(uf, selectedCity = '') {
+  const citySelect = $('#cvFilterForm select[name="city"]');
+  if (!citySelect) return;
+
+  if (!uf) {
+    citySelect.disabled = true;
+    delete citySelect.dataset.loading;
+    citySelect.innerHTML = '<option value="">Selecione a UF</option>';
+    return;
+  }
+
+  citySelect.disabled = true;
+  citySelect.dataset.loading = 'true';
+  citySelect.innerHTML = '<option value="">Carregando cidades...</option>';
+  const cities = await getCitiesForUf(uf);
+  const options = cities.includes(selectedCity) || !selectedCity ? cities : [selectedCity, ...cities];
+  citySelect.innerHTML = '<option value="">Selecione</option>' + options.map((city) => `<option value="${city}">${city}</option>`).join('');
+  citySelect.value = selectedCity && options.includes(selectedCity) ? selectedCity : '';
+  citySelect.disabled = false;
+  delete citySelect.dataset.loading;
+}
+
+function bindForms() {
+  $('#clientForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const editingId = state.editing.clientId;
+    await api(editingId ? `/api/clients/${editingId}` : '/api/clients', {
+      method: editingId ? 'PATCH' : 'POST',
+      body: JSON.stringify(formPayload(event.currentTarget))
+    });
+    clearEditing(event.currentTarget, 'clientId', 'Salvar cliente');
+    toast(editingId ? 'Cliente atualizado.' : 'Cliente cadastrado.');
+    await refresh();
+  });
+
+  $('#opportunityForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const editingId = state.editing.opportunityId;
+    await api(editingId ? `/api/opportunities/${editingId}` : '/api/opportunities', {
+      method: editingId ? 'PATCH' : 'POST',
+      body: JSON.stringify(formPayload(event.currentTarget))
+    });
+    clearEditing(event.currentTarget, 'opportunityId', 'Salvar oportunidade');
+    toast(editingId ? 'Oportunidade atualizada.' : 'Oportunidade cadastrada.');
+    await refresh();
+  });
+
+  $('#cvFilterForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const cityField = form.elements.city;
+
+    if (cityField?.dataset.loading === 'true') {
+      toast('Aguarde carregar as cidades antes de salvar.');
+      return;
+    }
+
+    const submitButton = $('button[type="submit"]', form);
+    if (submitButton) submitButton.disabled = true;
+
+    try {
+      const payload = formPayload(form);
+      payload.city = cityField?.value ?? payload.city ?? '';
+      payload.searchApinfo = form.elements.searchApinfo.checked;
+      payload.searchLinkedin = form.elements.searchLinkedin.checked;
+      payload.searchAlcateia = form.elements.searchAlcateia.checked;
+      const editingId = state.editing.cvFilterId;
+      const savedFilter = await api(editingId ? `/api/cv-filters/${editingId}` : '/api/cv-filters', {
+        method: editingId ? 'PATCH' : 'POST',
+        body: JSON.stringify(payload)
+      });
+      toast(editingId ? 'Filtro de CV atualizado.' : 'Filtro de CV cadastrado.');
+      await refresh();
+      const currentFilter = state.cvFilters.find((filter) => filter.id === savedFilter.id);
+      if (currentFilter) {
+        await loadCvFilterForEdit(currentFilter);
+      }
+    } catch (error) {
+      toast(error.message || 'Nao foi possivel salvar o filtro de CV.');
+    } finally {
+      if (submitButton) submitButton.disabled = false;
+    }
+  });
+
+  $('#candidateForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const payload = formPayload(event.currentTarget);
+    const editingId = state.editing.candidateId;
+    await api(editingId ? `/api/candidates/${editingId}` : '/api/candidates', {
+      method: editingId ? 'PATCH' : 'POST',
+      body: JSON.stringify(payload)
+    });
+    clearEditing(event.currentTarget, 'candidateId', 'Salvar candidato');
+    toast(editingId ? 'Candidato atualizado.' : 'Candidato cadastrado.');
+    await refresh();
+  });
+
+  $('#allocatedForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const payload = formPayload(event.currentTarget);
+    payload.active = event.currentTarget.elements.active.checked;
+    const editingId = state.editing.allocatedId;
+    await api(editingId ? `/api/allocateds/${editingId}` : '/api/allocateds', {
+      method: editingId ? 'PATCH' : 'POST',
+      body: JSON.stringify(payload)
+    });
+    clearEditing(event.currentTarget, 'allocatedId', 'Salvar alocado');
+    toast(editingId ? 'Alocado atualizado.' : 'Alocado cadastrado.');
+    await refresh();
+  });
+
+  $('#candidateSelectForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submitButton = $('button[type="submit"]', form);
+    const candidateId = state.editing.selectingCandidateId;
+    if (!candidateId) {
+      toast('Selecione um candidato antes de criar o alocado.');
+      return;
+    }
+
+    if (!form.reportValidity()) return;
+
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = 'Criando alocado...';
+    }
+
+    try {
+      const payload = formPayload(form);
+      payload.active = form.elements.active.checked;
+      await api(`/api/candidates/${candidateId}/select`, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      closeCandidateSelectModal();
+      toast('Candidato aprovado e migrado para alocados.');
+      await refresh();
+    } catch (error) {
+      toast(error.message || 'Nao foi possivel criar o alocado.');
+    } finally {
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = 'Criar alocado';
+      }
+    }
+  });
+
+  $('#userForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const editingId = state.editing.userId;
+    await api(editingId ? `/api/users/${editingId}` : '/api/users', {
+      method: editingId ? 'PATCH' : 'POST',
+      body: JSON.stringify(formPayload(event.currentTarget))
+    });
+    clearEditing(event.currentTarget, 'userId', 'Salvar usuário');
+    toast(editingId ? 'Usuário atualizado.' : 'Usuário cadastrado com senha inicial alcateia.');
+    await refresh();
+  });
+}
+
+function bindAuth() {
+  async function handleLogin() {
+    document.body.dataset.loginAttempted = 'true';
+    const form = $('#loginForm');
+    setAuthMessage('#loginError');
+
+    try {
+      const payload = await api('/api/login', {
+        method: 'POST',
+        body: JSON.stringify(formPayload(form))
+      });
+
+      setSession(payload.token, payload.user);
+      form.reset();
+
+      if (payload.user.mustChangePassword) {
+        showPasswordChange();
+        return;
+      }
+
+      await refresh();
+    } catch (error) {
+      setAuthMessage('#loginError', error.message);
+    }
+  }
+
+  $('#loginForm').addEventListener('submit', (event) => {
+    event.preventDefault();
+    handleLogin();
+  });
+
+  $('#loginButton').onclick = () => handleLogin();
+
+  $('#loginForm input[name="password"]').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      handleLogin();
+    }
+  });
+
+  async function handlePasswordChange() {
+    document.body.dataset.passwordChangeAttempted = 'true';
+    const form = $('#passwordChangeForm');
+    setAuthMessage('#passwordChangeError');
+
+    try {
+      const payload = await api('/api/change-password', {
+        method: 'POST',
+        body: JSON.stringify(formPayload(form))
+      });
+
+      updateSessionUser(payload.user);
+      form.reset();
+      toast('Senha alterada.');
+      await refresh();
+    } catch (error) {
+      setAuthMessage('#passwordChangeError', error.message);
+    }
+  }
+
+  $('#passwordChangeForm').addEventListener('submit', (event) => {
+    event.preventDefault();
+    handlePasswordChange();
+  });
+
+  $('#passwordChangeButton').onclick = () => handlePasswordChange();
+
+  $('#passwordChangeForm input[name="confirmPassword"]').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      handlePasswordChange();
+    }
+  });
+
+  $('#logoutButton').addEventListener('click', async () => {
+    if (session.token) {
+      await api('/api/logout', { method: 'POST' }).catch(() => {});
+    }
+    clearSession();
+    showLogin();
+  });
+}
+
+function bindCandidateStageActions() {
+  $('#candidateTable').addEventListener('click', async (event) => {
+    const selectButton = event.target.closest('[data-select-candidate]');
+    if (selectButton) {
+      const candidate = state.candidates.find((item) => item.id === selectButton.dataset.selectCandidate);
+      if (!candidate) return;
+      if (!window.confirm(`Confirmar ${candidate.name} como selecionado e migrar para Alocados?`)) return;
+      openCandidateSelectModal(candidate);
+      return;
+    }
+
+    const button = event.target.closest('[data-move-candidate]');
+    if (!button) return;
+
+    await api(`/api/candidates/${button.dataset.moveCandidate}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ stage: button.dataset.stage })
+    });
+    toast(`Candidato movido para ${button.dataset.stage}.`);
+    await refresh();
+  });
+
+  $('#closeCandidateSelectModal')?.addEventListener('click', closeCandidateSelectModal);
+  $('#candidateSelectModal')?.addEventListener('click', (event) => {
+    if (event.target.id === 'candidateSelectModal') {
+      closeCandidateSelectModal();
+    }
+  });
+}
+
+function bindCandidateFilters() {
+  $('#candidateFilterType')?.addEventListener('change', () => {
+    const valueSelect = $('#candidateFilterValue');
+    if (valueSelect) valueSelect.value = '';
+    renderCandidateFilters();
+    renderCandidates();
+  });
+
+  $('#candidateFilterValue')?.addEventListener('change', () => {
+    renderCandidates();
+  });
+}
+
+function bindSelectedCandidateFilters() {
+  $('#selectedCandidateOpportunityFilter')?.addEventListener('change', (event) => {
+    state.selectedCandidateFilter.opportunityId = event.currentTarget.value;
+    renderSelectedCandidates();
+  });
+}
+
+function bindOpportunityFilters() {
+  $('#opportunityFilterType')?.addEventListener('change', (event) => {
+    state.opportunityFilter = {
+      type: event.currentTarget.value,
+      value: '',
+      status: state.opportunityFilter.status,
+      closingMonth: state.opportunityFilter.closingMonth
+    };
+    renderOpportunityFilters();
+    renderOpportunities();
+  });
+
+  $('#opportunityFilterValue')?.addEventListener('change', (event) => {
+    state.opportunityFilter.value = event.currentTarget.value;
+    renderOpportunities();
+  });
+
+  $('#opportunityStatusFilter')?.addEventListener('change', (event) => {
+    state.opportunityFilter.status = event.currentTarget.value;
+    renderOpportunities();
+  });
+
+  $('#opportunityClosingMonthFilter')?.addEventListener('change', (event) => {
+    state.opportunityFilter.closingMonth = event.currentTarget.value;
+    renderOpportunities();
+  });
+}
+
+function bindAllocatedFilters() {
+  $('#allocatedFilterType')?.addEventListener('change', (event) => {
+    state.allocatedFilter = {
+      type: event.currentTarget.value,
+      value: ''
+    };
+    renderAllocatedFilters();
+    renderAllocateds();
+  });
+
+  $('#allocatedFilterValue')?.addEventListener('change', (event) => {
+    state.allocatedFilter.value = event.currentTarget.value;
+    renderAllocateds();
+  });
+}
+
+function bindCvFilterLocation() {
+  $('#cvFilterForm select[name="state"]')?.addEventListener('change', (event) => {
+    populateCityOptions(event.currentTarget.value);
+  });
+}
+
+function selectedCvSearchRows() {
+  const filter = selectedCvFilter();
+  if (!filter) return [];
+
+  return $$('[data-select-cv-result]:checked')
+    .map((checkbox) => {
+      const group = checkbox.dataset.resultGroup;
+      const rows = group === 'rejeitado' ? filter.searchRejectedResults : filter.searchResults;
+      const result = (rows ?? []).find((item) => item.id === checkbox.dataset.selectCvResult);
+      if (!result) return null;
+      return {
+        ...result,
+        origin: group === 'rejeitado' ? 'Rejeitado' : 'Resultado'
+      };
+    })
+    .filter(Boolean);
+}
+
+function updateSaveSelectedCandidatesState() {
+  const button = $('#saveSelectedCandidatesButton');
+  if (!button) return;
+  button.disabled = selectedCvSearchRows().length === 0;
+}
+
+function currentCvSearchSourcePayload() {
+  const form = $('#cvFilterForm');
+  return {
+    searchApinfo: Boolean(form?.elements.searchApinfo?.checked),
+    searchLinkedin: Boolean(form?.elements.searchLinkedin?.checked),
+    searchAlcateia: Boolean(form?.elements.searchAlcateia?.checked)
+  };
+}
+
+function bindCvSearch() {
+  $('#cvSearchButton')?.addEventListener('click', async () => {
+    const filter = selectedCvFilter();
+    if (!filter) {
+      toast('Salve ou selecione um filtro antes de buscar candidatos.');
+      return;
+    }
+
+    const button = $('#cvSearchButton');
+    const status = $('#cvSearchStatus');
+    const table = $('#cvSearchResultTable');
+    const rejectedStatus = $('#cvRejectedStatus');
+    const rejectedTable = $('#cvRejectedResultTable');
+
+    Object.assign(filter, currentCvSearchSourcePayload());
+    filter.searchResults = [];
+    filter.searchRejectedResults = [];
+    filter.searchMessage = `Buscando candidatos em ${enabledSourceLabels(filter).join(', ') || 'nenhuma fonte'}...`;
+    if (status) status.textContent = filter.searchMessage;
+    if (table) table.innerHTML = '<tr><td colspan="6">Buscando candidatos...</td></tr>';
+    if (rejectedStatus) rejectedStatus.textContent = 'Limpando rejeitados da busca anterior';
+    if (rejectedTable) rejectedTable.innerHTML = '<tr><td colspan="6">Buscando candidatos...</td></tr>';
+    updateSaveSelectedCandidatesState();
+
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Buscando...';
+    }
+
+    try {
+      const updatedFilter = await api(`/api/cv-filters/${filter.id}/search`, {
+        method: 'POST',
+        body: JSON.stringify(currentCvSearchSourcePayload())
+      });
+      Object.assign(filter, updatedFilter);
+      state.editing.cvFilterId = filter.id;
+      renderCvSearchResults();
+      toast(updatedFilter.searchMessage || 'Busca concluida.');
+    } catch (error) {
+      filter.searchMessage = error.message || 'Nao foi possivel concluir a busca.';
+      renderCvSearchResults();
+      toast(filter.searchMessage);
+    } finally {
+      if (button) {
+        button.textContent = 'Buscar Candidatos';
+        button.disabled = !selectedCvFilter();
+      }
+    }
+  });
+
+  $('#cvSearchResultTable')?.addEventListener('change', updateSaveSelectedCandidatesState);
+  $('#cvRejectedResultTable')?.addEventListener('change', updateSaveSelectedCandidatesState);
+}
+
+function bindSaveSelectedCandidates() {
+  $('#saveSelectedCandidatesButton')?.addEventListener('click', async () => {
+    const filter = selectedCvFilter();
+    const candidates = selectedCvSearchRows();
+
+    if (!filter) {
+      toast('Selecione um filtro salvo antes de salvar candidatos.');
+      return;
+    }
+    if (!candidates.length) {
+      toast('Marque pelo menos um candidato para salvar.');
+      return;
+    }
+
+    const button = $('#saveSelectedCandidatesButton');
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Salvando...';
+    }
+
+    try {
+      const saved = await api('/api/selected-candidates', {
+        method: 'POST',
+        body: JSON.stringify({
+          opportunityId: filter.opportunityId,
+          cvFilterId: filter.id,
+          candidateMessage: '',
+          candidates
+        })
+      });
+
+      for (const candidate of saved) {
+        const index = state.selectedCandidates.findIndex((item) => item.id === candidate.id);
+        if (index >= 0) {
+          state.selectedCandidates[index] = candidate;
+        } else {
+          state.selectedCandidates.push(candidate);
+        }
+      }
+
+      state.selectedCandidateFilter.opportunityId = filter.opportunityId;
+      renderSelectedCandidates();
+      const savedToMongo = saved.filter((candidate) => candidate.savedToMongo).length;
+
+      if (savedToMongo > 0) {
+        toast(`${saved.length} candidato(s) salvo(s). ${savedToMongo} também gravado(s) no MongoDB.`);
+      } else {
+        toast(`${saved.length} candidato(s) salvo(s).`);
+      }
+    } catch (error) {
+      toast(error.message || 'Nao foi possivel salvar os candidatos selecionados.');
+    } finally {
+      if (button) {
+        button.textContent = 'Salvar Selecionados';
+        updateSaveSelectedCandidatesState();
+      }
+    }
+  });
+}
+
+function bindSelectedCandidateMessage() {
+  $('#selectedCandidateMessageForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const opportunityId = state.selectedCandidateFilter.opportunityId || $('#selectedCandidateOpportunityFilter')?.value || '';
+    if (!opportunityId) {
+      toast('Selecione uma oportunidade antes de salvar a mensagem.');
+      return;
+    }
+
+    const updated = await api('/api/selected-candidates/message', {
+      method: 'POST',
+      body: JSON.stringify({
+        opportunityId,
+        candidateMessage: event.currentTarget.elements.candidateMessage.value
+      })
+    });
+
+    for (const candidate of updated) {
+      const index = state.selectedCandidates.findIndex((item) => item.id === candidate.id);
+      if (index >= 0) {
+        state.selectedCandidates[index] = candidate;
+      }
+    }
+
+    renderSelectedCandidates();
+    toast('Mensagem salva para os candidatos selecionados.');
+  });
+}
+
+function selectedCandidateIdsForSending() {
+  return $$('[data-send-selected-candidate]:checked').map((checkbox) => checkbox.dataset.sendSelectedCandidate);
+}
+
+function bindSelectedCandidateActions() {
+  $('#selectedCandidateTable')?.addEventListener('click', async (event) => {
+    const button = event.target.closest('[data-delete-selected-candidate]');
+    if (!button) return;
+
+    const candidate = state.selectedCandidates.find((item) => item.id === button.dataset.deleteSelectedCandidate);
+    if (!candidate) return;
+    if (!window.confirm(`Excluir ${candidate.name || 'candidato selecionado'}?`)) return;
+
+    try {
+      await api(`/api/selected-candidates/${candidate.id}`, { method: 'DELETE' });
+      state.selectedCandidates = state.selectedCandidates.filter((item) => item.id !== candidate.id);
+      renderSelectedCandidates();
+      toast('Candidato selecionado excluido.');
+    } catch (error) {
+      toast(error.message || 'Nao foi possivel excluir o candidato.');
+    }
+  });
+
+  $('#sendSelectedCandidateMessageButton')?.addEventListener('click', async () => {
+    const ids = selectedCandidateIdsForSending();
+    if (!ids.length) {
+      toast('Marque ao menos um candidato com Enviar.');
+      return;
+    }
+
+    const button = $('#sendSelectedCandidateMessageButton');
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Preparando envio...';
+    }
+
+    try {
+      const payload = {
+        ids,
+        candidateMessage: $('#selectedCandidateMessageForm')?.elements.candidateMessage.value || ''
+      };
+      let result;
+      try {
+        result = await api('/api/selected-candidates/send-test', {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+      } catch (error) {
+        if (!/rota nao encontrada|rota não encontrada/i.test(error.message || '')) throw error;
+        result = await api('/api/selected-candidates/send', {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+      }
+      if (result.sent) {
+        toast(`E-mail enviado para ${result.to} com ${result.found.length} candidato(s) com e-mail encontrado.`);
+      } else if (result.mailto) {
+        window.location.href = result.mailto;
+        toast(`SMTP nao configurado. E-mail preparado com ${result.found.length} candidato(s) com e-mail encontrado.`);
+      } else {
+        toast('Envio preparado, mas nenhuma forma de entrega foi configurada.');
+      }
+    } catch (error) {
+      toast(error.message || 'Nao foi possivel preparar o envio.');
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = 'Enviar mensagem';
+      }
+    }
+  });
+}
+
+function bindEditableRows() {
+  $('#clientTable').addEventListener('click', (event) => {
+    if (event.target.closest('button, a, input, select, textarea')) return;
+    const row = event.target.closest('[data-edit-client]');
+    const client = state.clients.find((item) => item.id === row?.dataset.editClient);
+    if (client) loadClientForEdit(client);
+  });
+
+  $('#opportunityTable').addEventListener('click', (event) => {
+    if (event.target.closest('button, a, input, select, textarea')) return;
+    const row = event.target.closest('[data-edit-opportunity]');
+    const opportunity = state.opportunities.find((item) => item.id === row?.dataset.editOpportunity);
+    if (opportunity) loadOpportunityForEdit(opportunity);
+  });
+
+  $('#cvFilterTable').addEventListener('click', (event) => {
+    const deleteButton = event.target.closest('[data-delete-cv-filter]');
+    if (deleteButton) {
+      const filter = state.cvFilters.find((item) => item.id === deleteButton.dataset.deleteCvFilter);
+      if (!filter) return;
+      if (!window.confirm('Apagar este filtro de CV?')) return;
+      api(`/api/cv-filters/${filter.id}`, { method: 'DELETE' })
+        .then(async () => {
+          if (state.editing.cvFilterId === filter.id) state.editing.cvFilterId = '';
+          toast('Filtro de CV apagado.');
+          await refresh();
+        })
+        .catch((error) => toast(error.message || 'Nao foi possivel apagar o filtro.'));
+      return;
+    }
+    if (event.target.closest('button, a, input, select, textarea')) return;
+    const row = event.target.closest('[data-edit-cv-filter]');
+    const filter = state.cvFilters.find((item) => item.id === row?.dataset.editCvFilter);
+    if (filter) loadCvFilterForEdit(filter);
+  });
+
+  $('#candidateTable').addEventListener('click', (event) => {
+    if (event.target.closest('button, a, input, select, textarea')) return;
+    const row = event.target.closest('[data-edit-candidate]');
+    const candidate = state.candidates.find((item) => item.id === row?.dataset.editCandidate);
+    if (candidate) loadCandidateForEdit(candidate);
+  });
+
+  $('#allocatedTable').addEventListener('click', (event) => {
+    if (event.target.closest('button, a, input, select, textarea')) return;
+    const row = event.target.closest('[data-edit-allocated]');
+    const allocated = state.allocateds.find((item) => item.id === row?.dataset.editAllocated);
+    if (allocated) loadAllocatedForEdit(allocated);
+  });
+
+  $('#userTable').addEventListener('click', (event) => {
+    if (event.target.closest('button, a, input, select, textarea')) return;
+    const row = event.target.closest('[data-edit-user]');
+    const user = state.users.find((item) => item.id === row?.dataset.editUser);
+    if (user) loadUserForEdit(user);
+  });
+}
+
+function bindCurriculumSearch() {
+  const search = () => {
+    const name = $('#curriculumSearchName')?.value.trim() ?? '';
+    const skills = $('#curriculumSearchSkills')?.value.trim() ?? '';
+
+    state.curriculumSearch = {
+      name,
+      skills,
+      hasSearched: Boolean(name || skills)
+    };
+    renderCurriculums();
+  };
+
+  $('#curriculumSearchButton')?.addEventListener('click', search);
+  ['#curriculumSearchName', '#curriculumSearchSkills'].forEach((selector) => {
+    $(selector)?.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        search();
+      }
+    });
+  });
+}
+
+
+function pollEmailProcessing(jobId) {
+  if (!jobId) return;
+
+  const poll = async () => {
+    try {
+      const response = await api(`/api/processamento-status/${jobId}`);
+      state.emailProcessing = {
+        running: response.running,
+        status: response.status,
+        startedAt: response.started_at,
+        finishedAt: response.finished_at,
+        resultado: response.resultado,
+        erro: response.erro,
+        logs: response.logs
+      };
+      renderCurriculums();
+
+      if (response.running) {
+        window.setTimeout(poll, 5000);
+      } else {
+        await refresh();
+        toast(response.erro || response.resultado?.message || 'Processamento de e-mails finalizado.');
+      }
+    } catch (error) {
+      toast(error.message || 'Nao foi possivel consultar o status do processamento.');
+    }
+  };
+
+  window.setTimeout(poll, 1500);
+}
+
+function bindEmailProcessing() {
+  $('#processEmailsButton')?.addEventListener('click', async () => {
+    const button = $('#processEmailsButton');
+    try {
+      if (button) button.disabled = true;
+      const response = await api('/api/processar-emails', { method: 'POST', body: JSON.stringify({}) });
+      state.emailProcessing = {
+        running: true,
+        status: response.status,
+        startedAt: new Date().toLocaleString('pt-BR'),
+        resultado: null,
+        erro: ''
+      };
+      renderCurriculums();
+      toast(response.message || 'Processamento iniciado.');
+      pollEmailProcessing(response.job_id);
+    } catch (error) {
+      if (button) button.disabled = false;
+      toast(error.message || 'Nao foi possivel iniciar a leitura de e-mails.');
+    }
+  });
+}
+
+function bindCurriculumSelection() {
+  $('#candidateForm select[name="curriculumId"]')?.addEventListener('change', (event) => {
+    syncCandidateNameFromCurriculum(event.currentTarget.value, true);
+  });
+  $('#curriculumListTabButton')?.addEventListener('click', () => {
+    openCurriculumTab('list');
+  });
+
+  $('#curriculumDetailTabButton')?.addEventListener('click', () => {
+    openCurriculumTab('detail');
+  });
+  $('#curriculumTable')?.addEventListener('click', (event) => {
+    const selectButton = event.target.closest('[data-select-curriculum-button]');
+    if (selectButton) {
+      selectCurriculum(selectButton.dataset.selectCurriculumButton);
+      return;
+    }
+
+    if (event.target.closest('a, button, input, select, textarea')) return;
+    const row = event.target.closest('[data-select-curriculum]');
+    if (row) selectCurriculum(row.dataset.selectCurriculum);
+  });
+
+  $('#editCurriculumButton')?.addEventListener('click', () => {
+    if (!selectedCurriculum()) {
+      toast('Selecione um candidato antes de editar.');
+      return;
+    }
+    setCurriculumDetailEditing(true);
+    toast('Edicao liberada.');
+  });
+
+  $('#cancelCurriculumEditButton')?.addEventListener('click', () => {
+    const current = selectedCurriculum();
+    if (current) fillCurriculumDetailForm(current);
+    setCurriculumDetailEditing(false);
+  });
+
+  $('#saveCurriculumButton')?.addEventListener('click', saveCurriculumDetail);
+  $('#exportCurriculumTemplateButton')?.addEventListener('click', exportSelectedCurriculumTemplate);
+}
+
+function syncCandidateNameFromCurriculum(curriculumId = $('#candidateForm select[name="curriculumId"]')?.value, force = false) {
+  const curriculum = state.curriculums.find((item) => item.id === curriculumId);
+  const nameInput = $('#candidateForm input[name="name"]');
+  if (curriculum && nameInput && (force || !nameInput.value)) {
+    nameInput.value = curriculum.nome;
+  }
+}
+
+bindNavigation();
+bindForms();
+bindAuth();
+bindCandidateStageActions();
+bindCandidateFilters();
+bindSelectedCandidateFilters();
+bindOpportunityFilters();
+bindAllocatedFilters();
+bindCvFilterLocation();
+bindCvSearch();
+bindSaveSelectedCandidates();
+bindSelectedCandidateMessage();
+bindSelectedCandidateActions();
+bindEditableRows();
+bindCurriculumSearch();
+bindEmailProcessing();
+bindCurriculumSelection();
+document.body.dataset.appReady = 'true';
+
+if (session.token) {
+  refresh().catch((error) => {
+    toast(error.message);
+    if (error.message.includes('senha')) {
+      showPasswordChange();
+    } else {
+      showLogin();
+    }
+  });
+} else {
+  showLogin();
+}
