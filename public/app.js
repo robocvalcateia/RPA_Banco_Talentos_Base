@@ -1424,17 +1424,29 @@ function setFieldValue(form, name, value) {
 
 function fillForm(selector, values, submitLabel) {
   const form = $(selector);
+
+  if (!form) {
+    toast(`Formulario nao encontrado: ${selector}`);
+    return;
+  }
+
   Object.entries(values).forEach(([name, value]) => setFieldValue(form, name, value));
   setSubmitLabel(form, submitLabel);
+
   if (!form.closest('.modal-backdrop')) {
     form.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 }
 
 function clearEditing(form, key, submitLabel) {
-  state.editing[key] = '';
-  form.reset();
-  setSubmitLabel(form, submitLabel);
+  if (key) {
+    state.editing[key] = '';
+  }
+
+  if (form) {
+    form.reset();
+    setSubmitLabel(form, submitLabel);
+  }
 }
 
 function loadClientForEdit(client) {
