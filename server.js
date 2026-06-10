@@ -157,7 +157,20 @@ const emailProcessing = {
   erro: '',
   logs: ''
 };
+const APP_TIME_ZONE = process.env.APP_TIME_ZONE || 'America/Sao_Paulo';
 
+function formatDateTimeBR(date = new Date()) {
+  return date.toLocaleString('pt-BR', {
+    timeZone: APP_TIME_ZONE,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+}
 const contentTypes = {
   '.html': 'text/html; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -319,7 +332,7 @@ function startLegacyEmailProcessing() {
   emailProcessing.running = true;
   emailProcessing.jobId = jobId;
   emailProcessing.status = 'processando';
-  emailProcessing.startedAt = new Date().toLocaleString('pt-BR');
+  emailProcessing.startedAt = formatDateTimeBR();
   emailProcessing.finishedAt = '';
   emailProcessing.resultado = null;
   emailProcessing.erro = '';
@@ -348,7 +361,7 @@ function startLegacyEmailProcessing() {
   child.on('error', (error) => {
     emailProcessing.running = false;
     emailProcessing.status = 'erro';
-    emailProcessing.finishedAt = new Date().toLocaleString('pt-BR');
+    emailProcessing.finishedAt = formatDateTimeBR();
     emailProcessing.erro = `Falha ao iniciar Python: ${error.message}`;
     emailProcessing.resultado = {
       success: false,
@@ -361,7 +374,7 @@ function startLegacyEmailProcessing() {
   child.on('close', (code) => {
     const result = parseLegacyProcessResult(combinedOutput);
     emailProcessing.running = false;
-    emailProcessing.finishedAt = new Date().toLocaleString('pt-BR');
+    emailProcessing.finishedAt = formatDateTimeBR();
 
     if (result) {
       emailProcessing.resultado = result;
