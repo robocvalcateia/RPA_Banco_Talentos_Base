@@ -25,8 +25,8 @@ const database = {
       name: 'Tecnico Demo',
       email: 'tecnico@demo.local',
       role: 'Admin',
-      passwordHash: hashPassword('alcateia'),
-      mustChangePassword: true,
+      passwordHash: hashPassword('Alcateia123'),
+      mustChangePassword: false,
       createdAt
     }
   ],

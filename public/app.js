@@ -1757,7 +1757,7 @@ function bindForms() {
       body: JSON.stringify(formPayload(event.currentTarget))
     });
     clearEditing(event.currentTarget, 'userId', 'Salvar usuário');
-    toast(editingId ? 'Usuário atualizado.' : 'Usuário cadastrado com senha inicial alcateia.');
+    toast(editingId ? 'Usuário atualizado.' : 'Usuário cadastrado com senha inicial Alcateia123.');
     await refresh();
   });
 }

@@ -832,8 +832,8 @@ async function handleApi(request, response) {
         name: String(payload.name ?? '').trim(),
         email,
         role: 'Admin',
-        passwordHash: hashPassword('alcateia'),
-        mustChangePassword: true,
+        passwordHash: hashPassword('Alcateia123'),
+        mustChangePassword: false,
         createdAt: toISODate()
       };
 
