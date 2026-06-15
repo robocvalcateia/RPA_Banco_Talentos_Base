@@ -819,12 +819,11 @@ function renderEmailProcessingStatus() {
   const sourceLabel = $('#curriculumSourceLabel');
   const statusElement = $('#emailProcessingStatus');
   const button = $('#processEmailsButton');
-  const stats = state.talentStats || {};
-  const totalBanco = stats.total_candidatos ?? state.curriculums.length;
-  const lidos = stats.total_lido_na_tela ?? state.curriculums.length;
 
+  // Remove a informação de fonte/banco/tela do front
   if (sourceLabel) {
-    sourceLabel.textContent = `Fonte: ${talentSourceLabel()} · Banco: ${totalBanco} · Tela: ${lidos}`;
+    sourceLabel.textContent = '';
+    sourceLabel.style.display = 'none';
   }
 
   if (!statusElement) return;
@@ -835,22 +834,31 @@ function renderEmailProcessingStatus() {
   }
 
   const processing = state.emailProcessing;
+
   if (!processing || processing.status === 'idle') {
-    statusElement.textContent = 'A tela é carregada a partir do MongoDB quando MONGODB_URL estiver configurado. A busca por Skill procura em qualquer campo textual do currículo.';
+    statusElement.textContent = 'Último processamento: -';
     if (button) button.disabled = false;
     return;
   }
 
   if (button) button.disabled = Boolean(processing.running);
 
-  const resultado = processing.resultado;
-  const statsMsg = resultado?.stats
-    ? ` Novos: ${resultado.stats.novos_candidatos ?? 0}; Atualizados: ${resultado.stats.candidatos_atualizados ?? 0}; Sem mudanças: ${resultado.stats.sem_mudancas ?? 0}; Erros: ${resultado.stats.erros ?? 0}.`
-    : '';
+  if (processing.running) {
+    const dataInicio = processing.startedAt || processing.started_at || '-';
+    statusElement.textContent = `Leitura de e-mails em andamento desde ${dataInicio}.`;
+    return;
+  }
 
-  statusElement.textContent = processing.running
-    ? `Leitura de e-mails em andamento desde ${processing.startedAt || processing.started_at || '-'}. Aguarde finalizar para liberar novo processamento.`
-    : `Último processamento: ${processing.status || '-'}. ${resultado?.message || processing.erro || ''}${statsMsg}`;
+  const dataHoraUltimoProcessamento =
+    processing.finishedAt ||
+    processing.finished_at ||
+    processing.startedAt ||
+    processing.started_at ||
+    '';
+
+  statusElement.textContent = dataHoraUltimoProcessamento
+    ? `Último processamento: ${dataHoraUltimoProcessamento}`
+    : 'Último processamento: -';
 }
 
 function curriculumIdentifier(curriculum) {
