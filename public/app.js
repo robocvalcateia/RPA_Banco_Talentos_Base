@@ -1075,6 +1075,35 @@ async function exportSelectedCurriculumTemplate() {
     }
   }
 }
+function obterUltimoEmpregoComDatas(curriculum) {
+  const experiencia = String(curriculum.experiencia_profissional || '').trim();
+
+  if (!experiencia) {
+    return '-';
+  }
+
+  const linhas = experiencia
+    .split(/\n+/)
+    .map((linha) => linha.trim())
+    .filter(Boolean);
+
+  if (!linhas.length) {
+    return '-';
+  }
+
+  // Procura uma linha que tenha padrão de data, exemplo:
+  // 01/2020, 2020, 2020 - 2022, Jan/2020, Atual, Presente
+  const padraoData = /(\d{2}\/\d{4}|\d{4}|atual|presente|até o momento|atualmente)/i;
+
+  const linhaComData = linhas.find((linha) => padraoData.test(linha));
+
+  if (linhaComData) {
+    return linhaComData;
+  }
+
+  // Fallback: retorna a primeira linha da experiência profissional
+  return linhas[0];
+}
 
 function renderCurriculums() {
   renderEmailProcessingStatus();
@@ -1090,36 +1119,37 @@ function renderCurriculums() {
   }
 
   renderCurriculumTabs();
-  if (!curriculums.length) {
-    $('#curriculumTable').innerHTML = '<tr><td colspan="8">Nenhum talento encontrado.</td></tr>';
-    renderCurriculumDetail();
-    return;
-  }
+$('#curriculumTable').innerHTML = curriculums
+  .slice()
+  .sort(byCurriculumControl)
+  .map((curriculum) => {
+    const id = curriculumIdentifier(curriculum);
+    const isSelected = id === state.selectedCurriculumId;
 
-  $('#curriculumTable').innerHTML = curriculums
-    .slice()
-    .sort(byCurriculumControl)
-    .map((curriculum) => {
-      const id = curriculumIdentifier(curriculum);
-      const isSelected = id === state.selectedCurriculumId;
-      const linkedin = curriculum.linkedin
-        ? `<a href="${escapeHtml(curriculum.linkedin)}" target="_blank" rel="noopener noreferrer">${escapeHtml(curriculum.linkedin)}</a>`
-        : '-';
+    const skillCompleto =
+      curriculum.skills ||
+      curriculum.conhecimento_tecnico ||
+      '-';
 
-      return `
-        <tr class="${isSelected ? 'selected-row' : ''}" data-select-curriculum="${escapeHtml(id)}">
-          <td>${escapeHtml(curriculum.id_controle || '-')}</td>
-          <td><strong>${escapeHtml(curriculum.nome || '-')}</strong></td>
-          <td>${escapeHtml(curriculum.email || '-')}</td>
-          <td>${escapeHtml(curriculum.telefone || '-')}</td>
-          <td>${linkedin}</td>
-          <td>${escapeHtml(curriculum.skills || curriculum.conhecimento_tecnico || '-')}</td>
-          <td>${formatCurriculumDate(curriculum.data_atualizacao || curriculum.data_criacao)}</td>
-          <td><button class="secondary-action small-action" type="button" data-select-curriculum-button="${escapeHtml(id)}">Selecionar</button></td>
-        </tr>
-      `;
-    })
-    .join('');
+    const ultimoEmprego = obterUltimoEmpregoComDatas(curriculum);
+
+    return `
+      <tr class="${isSelected ? 'selected-row' : ''}" data-select-curriculum="${escapeHtml(id)}">
+        <td>
+          <strong>${escapeHtml(curriculum.nome || '-')}</strong>
+        </td>
+
+        <td class="talent-long-text">
+          ${escapeHtml(skillCompleto)}
+        </td>
+
+        <td class="talent-long-text">
+          ${escapeHtml(ultimoEmprego)}
+        </td>
+      </tr>
+    `;
+  })
+  .join('');
 
   renderCurriculumDetail();
 }

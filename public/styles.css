@@ -917,3 +917,12 @@ th {
   opacity: 0.45;
   cursor: not-allowed;
 }
+.talent-long-text {
+  white-space: pre-wrap;
+  line-height: 1.4;
+  max-width: 520px;
+}
+
+#curriculumTable td {
+  vertical-align: top;
+}
