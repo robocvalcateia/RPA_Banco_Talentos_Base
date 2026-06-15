@@ -3,6 +3,5 @@ node_modules/
 .env.*
 legacy_banco_talentos/.tmp/
 public/uploads/
-data/database.json
 .DS_Store
 Thumbs.db

@@ -1,0 +1,223 @@
+{
+  "clients": [
+    {
+      "id": "client_demo",
+      "customerName": "Cliente Demo",
+      "primaryContactName": "Contato Demo",
+      "primaryContactEmail": "contato@demo.local",
+      "primaryContactPhone": "",
+      "observation": "Registro ficticio para homologacao.",
+      "createdAt": "2026-06-02T12:00:00.000Z"
+    }
+  ],
+  "users": [
+    {
+      "id": "user_tecnico_demo",
+      "name": "Tecnico Demo",
+      "email": "tecnico@demo.local",
+      "role": "Admin",
+      "passwordHash": "scrypt:15d327753fe1ea64e050b64e7a3a1db1:a06fb28a118806759b345e465268c082337be752ea70c36b70a70dfbe0572973",
+      "mustChangePassword": false,
+      "createdAt": "2026-06-02T12:00:00.000Z",
+      "passwordChangedAt": "2026-06-08T22:20:33.549Z"
+    },
+    {
+      "id": "user_robocv_is9w8j",
+      "name": "RoboCV",
+      "email": "robocv@alcateiaconsulting.com.br",
+      "role": "Admin",
+      "passwordHash": "scrypt:9c80b930972b54ed4ed107f70ce2aa51:2f0a253395dc61a79ff917bfaee54382d4a555404cc8f3fa5f90055d2d53db2e",
+      "mustChangePassword": true,
+      "createdAt": "2026-06-08T23:14:38.746Z",
+      "updatedAt": "2026-06-08T23:17:04.465Z"
+    },
+    {
+      "id": "user_gerson_iaioiz",
+      "name": "Gerson",
+      "email": "gerson@alcateiaconsulting.com.br",
+      "role": "Admin",
+      "passwordHash": "scrypt:23a3f5fbb9da2157dee74e2b2a500982:41207cabba78fedfcd8a4151d8189da4ea77a71c11bc1d19a8a7bd98d538408f",
+      "mustChangePassword": false,
+      "createdAt": "2026-06-08T23:14:38.785Z",
+      "updatedAt": "2026-06-08T23:17:04.465Z",
+      "passwordChangedAt": "2026-06-08T23:19:49.194Z"
+    },
+    {
+      "id": "user_bruno_yfmre8",
+      "name": "Bruno",
+      "email": "bruno@alcateiaconsulting.com.br",
+      "role": "Admin",
+      "passwordHash": "scrypt:1fa0bf0a876a9de806af7626d22d8657:97b5141f008c97b76b6b7973148fe3980274b1cf0b3287bfa7799bd8b28947bd",
+      "mustChangePassword": true,
+      "createdAt": "2026-06-08T23:14:38.815Z",
+      "updatedAt": "2026-06-08T23:17:04.465Z"
+    },
+    {
+      "id": "user_emerson_web552",
+      "name": "Emerson",
+      "email": "emerson@alcateiaconsulting.com.br",
+      "role": "Admin",
+      "passwordHash": "scrypt:a135d4c992d1861b84170ebe54bb3a6e:35148c148af3509d182e4be38620fdaf8264ffe298f53bfed4010ae58f757761",
+      "mustChangePassword": true,
+      "createdAt": "2026-06-08T23:14:38.842Z",
+      "updatedAt": "2026-06-08T23:17:04.465Z"
+    }
+  ],
+  "opportunities": [
+    {
+      "id": "opp_demo",
+      "clientId": "client_demo",
+      "opportunity": "Analista de Sistemas Demo",
+      "opportunityCode": "OPP-DEMO-001",
+      "status": "Open",
+      "openingDate": "2026-06-01",
+      "closingDate": "",
+      "monthYear": "2026-06",
+      "model": "Hunting",
+      "owner": "Tecnico Demo",
+      "quantity": 1,
+      "closedQuantity": 0,
+      "contractValue": 100,
+      "observation": "Oportunidade ficticia para homologacao.",
+      "createdAt": "2026-06-02T12:00:00.000Z"
+    }
+  ],
+  "curriculums": [
+    {
+      "id": "curr_demo",
+      "mongoId": "",
+      "nome": "Candidato Demo",
+      "email": "candidato@demo.local",
+      "telefone": "",
+      "endereco": "",
+      "nacionalidade": "",
+      "estado_civil": "",
+      "idade": "",
+      "linkedin": "",
+      "skills": "JavaScript, SQL",
+      "formacao_academica": "",
+      "nivel_ingles": "intermediario",
+      "nivel_espanhol": "",
+      "cursos_certificacoes": "",
+      "conhecimento_tecnico": "JavaScript, SQL",
+      "experiencia_profissional": "Registro ficticio para homologacao.",
+      "hash_documento": "",
+      "fonte": "Demo",
+      "data_criacao": "2026-06-02T12:00:00.000Z",
+      "data_atualizacao": "2026-06-02T12:00:00.000Z",
+      "data_origem": "",
+      "versoes": [],
+      "data_nascimento": "",
+      "id_controle": "CV-DEMO-001"
+    }
+  ],
+  "candidates": [
+    {
+      "id": "cand_demo",
+      "name": "Candidato Demo",
+      "curriculumId": "curr_demo",
+      "opportunityId": "opp_demo",
+      "hourlyRate": 100,
+      "observation": "Registro ficticio para testar etapas e conversao para alocado.",
+      "approved": false,
+      "stage": "Triagem",
+      "aderencia": 75,
+      "source": "Demo",
+      "notes": "",
+      "status": "Em andamento",
+      "stageEnteredAt": "2026-06-02T12:00:00.000Z",
+      "createdAt": "2026-06-02T12:00:00.000Z",
+      "stageHistory": [
+        {
+          "stage": "Triagem",
+          "enteredAt": "2026-06-02T12:00:00.000Z",
+          "leftAt": ""
+        }
+      ]
+    }
+  ],
+  "allocateds": [],
+  "cvFilters": [
+    {
+      "id": "cvf_desenvolvedor_rpa_rkznu0",
+      "opportunityId": "opp_demo",
+      "state": "SP",
+      "city": "Campinas",
+      "englishLevel": "Intermediário",
+      "matchPercent": 80,
+      "resultLimit": 10,
+      "mandatorySkills": "RPA",
+      "jobDescription": "desenvolvedor RPA",
+      "searchApinfo": true,
+      "searchLinkedin": true,
+      "searchAlcateia": true,
+      "createdAt": "2026-06-09T13:41:08.089Z",
+      "available": false,
+      "ageRange": "",
+      "searchStatus": "",
+      "searchMessage": "",
+      "searchSource": "",
+      "searchExecutedAt": "",
+      "searchResults": [],
+      "searchRejectedResults": []
+    }
+  ],
+  "selectedCandidates": [
+    {
+      "id": "match_william_magliari_business_an_ts31y1",
+      "opportunityId": "opp_demo",
+      "cvFilterId": "cvf_desenvolvedor_rpa_rkznu0",
+      "name": "William Magliari - Business Analyst | RPA Developer",
+      "source": "LinkedIn/Google",
+      "link": "https://br.linkedin.com/in/william-magliari",
+      "score": 100,
+      "origin": "Resultado",
+      "candidateMessage": "",
+      "observation": "Aderencia da Job Description: 100%. Encontrado no CV: desenvolvedor, rpa. Pontos nao evidentes: sem lacunas relevantes.. Analisado por busca SerpAPI.",
+      "createdAt": "2026-06-09T13:43:24.957Z",
+      "updatedAt": "2026-06-09T14:32:38.347Z"
+    },
+    {
+      "id": "match_augusto_vargas_desenvolvedor_1vcwoi",
+      "opportunityId": "opp_demo",
+      "cvFilterId": "cvf_desenvolvedor_rpa_rkznu0",
+      "name": "Augusto Vargas - Desenvolvedor RPA PL| UiPath | Python",
+      "source": "LinkedIn/Google",
+      "link": "https://br.linkedin.com/in/augusto-vargas-8ba8a3120",
+      "score": 100,
+      "origin": "Resultado",
+      "candidateMessage": "",
+      "observation": "Aderencia da Job Description: 100%. Encontrado no CV: desenvolvedor, rpa. Pontos nao evidentes: sem lacunas relevantes.. Analisado por busca SerpAPI.",
+      "createdAt": "2026-06-09T13:43:24.957Z",
+      "updatedAt": "2026-06-09T14:32:38.347Z"
+    },
+    {
+      "id": "match_raphael_de_andrade_rpa_devel_0ucoql",
+      "opportunityId": "opp_demo",
+      "cvFilterId": "cvf_desenvolvedor_rpa_rkznu0",
+      "name": "Raphael de Andrade - RPA Developer | Automation Edge",
+      "source": "LinkedIn/Google",
+      "link": "https://br.linkedin.com/in/raphael-de-andrade-781790193",
+      "score": 100,
+      "origin": "Resultado",
+      "candidateMessage": "",
+      "observation": "Aderencia da Job Description: 100%. Encontrado no CV: desenvolvedor, rpa. Pontos nao evidentes: sem lacunas relevantes.. Analisado por busca SerpAPI.",
+      "createdAt": "2026-06-09T13:43:24.957Z",
+      "updatedAt": "2026-06-09T14:32:38.347Z"
+    },
+    {
+      "id": "match_luana_almeida_rpa_developer__bom3p0",
+      "opportunityId": "opp_demo",
+      "cvFilterId": "cvf_desenvolvedor_rpa_rkznu0",
+      "name": "Luana Almeida - RPA Developer | Automation Anywhere",
+      "source": "LinkedIn/Google",
+      "link": "https://br.linkedin.com/in/luana-almeida-069447109",
+      "score": 100,
+      "origin": "Resultado",
+      "candidateMessage": "",
+      "observation": "Aderencia da Job Description: 100%. Encontrado no CV: desenvolvedor, rpa. Pontos nao evidentes: sem lacunas relevantes.. Analisado por busca SerpAPI.",
+      "createdAt": "2026-06-09T13:43:24.957Z",
+      "updatedAt": "2026-06-09T14:32:38.347Z"
+    }
+  ]
+}
