@@ -512,15 +512,37 @@ export function enrichSelectedCandidate(candidate, db) {
   };
 }
 
+function latestOpportunityMonth(opportunities) {
+  const months = opportunities
+    .map((opportunity) =>
+      monthKeyFromValue(
+        opportunity.monthYear ||
+        opportunity.closingDate ||
+        opportunity.openingDate
+      )
+    )
+    .filter(Boolean)
+    .sort();
+
+  return months.at(-1) || monthYearFromDate(new Date());
+}
+
 export function calculateIndicators(db, now = new Date()) {
   const openOpportunities = db.opportunities.filter((opportunity) => opportunity.status === 'Open').length;
-  const currentMonth = monthYearFromDate(now);
-  const lastSixMonths = rollingMonthKeys(now);
+  const currentMonth = latestOpportunityMonth(db.opportunities);
+  const baseMonthDate = new Date(`${currentMonth}-01T00:00:00`);
+  const lastSixMonths = rollingMonthKeys(baseMonthDate);
   const wonCurrentMonth = db.opportunities.filter(
-    (opportunity) => opportunity.status === 'WON' && monthKeyFromValue(opportunity.closingDate) === currentMonth
+    (opportunity) =>
+      opportunity.status === 'WON' &&
+      monthKeyFromValue(
+        opportunity.closingDate ||
+        opportunity.monthYear ||
+        opportunity.openingDate
+      ) === currentMonth
   );
   const wonContractValueCurrentMonth = wonCurrentMonth.reduce(
-    (sum, opportunity) => sum + Number(opportunity.closedQuantity ?? 0) * Number(opportunity.contractValue ?? 0),
+    (sum, opportunity) => sum + Number(opportunity.contractValue ?? 0),
     0
   );
   const wonByModelCurrentMonth = Object.fromEntries(OPPORTUNITY_MODELS.map((model) => [model, 0]));
@@ -529,9 +551,9 @@ export function calculateIndicators(db, now = new Date()) {
   }
   const wonContractValueByMonth = Object.fromEntries(lastSixMonths.map((month) => [month, 0]));
   for (const opportunity of db.opportunities) {
-    const month = monthKeyFromValue(opportunity.closingDate || opportunity.monthYear);
+    const month = monthKeyFromValue(opportunity.closingDate ||opportunity.monthYear ||opportunity.openingDate);
     if (opportunity.status === 'WON' && Object.hasOwn(wonContractValueByMonth, month)) {
-      wonContractValueByMonth[month] += Number(opportunity.closedQuantity ?? 0) * Number(opportunity.contractValue ?? 0);
+      wonContractValueByMonth[month] += Number(opportunity.contractValue ?? 0);
     }
   }
   const activeContractValue = db.opportunities

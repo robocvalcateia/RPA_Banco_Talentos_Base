@@ -385,8 +385,8 @@ function renderMetrics() {
   const totals = state.indicators.totals;
   const wonContractValueCurrentMonth = totals.wonContractValueCurrentMonth || calculateWonContractValueCurrentMonth();
   $('#metrics').innerHTML = [
-    ['WON no mês', totals.wonCurrentMonth ?? 0],
-    ['WON no mês por modelo', renderMiniBars(state.indicators.wonByModelCurrentMonth ?? {})],
+    ['WON no último mês da base', totals.wonCurrentMonth ?? 0],
+    ['Valor fechado no último mês da base', formatCurrencyK(wonContractValueCurrentMonth)],
     ['Valor fechado no mês', formatCurrencyK(wonContractValueCurrentMonth)],
     ['Oportunidades em aberto', formatCurrencyK(totals.activeContractValue ?? 0)],
     ['Oportunidades abertas', totals.openOpportunities],
