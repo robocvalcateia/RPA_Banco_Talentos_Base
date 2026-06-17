@@ -36,7 +36,13 @@ const state = {
   },
   indicators: null
 };
+function setCvSearchInlineStatus(message, statusClass = '') {
+  const element = $('#cvSearchInlineStatus');
+  if (!element) return;
 
+  element.textContent = message;
+  element.className = `search-inline-status full ${statusClass}`.trim();
+}
 function readStorage(key) {
   try {
     if (!globalThis.localStorage) return '';
@@ -778,12 +784,27 @@ function renderCvSearchResults() {
     table.innerHTML = '<tr><td colspan="6">Salve ou clique em um filtro para buscar candidatos.</td></tr>';
     if (rejectedStatus) rejectedStatus.textContent = 'Selecione um filtro salvo';
     if (rejectedTable) rejectedTable.innerHTML = '<tr><td colspan="6">Salve ou clique em um filtro para visualizar rejeitados.</td></tr>';
+    setCvSearchInlineStatus('Nenhuma busca executada.');
     return;
   }
 
   status.textContent = filter.searchMessage || `Pronto para buscar em ${enabledSourceLabels(filter).join(', ') || 'nenhuma fonte'}`;
   const results = Array.isArray(filter.searchResults) ? filter.searchResults : [];
   const rejectedResults = Array.isArray(filter.searchRejectedResults) ? filter.searchRejectedResults : [];
+    if (filter.searchStatus === 'running') {
+    setCvSearchInlineStatus('Busca de Candidatos em Andamento', 'running');
+  } else if (filter.searchStatus === 'completed') {
+    setCvSearchInlineStatus(
+      `Busca finalizada. Aprovados: ${results.length}; Rejeitados: ${rejectedResults.length}; Total analisado: ${results.length + rejectedResults.length}.`,
+      'done'
+    );
+  } else if (filter.searchStatus === 'no_sources') {
+    setCvSearchInlineStatus('Nenhuma fonte de busca selecionada.', 'error');
+  } else if (filter.searchStatus === 'pending_credentials') {
+    setCvSearchInlineStatus(filter.searchMessage || 'Busca pendente de credenciais.', 'error');
+  } else {
+    setCvSearchInlineStatus('Pronto para buscar candidatos.');
+  }
 
   table.innerHTML = renderCvResultRows(results, 'Nenhum candidato aprovado pela regra.', 'resultado');
   if (rejectedStatus) {
@@ -2033,8 +2054,12 @@ function bindCvSearch() {
     Object.assign(filter, currentCvSearchSourcePayload());
     filter.searchResults = [];
     filter.searchRejectedResults = [];
+    filter.searchStatus = 'running';
     filter.searchMessage = `Buscando candidatos em ${enabledSourceLabels(filter).join(', ') || 'nenhuma fonte'}...`;
+
     if (status) status.textContent = filter.searchMessage;
+
+    setCvSearchInlineStatus('Busca de Candidatos em Andamento', 'running');
     if (table) table.innerHTML = '<tr><td colspan="6">Buscando candidatos...</td></tr>';
     if (rejectedStatus) rejectedStatus.textContent = 'Limpando rejeitados da busca anterior';
     if (rejectedTable) rejectedTable.innerHTML = '<tr><td colspan="6">Buscando candidatos...</td></tr>';
@@ -2055,7 +2080,9 @@ function bindCvSearch() {
       renderCvSearchResults();
       toast(updatedFilter.searchMessage || 'Busca concluida.');
     } catch (error) {
-      filter.searchMessage = error.message || 'Nao foi possivel concluir a busca.';
+      filter.searchStatus = 'error';
+      filter.searchMessage = error.message || 'Não foi possível concluir a busca.';
+      setCvSearchInlineStatus(filter.searchMessage, 'error');
       renderCvSearchResults();
       toast(filter.searchMessage);
     } finally {

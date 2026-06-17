@@ -926,3 +926,21 @@ th {
 #curriculumTable td {
   vertical-align: top;
 }
+.search-inline-status {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.search-inline-status.running {
+  color: #047857;
+}
+
+.search-inline-status.done {
+  color: #065f46;
+}
+
+.search-inline-status.error {
+  color: #b91c1c;
+}

@@ -304,6 +304,161 @@ async function loadCurriculumsForBootstrap(localDb) {
     };
   }
 }
+function normalizeSearchText(value = '') {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[_/|]+/g, ' ')
+    .replace(/[^a-z0-9+#.]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function splitSearchTermsForCv(value = '') {
+  return Array.from(new Set(
+    normalizeSearchText(value)
+      .split(' ')
+      .map((term) => term.trim())
+      .filter((term) => term.length >= 2)
+  ));
+}
+
+function curriculumTextForAlcateia(curriculum = {}) {
+  return [
+    curriculum.nome,
+    curriculum.email,
+    curriculum.telefone,
+    curriculum.endereco,
+    curriculum.nacionalidade,
+    curriculum.estado_civil,
+    curriculum.idade,
+    curriculum.linkedin,
+    curriculum.skills,
+    curriculum.formacao_academica,
+    curriculum.nivel_ingles,
+    curriculum.nivel_espanhol,
+    curriculum.cursos_certificacoes,
+    curriculum.conhecimento_tecnico,
+    curriculum.experiencia_profissional,
+    curriculum.fonte,
+    curriculum.id_controle
+  ].filter(Boolean).join(' ');
+}
+
+function shortSearchText(value = '', maxLength = 180) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
+}
+
+function evaluateAlcateiaCurriculum(curriculum, filter) {
+  const terms = splitSearchTermsForCv(`${filter.mandatorySkills || ''} ${filter.jobDescription || ''}`);
+  const normalizedText = normalizeSearchText(curriculumTextForAlcateia(curriculum));
+
+  if (!terms.length) {
+    return {
+      score: 100,
+      hits: [],
+      missing: []
+    };
+  }
+
+  const hits = terms.filter((term) => normalizedText.includes(term));
+  const missing = terms.filter((term) => !normalizedText.includes(term));
+  const score = Math.round((hits.length / terms.length) * 100);
+
+  return {
+    score,
+    hits,
+    missing
+  };
+}
+
+async function searchAlcateiaCandidates(filter, limit = 10) {
+  const requestedLimit = Math.max(1, Math.min(50, Number(filter.resultLimit || limit || 10)));
+  const minimum = Number(filter.matchPercent || 0);
+
+  if (!isMongoTalentosConfigured()) {
+    return {
+      totalFound: 0,
+      results: [],
+      rejectedResults: [],
+      message: 'ALCATEIA marcada, mas MongoDB não está configurado no ambiente.'
+    };
+  }
+
+  const mongoResponse = await getCurriculumsFromMongo();
+  const curriculums = Array.isArray(mongoResponse.curriculums) ? mongoResponse.curriculums : [];
+
+  const evaluated = curriculums
+    .map((curriculum) => {
+      const evaluation = evaluateAlcateiaCurriculum(curriculum, filter);
+      const accepted = evaluation.score >= minimum;
+
+      const found = evaluation.hits.slice(0, 10).join(', ') || 'nenhum termo forte encontrado';
+      const missing = evaluation.missing.slice(0, 10).join(', ') || 'sem lacunas relevantes';
+
+      return {
+        curriculum,
+        accepted,
+        score: evaluation.score,
+        found,
+        missing
+      };
+    })
+    .sort((first, second) => {
+      if (second.score !== first.score) {
+        return second.score - first.score;
+      }
+
+      const firstDate = new Date(first.curriculum.data_atualizacao || first.curriculum.data_criacao || 0).getTime();
+      const secondDate = new Date(second.curriculum.data_atualizacao || second.curriculum.data_criacao || 0).getTime();
+
+      return secondDate - firstDate;
+    });
+
+  const acceptedRows = evaluated
+    .filter((item) => item.accepted)
+    .slice(0, requestedLimit)
+    .map(({ curriculum, score, found, missing }) => ({
+      id: `alcateia_${curriculum.id || curriculum.id_controle || curriculum.mongoId}`,
+      name: curriculum.nome || '-',
+      source: 'ALCATEIA',
+      link: curriculum.linkedin || '',
+      score,
+      observation: [
+        `ID Controle: ${curriculum.id_controle || '-'}`,
+        `Aderência MongoDB: ${score}%`,
+        `Encontrado: ${found}`,
+        `Pontos não evidentes: ${missing}`,
+        `Skills: ${shortSearchText(curriculum.skills || curriculum.conhecimento_tecnico || '-')}`
+      ].join(' | ')
+    }));
+
+  const rejectedRows = evaluated
+    .filter((item) => !item.accepted)
+    .slice(0, requestedLimit)
+    .map(({ curriculum, score, found, missing }) => ({
+      id: `alcateia_rej_${curriculum.id || curriculum.id_controle || curriculum.mongoId}`,
+      name: curriculum.nome || '-',
+      source: 'ALCATEIA',
+      link: curriculum.linkedin || '',
+      score,
+      observation: [
+        `Reprovado pela regra de aderência mínima ${minimum}%`,
+        `Aderência MongoDB: ${score}%`,
+        `Encontrado: ${found}`,
+        `Faltando: ${missing}`
+      ].join(' | ')
+    }));
+
+  return {
+    totalFound: curriculums.length,
+    results: acceptedRows,
+    rejectedResults: rejectedRows,
+    message: `ALCATEIA/MongoDB analisou ${curriculums.length} currículo(s), aprovados: ${acceptedRows.length}, rejeitados: ${rejectedRows.length}.`
+  };
+}
 
 function getPythonExecutable() {
   return process.env.PYTHON_EXECUTABLE || process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
@@ -1100,20 +1255,89 @@ async function handleApi(request, response) {
         searchResponse.searchStatus = 'pending_credentials';
         searchResponse.searchMessage = `Busca real no APINFO pendente de usuario e senha. Regra: ${ruleSummary}.`;
       } else {
-        const search = await searchApinfoAndLinkedinCandidates(runtimeFilter, credentials, runtimeFilter.resultLimit || 10);
+        const requestedLimit = runtimeFilter.resultLimit || 10;
+
+        const shouldSearchApinfo = runtimeFilter.searchApinfo && credentials.configured;
+        const apinfoBlocked = runtimeFilter.searchApinfo && !credentials.configured;
+
+        const shouldSearchApinfoLinkedin = shouldSearchApinfo || runtimeFilter.searchLinkedin;
+
+        let search = {
+          keyword: runtimeFilter.mandatorySkills || '',
+          totalFound: 0,
+          inspected: [],
+          linkedinQuery: '',
+          linkedinFound: 0,
+          linkedinProvider: '',
+          linkedinError: '',
+          results: [],
+          rejectedResults: []
+        };
+
+        if (shouldSearchApinfoLinkedin) {
+          search = await searchApinfoAndLinkedinCandidates(
+            {
+              ...runtimeFilter,
+              searchApinfo: shouldSearchApinfo
+            },
+            credentials,
+            requestedLimit
+          );
+        }
+
+        const alcateiaSearch = runtimeFilter.searchAlcateia
+          ? await searchAlcateiaCandidates(runtimeFilter, requestedLimit)
+          : {
+              totalFound: 0,
+              results: [],
+              rejectedResults: [],
+              message: 'ALCATEIA desmarcado.'
+            };
+
+        const mergedResults = [
+          ...search.results,
+          ...alcateiaSearch.results
+        ].map((result) => normalizeCvSearchResult(result));
+
+        const mergedRejectedResults = [
+          ...search.rejectedResults,
+          ...alcateiaSearch.rejectedResults
+        ].map((result) => normalizeCvSearchResult(result));
+
         searchResponse.searchStatus = 'completed';
+
         const apinfoSummary = runtimeFilter.searchApinfo
-          ? `APINFO chave "${search.keyword}", encontrados: ${search.totalFound}.`
+          ? (
+              apinfoBlocked
+                ? 'APINFO marcado, mas credenciais não configuradas.'
+                : `APINFO chave "${search.keyword}", encontrados: ${search.totalFound}.`
+            )
           : 'APINFO desmarcado.';
+
         const linkedinSummary = runtimeFilter.searchLinkedin
-          ? (search.linkedinError
-            ? ` Google/LinkedIn: ${search.linkedinError}`
-            : ` Google/LinkedIn via ${search.linkedinProvider}: consulta "${search.linkedinQuery}" retornou ${search.linkedinFound} perfil(is) para analise.`)
+          ? (
+              search.linkedinError
+                ? ` Google/LinkedIn: ${search.linkedinError}`
+                : ` Google/LinkedIn via ${search.linkedinProvider}: consulta "${search.linkedinQuery}" retornou ${search.linkedinFound} perfil(is) para análise.`
+            )
           : ' Google/LinkedIn desmarcado.';
-        const alcateiaSummary = runtimeFilter.searchAlcateia ? ' ALCATEIA marcado, aguardando regra de busca.' : ' ALCATEIA desmarcado.';
-        searchResponse.searchMessage = `Busca concluida. ${apinfoSummary} Resultados: ${search.results.length} de ${runtimeFilter.resultLimit || 10} solicitados. Rejeitados abaixo do percentual: ${search.rejectedResults.length}. Ordenacao: curriculos mais recentes primeiro.${linkedinSummary}${alcateiaSummary} Regra: ${ruleSummary}.`;
-        searchResponse.searchResults = search.results.map((result) => normalizeCvSearchResult(result));
-        searchResponse.searchRejectedResults = search.rejectedResults.map((result) => normalizeCvSearchResult(result));
+
+        const alcateiaSummary = runtimeFilter.searchAlcateia
+          ? ` ${alcateiaSearch.message}`
+          : ' ALCATEIA desmarcado.';
+
+        searchResponse.searchMessage = [
+          'Busca concluída.',
+          apinfoSummary,
+          `Resultados aprovados: ${mergedResults.length}.`,
+          `Rejeitados abaixo do percentual: ${mergedRejectedResults.length}.`,
+          linkedinSummary,
+          alcateiaSummary,
+          `Regra: ${ruleSummary}.`
+        ].join(' ');
+
+        searchResponse.searchResults = mergedResults;
+        searchResponse.searchRejectedResults = mergedRejectedResults;
       }
 
       sendJson(response, 200, searchResponse);
