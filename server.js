@@ -17,6 +17,7 @@ import {
   monthYearFromDate,
   moveCandidateStage,
   hashPassword,
+  normalizeCandidate,
   normalizeCurriculum,
   normalizeCvFilter,
   normalizeCvSearchResult,
@@ -25,6 +26,7 @@ import {
   normalizeOpportunityStatus,
   normalizeAderencia,
   normalizeAllocated,
+  normalizeFaturamento,
   normalizeStage,
   OPPORTUNITY_MODELS,
   OPPORTUNITY_STATUSES,
@@ -38,6 +40,11 @@ import {
 import { extractApinfoCandidateEmails, extractEmailsFromText, searchApinfoAndLinkedinCandidates } from './apinfo.js';
 import { getSmtpConfigFromEnv, sendMail } from './smtp.js';
 import {
+  buildDttZip,
+  generateCurriculumContent,
+  renderCurriculumDocuments
+} from './dtt.js';
+import {
   getCurriculumsFromMongo,
   getCurriculumFromMongo,
   getMongoTalentStats,
@@ -50,6 +57,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
+const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 
 async function loadLocalEnv() {
   try {
@@ -341,6 +349,8 @@ function curriculumTextForAlcateia(curriculum = {}) {
     curriculum.cursos_certificacoes,
     curriculum.conhecimento_tecnico,
     curriculum.experiencia_profissional,
+    curriculum.cargo_alvo,
+    curriculum.observacoes_entrevista,
     curriculum.fonte,
     curriculum.id_controle
   ].filter(Boolean).join(' ');
@@ -645,6 +655,16 @@ function sendDocxFile(response, filePath, filename) {
   });
 }
 
+function sendBufferDownload(response, filename, content, contentType) {
+  response.writeHead(200, {
+    'Content-Type': contentType,
+    'Content-Disposition': `attachment; filename="${safeDocxFileName(filename)}"`,
+    'Content-Length': content.length,
+    'Cache-Control': 'no-store, max-age=0'
+  });
+  response.end(content);
+}
+
 function findLocalCurriculum(db, identifier) {
   const value = String(identifier || '').trim();
   if (!value) return null;
@@ -676,6 +696,10 @@ function buildCurriculumPayload(payload = {}) {
     cursos_certificacoes: payload.cursos_certificacoes,
     conhecimento_tecnico: payload.conhecimento_tecnico,
     experiencia_profissional: payload.experiencia_profissional,
+    cargo_alvo: payload.cargo_alvo,
+    observacoes_entrevista: payload.observacoes_entrevista,
+    feedback_entrevista_ingles: payload.feedback_entrevista_ingles,
+    disponibilidade_viagem: payload.disponibilidade_viagem,
     fonte: payload.fonte,
     data_criacao: payload.data_criacao,
     data_origem: payload.data_origem,
@@ -769,6 +793,63 @@ function getRoute(request) {
     pathname: decodeURIComponent(url.pathname),
     searchParams: url.searchParams
   };
+}
+
+function buildHuntingOpportunity(payload, db, existing = null) {
+  const startDate = String(payload.startDate ?? payload.openingDate ?? '').trim();
+  return {
+    ...(existing ?? {}),
+    id: existing?.id ?? createId('opp', payload.profile || payload.candidateName || 'hunting'),
+    clientId: String(payload.clientId ?? '').trim(),
+    opportunity: String(payload.profile ?? payload.opportunity ?? '').trim(),
+    opportunityCode: String(payload.opportunityCode ?? existing?.opportunityCode ?? '').trim()
+      || `HUNT-${String(db.opportunities.filter((item) => item.model === 'Hunting').length + 1).padStart(3, '0')}`,
+    status: 'WON',
+    openingDate: startDate,
+    closingDate: startDate,
+    monthYear: monthYearFromDate(startDate),
+    model: 'Hunting',
+    owner: String(payload.owner ?? existing?.owner ?? '').trim(),
+    quantity: 1,
+    closedQuantity: 1,
+    contractValue: Number(payload.revenue ?? payload.contractValue ?? 0),
+    observation: String(payload.observation ?? existing?.observation ?? '').trim(),
+    source: String(payload.source ?? existing?.source ?? '').trim(),
+    updatedAt: toISODate(),
+    createdAt: existing?.createdAt ?? toISODate()
+  };
+}
+
+function buildHuntingCandidate(payload, opportunityId, existing = null) {
+  const timestamp = toISODate();
+  return normalizeCandidate({
+    ...(existing ?? {}),
+    id: existing?.id ?? createId('cand', payload.candidateName || payload.name || 'hunting'),
+    name: String(payload.candidateName ?? payload.name ?? '').trim(),
+    curriculumId: String(payload.curriculumId ?? existing?.curriculumId ?? '').trim(),
+    opportunityId,
+    hourlyRate: Number(payload.salary ?? payload.hourlyRate ?? 0),
+    observation: String(payload.candidateObservation ?? existing?.observation ?? '').trim(),
+    approved: true,
+    stage: 'Aprovado',
+    aderencia: existing?.aderencia ?? 50,
+    source: String(payload.source ?? existing?.source ?? '').trim(),
+    notes: String(payload.notes ?? existing?.notes ?? '').trim(),
+    status: 'Aprovado',
+    huntingTax: String(payload.tax ?? existing?.huntingTax ?? '').trim(),
+    substitution: existing?.substitution ?? false,
+    stageEnteredAt: existing?.stageEnteredAt ?? timestamp,
+    createdAt: existing?.createdAt ?? timestamp,
+    updatedAt: timestamp,
+    stageHistory: existing?.stageHistory ?? [{ stage: 'Aprovado', enteredAt: timestamp, leftAt: '' }]
+  });
+}
+
+function findHuntingCandidate(db, opportunityId, candidateId = '') {
+  return db.candidates.find((candidate) => (
+    candidate.opportunityId === opportunityId
+    && (!candidateId || candidate.id === candidateId)
+  )) ?? db.candidates.find((candidate) => candidate.opportunityId === opportunityId);
 }
 
 async function serveStatic(request, response) {
@@ -869,6 +950,7 @@ async function handleApi(request, response) {
       sendJson(response, 200, {
         clients: auth.db.clients,
         opportunities: auth.db.opportunities,
+        faturamento: auth.db.faturamento,
         cvFilters: auth.db.cvFilters.map((filter) => enrichCvFilter(filter, auth.db)),
         selectedCandidates: auth.db.selectedCandidates.map((candidate) => enrichSelectedCandidate(candidate, auth.db)),
         curriculums: curriculumBootstrap.curriculums,
@@ -929,6 +1011,34 @@ async function handleApi(request, response) {
 
       if (!curriculumPayload) {
         sendError(response, 404, 'Candidato nao encontrado para exportacao.');
+        return;
+      }
+
+      if (templateId === 'alcateia' || templateId === 'dtt') {
+        const generatedContent = await generateCurriculumContent(curriculumPayload);
+        const documents = await renderCurriculumDocuments(
+          curriculumPayload,
+          generatedContent,
+          CURRICULUM_TEMPLATE_DIR
+        );
+        const filenameBase = safeDocxFileName(curriculumPayload.nome || curriculumPayload.id_controle);
+
+        if (templateId === 'dtt') {
+          sendBufferDownload(
+            response,
+            `${filenameBase}-DTT.zip`,
+            buildDttZip(filenameBase, documents),
+            'application/zip'
+          );
+          return;
+        }
+
+        sendBufferDownload(
+          response,
+          `${filenameBase}-CV-Alcateia-PT.docx`,
+          documents.alcateia,
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        );
         return;
       }
 
@@ -1177,6 +1287,122 @@ async function handleApi(request, response) {
       syncCandidatesWithOpportunityClosures(db);
       await writeDatabase(db);
       sendJson(response, 200, opportunity);
+      return;
+    }
+
+    if (request.method === 'POST' && pathname === '/api/faturamento') {
+      const payload = await readJsonBody(request);
+      const db = await readDatabase();
+      const faturamento = normalizeFaturamento({
+        id: createId('faturamento', payload.monthYear),
+        ...payload,
+        createdAt: toISODate()
+      });
+
+      if (!faturamento.monthYear) {
+        sendError(response, 422, 'Informe o mes/ano.');
+        return;
+      }
+
+      db.faturamento.push(faturamento);
+      await writeDatabase(db);
+      sendJson(response, 201, faturamento);
+      return;
+    }
+
+    if (request.method === 'PATCH' && pathname.startsWith('/api/faturamento/')) {
+      const faturamentoId = pathname.split('/').at(-1);
+      const payload = await readJsonBody(request);
+      const db = await readDatabase();
+      const faturamento = db.faturamento.find((item) => item.id === faturamentoId);
+
+      if (!faturamento) {
+        sendError(response, 404, 'Faturamento nao encontrado.');
+        return;
+      }
+
+      const updated = normalizeFaturamento({
+        ...faturamento,
+        ...payload,
+        id: faturamento.id,
+        createdAt: faturamento.createdAt,
+        updatedAt: toISODate()
+      });
+
+      if (!updated.monthYear) {
+        sendError(response, 422, 'Informe o mes/ano.');
+        return;
+      }
+
+      Object.assign(faturamento, updated);
+      await writeDatabase(db);
+      sendJson(response, 200, faturamento);
+      return;
+    }
+
+    if (request.method === 'POST' && pathname === '/api/huntings') {
+      const payload = await readJsonBody(request);
+      const db = await readDatabase();
+      const opportunity = buildHuntingOpportunity(payload, db);
+      const candidate = buildHuntingCandidate(payload, opportunity.id);
+
+      if (!candidate.name) {
+        sendError(response, 422, 'Informe o candidato.');
+        return;
+      }
+      if (!opportunity.opportunity) {
+        sendError(response, 422, 'Informe o perfil.');
+        return;
+      }
+      if (!opportunity.clientId || !db.clients.some((client) => client.id === opportunity.clientId)) {
+        sendError(response, 422, 'Selecione um cliente valido.');
+        return;
+      }
+
+      db.opportunities.push(opportunity);
+      db.candidates.push(candidate);
+      await writeDatabase(db);
+      sendJson(response, 201, { opportunity, candidate: enrichCandidate(candidate, db) });
+      return;
+    }
+
+    if (request.method === 'PATCH' && pathname.startsWith('/api/huntings/')) {
+      const opportunityId = pathname.split('/').at(-1);
+      const payload = await readJsonBody(request);
+      const db = await readDatabase();
+      const opportunity = db.opportunities.find((item) => item.id === opportunityId && item.model === 'Hunting');
+
+      if (!opportunity) {
+        sendError(response, 404, 'Hunting nao encontrado.');
+        return;
+      }
+
+      const updatedOpportunity = buildHuntingOpportunity(payload, db, opportunity);
+      const candidate = findHuntingCandidate(db, opportunity.id, String(payload.candidateId ?? ''));
+      const updatedCandidate = buildHuntingCandidate(payload, opportunity.id, candidate);
+
+      if (!updatedCandidate.name) {
+        sendError(response, 422, 'Informe o candidato.');
+        return;
+      }
+      if (!updatedOpportunity.opportunity) {
+        sendError(response, 422, 'Informe o perfil.');
+        return;
+      }
+      if (!updatedOpportunity.clientId || !db.clients.some((client) => client.id === updatedOpportunity.clientId)) {
+        sendError(response, 422, 'Selecione um cliente valido.');
+        return;
+      }
+
+      Object.assign(opportunity, updatedOpportunity);
+      if (candidate) Object.assign(candidate, updatedCandidate);
+      else db.candidates.push(updatedCandidate);
+
+      await writeDatabase(db);
+      sendJson(response, 200, {
+        opportunity,
+        candidate: enrichCandidate(candidate ?? updatedCandidate, db)
+      });
       return;
     }
 

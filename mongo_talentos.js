@@ -95,7 +95,11 @@ export function mongoCandidateToCurriculum(doc = {}) {
     data_atualizacao: dateToString(doc.data_atualizacao),
     data_origem: dateToString(doc.data_origem),
     versoes: Array.isArray(doc.versoes) ? doc.versoes : [],
-    data_nascimento: dateToString(doc.data_nascimento)
+    data_nascimento: dateToString(doc.data_nascimento),
+    cargo_alvo: doc.cargo_alvo,
+    observacoes_entrevista: doc.observacoes_entrevista,
+    feedback_entrevista_ingles: doc.feedback_entrevista_ingles,
+    disponibilidade_viagem: doc.disponibilidade_viagem
   });
 }
 
@@ -134,7 +138,11 @@ export async function getCurriculumsFromMongo() {
     data_atualizacao: 1,
     data_origem: 1,
     versoes: 1,
-    data_nascimento: 1
+    data_nascimento: 1,
+    cargo_alvo: 1,
+    observacoes_entrevista: 1,
+    feedback_entrevista_ingles: 1,
+    disponibilidade_viagem: 1
   };
 
   const docs = await collection
@@ -224,7 +232,11 @@ function curriculumPayloadToMongoUpdate(payload = {}) {
     'conhecimento_tecnico',
     'experiencia_profissional',
     'fonte',
-    'data_nascimento'
+    'data_nascimento',
+    'cargo_alvo',
+    'observacoes_entrevista',
+    'feedback_entrevista_ingles',
+    'disponibilidade_viagem'
   ];
 
   const update = {};

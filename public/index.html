@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="pt-BR">
   <head>
     <meta charset="utf-8" />
@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=20260607-banco-talentos-completo" />
+    <link rel="stylesheet" href="/styles.css?v=20260623-dashboard" />
   </head>
   <body class="auth-locked">
     <section class="auth-screen" id="authScreen">
@@ -48,13 +48,31 @@
         </span>
       </a>
 
-      <nav class="nav" aria-label="Navegacao principal">
+      <nav class="nav" aria-label="Navegação principal">
         <button class="nav-item active" data-view="dashboard">Dashboard</button>
-        <button class="nav-item" data-view="opportunities">Oportunidades</button>
-        <button class="nav-item" data-view="cvFilters">Filtro de CVs</button>
-        <button class="nav-item" data-view="selectedCandidates">Candidatos Selecionados</button>
-        <button class="nav-item" data-view="candidates">Candidatos</button>
-        <button class="nav-item" data-view="allocateds">Alocados</button>
+        <div class="nav-group" data-nav-group="deals">
+          <button class="nav-group-toggle" type="button" data-nav-toggle="deals" aria-expanded="false">
+            <span>Deals</span>
+            <span class="nav-chevron" aria-hidden="true">›</span>
+          </button>
+          <div class="nav-submenu" data-nav-submenu="deals" hidden>
+            <button class="nav-item nav-subitem" data-view="opportunities" data-parent-group="deals">Oportunidades</button>
+            <button class="nav-item nav-subitem" data-view="cvFilters" data-parent-group="deals">Filtro de CVs</button>
+            <button class="nav-item nav-subitem" data-view="selectedCandidates" data-parent-group="deals">Candidatos Selecionados</button>
+            <button class="nav-item nav-subitem" data-view="candidates" data-parent-group="deals">Candidatos Entrevistados</button>
+          </div>
+        </div>
+        <div class="nav-group" data-nav-group="contracts">
+          <button class="nav-group-toggle" type="button" data-nav-toggle="contracts" aria-expanded="false">
+            <span>Contratos</span>
+            <span class="nav-chevron" aria-hidden="true">›</span>
+          </button>
+          <div class="nav-submenu" data-nav-submenu="contracts" hidden>
+            <button class="nav-item nav-subitem" data-view="faturamento" data-parent-group="contracts">Faturamento</button>
+            <button class="nav-item nav-subitem" data-view="allocateds" data-parent-group="contracts">Alocados</button>
+            <button class="nav-item nav-subitem" data-view="huntings" data-parent-group="contracts">Huntings</button>
+          </div>
+        </div>
         <button class="nav-item" data-view="curriculums">Banco de Talentos</button>
         <button class="nav-item" data-view="clients">Clientes</button>
         <button class="nav-item" data-view="users">Usuários</button>
@@ -62,7 +80,7 @@
 
       <div class="sidebar-footer">
         <span class="dot"></span>
-        <span>MVP validavel antes de IA</span>
+        <span>MVP validável antes de IA</span>
       </div>
     </aside>
 
@@ -72,13 +90,45 @@
           <p class="eyebrow">Gestão do negócio</p>
           <h1 id="viewTitle">Dashboard</h1>
         </div>
-        <div class="user-menu" aria-label="Usuario logado">
+        <div class="user-menu" aria-label="Usuário logado">
           <span id="currentUserLabel">Admin</span>
           <button class="ghost-action" id="logoutButton" type="button">Sair</button>
         </div>
       </header>
 
       <section class="view active" id="dashboard">
+        <section class="panel faturamento-chart-panel" aria-labelledby="faturamentoDashboardChartTitle">
+          <div class="panel-heading">
+            <div>
+              <h2 id="faturamentoDashboardChartTitle">Acompanhamento - Faturamento Mensal</h2>
+              <span id="faturamentoDashboardChartRange">Faturamento</span>
+            </div>
+          </div>
+          <div class="faturamento-chart-shell">
+            <div class="faturamento-chart-stage" id="faturamentoDashboardChart" role="img" aria-label="Gráfico de acompanhamento de faturamento mensal"></div>
+            <div class="faturamento-chart-legend" id="faturamentoDashboardChartLegend"></div>
+            <label class="faturamento-chart-scroll-label" for="faturamentoDashboardChartScroll">
+              <span>Meses</span>
+              <input id="faturamentoDashboardChartScroll" type="range" min="0" max="0" value="0" step="1" />
+            </label>
+          </div>
+        </section>
+        <section class="panel dashboard-filter-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Filtros do fechamento</h2>
+              <span>Filtra WON e valor fechado</span>
+            </div>
+            <div class="dashboard-filter-controls">
+              <label class="dashboard-filter-field">Mês/Ano
+                <select id="dashboardMonthFilter"></select>
+              </label>
+              <label class="dashboard-filter-field">Modelo
+                <select id="dashboardModelFilter"></select>
+              </label>
+            </div>
+          </div>
+        </section>
         <div class="metric-grid" id="metrics"></div>
         <div class="content-grid">
           <section class="panel">
@@ -91,7 +141,7 @@
           <section class="panel">
             <div class="panel-heading">
               <h2>Oportunidades por status</h2>
-              <span>Operacao</span>
+              <span>Operação</span>
             </div>
             <div class="bar-list compact" id="statusBars"></div>
           </section>
@@ -104,7 +154,7 @@
           </section>
           <section class="panel wide">
             <div class="panel-heading">
-              <h2>Tempo medio por etapa</h2>
+              <h2>Tempo médio por etapa</h2>
               <span>Dias</span>
             </div>
             <div class="table-wrap">
@@ -112,7 +162,7 @@
                 <thead>
                   <tr>
                     <th>Etapa</th>
-                    <th>Tempo medio</th>
+                    <th>Tempo médio</th>
                     <th>Volume</th>
                   </tr>
                 </thead>
@@ -121,6 +171,48 @@
             </div>
           </section>
         </div>
+      </section>
+
+      <section class="view" id="faturamento">
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Cadastrar faturamento</h2>
+            <span>Manutenção</span>
+          </div>
+          <form id="faturamentoForm" class="form-grid">
+            <label>Mês / Ano<input name="monthYear" type="month" required /></label>
+            <label>Previsto<input name="forecast" type="number" min="0" step="0.01" /></label>
+            <label>Realizado<input name="realized" type="number" min="0" step="0.01" /></label>
+            <label>Acumulado Crescimento<input name="accumulatedGrowth" type="number" min="0" step="0.01" /></label>
+            <label>Acumulado Realizado<input name="accumulatedRealized" type="number" min="0" step="0.01" /></label>
+            <button class="primary-action" type="submit">Salvar faturamento</button>
+          </form>
+        </section>
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Faturamento</h2>
+            <span id="faturamentoCount">0</span>
+          </div>
+          <div class="filter-bar">
+            <label>Mês / Ano
+              <input id="faturamentoMonthFilter" type="month" />
+            </label>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Mês / Ano</th>
+                  <th>Previsto</th>
+                  <th>Realizado</th>
+                  <th>Acumulado Crescimento</th>
+                  <th>Acumulado Realizado</th>
+                </tr>
+              </thead>
+              <tbody id="faturamentoTable"></tbody>
+            </table>
+          </div>
+        </section>
       </section>
 
       <section class="view" id="clients">
@@ -196,9 +288,7 @@
               </select>
             </label>
             <label>Filtro
-              <select id="opportunityFilterValue" disabled>
-                <option value="">Todos</option>
-              </select>
+              <input id="opportunityFilterValue" type="text" placeholder="Todos" disabled />
             </label>
             <label>Status
               <select id="opportunityStatusFilter">
@@ -208,6 +298,7 @@
             <label>Mês de Fechamento
               <input id="opportunityClosingMonthFilter" type="month" />
             </label>
+            <button class="primary-action" id="opportunitySearchButton" type="button">Consultar</button>
           </div>
           <div class="table-wrap">
             <table>
@@ -228,6 +319,67 @@
                 </tr>
               </thead>
               <tbody id="opportunityTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" id="huntings">
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Cadastrar hunting</h2>
+            <span>Manutenção</span>
+          </div>
+          <form id="huntingForm" class="form-grid">
+            <input name="candidateId" type="hidden" />
+            <label>Candidato<input name="candidateName" required /></label>
+            <label>Perfil<input name="profile" required /></label>
+            <label>Data de início<input name="startDate" type="date" /></label>
+            <label>Cliente<select name="clientId" required></select></label>
+            <label>Salário<input name="salary" type="number" min="0" step="0.01" /></label>
+            <label>Faturamento<input name="revenue" type="number" min="0" step="0.01" /></label>
+            <label>Taxa<input name="tax" /></label>
+            <label>Fonte<input name="source" /></label>
+            <button class="primary-action" type="submit">Salvar hunting</button>
+          </form>
+        </section>
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Huntings</h2>
+              <span>Consulta</span>
+            </div>
+            <span id="huntingCount">0</span>
+          </div>
+          <div class="filter-bar">
+            <label>Consultar por
+              <select id="huntingFilterType">
+                <option value="">Todos</option>
+                <option value="candidate">Candidato</option>
+                <option value="client">Cliente</option>
+              </select>
+            </label>
+            <label>Filtro
+              <select id="huntingFilterValue" disabled>
+                <option value="">Todos</option>
+              </select>
+            </label>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Candidato</th>
+                  <th>Perfil</th>
+                  <th>Data de início</th>
+                  <th>Cliente</th>
+                  <th>Salário</th>
+                  <th>Faturamento</th>
+                  <th>Taxa</th>
+                  <th>Fonte</th>
+                </tr>
+              </thead>
+              <tbody id="huntingTable"></tbody>
             </table>
           </div>
         </section>
@@ -341,11 +493,17 @@
             <span id="selectedCandidateCount">0</span>
           </div>
           <div class="filter-bar">
-            <label>Oportunidade
-              <select id="selectedCandidateOpportunityFilter" name="opportunityId">
-                <option value="">Selecione</option>
+            <label>Consultar por
+              <select id="selectedCandidateFilterType">
+                <option value="">Todos</option>
+                <option value="client">Cliente</option>
+                <option value="opportunity">Oportunidade</option>
               </select>
             </label>
+            <label>Filtro
+              <input id="selectedCandidateFilterValue" type="text" placeholder="Todos" disabled />
+            </label>
+            <button class="primary-action" id="selectedCandidateSearchButton" type="button">Consultar</button>
           </div>
           <form id="selectedCandidateMessageForm" class="form-grid">
             <label class="full">Mensagem ao candidato<textarea name="candidateMessage" rows="3"></textarea></label>
@@ -434,10 +592,8 @@
             <button class="secondary-action" id="editCurriculumButton" type="button">Editar</button>
             <button class="primary-action" id="saveCurriculumButton" type="button" disabled>Salvar dados</button>
             <button class="secondary-action" id="cancelCurriculumEditButton" type="button" disabled>Cancelar</button>
-            <label class="template-field">Template
-              <select id="curriculumTemplateSelect"></select>
-            </label>
-            <button class="secondary-action" id="exportCurriculumTemplateButton" type="button">Exportar template</button>
+            <button class="secondary-action" id="exportAlcateiaButton" type="button">Gerar CV Alcateia</button>
+            <button class="primary-action" id="exportDttButton" type="button">DTT — gerar 3 documentos</button>
           </div>
 
           <form id="curriculumDetailForm" class="form-grid curriculum-detail-form">
@@ -459,6 +615,10 @@
             <label class="full">Experiência profissional<textarea name="experiencia_profissional" rows="6"></textarea></label>
             <label>Nível inglês<input name="nivel_ingles" /></label>
             <label>Nível espanhol<input name="nivel_espanhol" /></label>
+            <label>Cargo ou vaga alvo<input name="cargo_alvo" placeholder="Se vazio, a IA identifica pelo currículo" /></label>
+            <label>Disponibilidade para viagem<input name="disponibilidade_viagem" /></label>
+            <label class="full">Feedback da entrevista em inglês<textarea name="feedback_entrevista_ingles" rows="3"></textarea></label>
+            <label class="full">Observações da entrevista<textarea name="observacoes_entrevista" rows="5" placeholder="Use fatos observados na entrevista; se vazio, o documento informará que não há entrevista registrada."></textarea></label>
           </form>
         </section>
       </section>
@@ -467,14 +627,14 @@
         <section class="panel">
           <div class="panel-heading">
             <h2>Cadastrar candidato</h2>
-            <span>Vinculo com oportunidade</span>
+            <span>Vínculo com oportunidade</span>
           </div>
           <form id="candidateForm" class="form-grid">
             <label>Name<input name="name" required /></label>
             <label>Id Nome<select name="curriculumId" required></select></label>
             <label>Oportunidade<select name="opportunityId" required></select></label>
             <label>Etapa<select name="stage"></select></label>
-            <label>Aderencia (%)<select name="aderencia"></select></label>
+            <label>Aderência (%)<select name="aderencia"></select></label>
             <label>Valor Hora<input name="hourlyRate" type="number" min="0" step="0.01" /></label>
             <label class="full">Observação<textarea name="observation" rows="3"></textarea></label>
             <label class="checkbox-field"><input name="approved" type="checkbox" /> Aprovado</label>
@@ -483,7 +643,7 @@
         </section>
         <section class="panel">
           <div class="panel-heading">
-            <h2>Candidatos</h2>
+            <h2>Candidatos Entrevistados</h2>
             <span id="candidateCount">0</span>
           </div>
           <div class="filter-bar">
@@ -509,11 +669,11 @@
                   <th>Oportunidade</th>
                   <th>Id Oportunidade</th>
                   <th>Etapa</th>
-                  <th>Aderencia</th>
+                  <th>Aderência</th>
                   <th>Valor Hora</th>
                   <th>Observação</th>
                   <th>Aprovado</th>
-                  <th>Acoes</th>
+                  <th>Ações</th>
                 </tr>
               </thead>
               <tbody id="candidateTable"></tbody>
@@ -561,20 +721,20 @@
         <section class="panel">
           <div class="panel-heading">
             <h2>Cadastrar alocado</h2>
-            <span>Operacao</span>
+            <span>Operação</span>
           </div>
           <form id="allocatedForm" class="form-grid">
             <label>ID<input name="externalId" /></label>
-            <label>Codigo<input name="code" required /></label>
+            <label>Código<input name="code" required /></label>
             <label>Consultor<input name="consultant" required /></label>
             <label>Skill<input name="skill" /></label>
             <label>Cliente<select name="clientId" required></select></label>
             <label>Valor Hora<input name="hourlyRate" type="number" min="0" step="0.01" /></label>
             <label>Fone<input name="phone" /></label>
             <label>Email Consultor<input name="consultantEmail" type="email" /></label>
-            <label>Inicio<input name="startDate" type="date" /></label>
+            <label>Início<input name="startDate" type="date" /></label>
             <label class="checkbox-field"><input name="active" type="checkbox" /> Ativo</label>
-            <label>Termino<input name="endDate" type="date" /></label>
+            <label>Término<input name="endDate" type="date" /></label>
             <label>Gestor<input name="manager" /></label>
             <label>Email Gestor<input name="managerEmail" type="email" /></label>
             <label>Fone Gestor<input name="managerPhone" /></label>
@@ -605,16 +765,16 @@
               <thead>
                 <tr>
                   <th>ID</th>
-                  <th>Codigo</th>
+                  <th>Código</th>
                   <th>Consultor</th>
                   <th>Skill</th>
                   <th>Cliente</th>
                   <th>Valor Hora</th>
                   <th>Fone</th>
                   <th>Email Consultor</th>
-                  <th>Inicio</th>
+                  <th>Início</th>
                   <th>Ativo</th>
-                  <th>Termino</th>
+                  <th>Término</th>
                   <th>Gestor</th>
                   <th>Email Gestor</th>
                   <th>Fone Gestor</th>
@@ -631,22 +791,22 @@
     <div class="modal-backdrop hidden" id="candidateSelectModal" role="dialog" aria-modal="true" aria-labelledby="candidateSelectTitle">
       <section class="modal-panel">
         <div class="panel-heading">
-          <h2 id="candidateSelectTitle">Completar alocacao</h2>
+          <h2 id="candidateSelectTitle">Completar alocação</h2>
           <button class="ghost-action" id="closeCandidateSelectModal" type="button" aria-label="Fechar">Fechar</button>
         </div>
         <p class="modal-copy" id="candidateSelectSummary"></p>
         <form id="candidateSelectForm" class="form-grid">
           <label>ID<input name="externalId" /></label>
-          <label>Codigo<input name="code" required /></label>
+          <label>Código<input name="code" required /></label>
           <label>Consultor<input name="consultant" required /></label>
           <label>Skill<input name="skill" /></label>
           <label>Cliente<select name="clientId" required></select></label>
           <label>Valor Hora<input name="hourlyRate" type="number" min="0" step="0.01" /></label>
           <label>Fone<input name="phone" /></label>
           <label>Email Consultor<input name="consultantEmail" type="email" /></label>
-          <label>Inicio<input name="startDate" type="date" /></label>
+          <label>Início<input name="startDate" type="date" /></label>
           <label class="checkbox-field"><input name="active" type="checkbox" checked /> Ativo</label>
-          <label>Termino<input name="endDate" type="date" /></label>
+          <label>Término<input name="endDate" type="date" /></label>
           <label>Gestor<input name="manager" /></label>
           <label>Email Gestor<input name="managerEmail" type="email" /></label>
           <label>Fone Gestor<input name="managerPhone" /></label>
@@ -681,7 +841,7 @@
           })
             .then(function (response) {
               return response.json().then(function (body) {
-                if (!response.ok) throw new Error(body.error || 'Nao foi possivel entrar.');
+                if (!response.ok) throw new Error(body.error || 'Não foi possível entrar.');
                 return body;
               });
             })
@@ -726,7 +886,7 @@
             })
               .then(function (response) {
                 return response.json().then(function (body) {
-                  if (!response.ok) throw new Error(body.error || 'Nao foi possivel trocar a senha.');
+                  if (!response.ok) throw new Error(body.error || 'Não foi possível trocar a senha.');
                   return body;
                 });
               })
@@ -743,6 +903,7 @@
         }
       });
     </script>
-    <script src="/app.js?v=20260610-email-fix"></script>
+    <script src="/app.js?v=20260623-dashboard"></script>
   </body>
 </html>
+

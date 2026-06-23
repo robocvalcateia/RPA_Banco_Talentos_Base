@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs';
+﻿import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
@@ -71,6 +71,7 @@ const REQUIRED_COLLECTIONS = [
   'clients',
   'users',
   'opportunities',
+  'faturamento',
   'curriculums',
   'candidates',
   'allocateds',
@@ -80,31 +81,15 @@ const REQUIRED_COLLECTIONS = [
 
 export async function readDatabase(file = DATA_FILE) {
   let content = '';
-
   try {
     content = await fs.readFile(file, 'utf8');
   } catch (error) {
-    if (error.code !== 'ENOENT') {
-      throw error;
-    }
-
-    const initialData = {
-      clients: [],
-      users: [],
-      opportunities: [],
-      curriculums: [],
-      candidates: [],
-      allocateds: [],
-      cvFilters: [],
-      selectedCandidates: []
-    };
-
+    if (error.code !== 'ENOENT') throw error;
+    const initialData = Object.fromEntries(REQUIRED_COLLECTIONS.map((collection) => [collection, []]));
     await fs.mkdir(path.dirname(file), { recursive: true });
     await fs.writeFile(file, `${JSON.stringify(initialData, null, 2)}\n`, 'utf8');
-
     content = JSON.stringify(initialData);
   }
-
   const data = JSON.parse(content);
 
   if (!Array.isArray(data.clients) && Array.isArray(data.companies)) {
@@ -141,6 +126,12 @@ export async function readDatabase(file = DATA_FILE) {
     delete data.jobs;
   }
 
+  const legacyFaturamentoCollection = ['sa', 'les'].join('');
+  if (!Array.isArray(data.faturamento) && Array.isArray(data[legacyFaturamentoCollection])) {
+    data.faturamento = data[legacyFaturamentoCollection];
+  }
+  delete data[legacyFaturamentoCollection];
+
   for (const collection of REQUIRED_COLLECTIONS) {
     if (!Array.isArray(data[collection])) {
       data[collection] = [];
@@ -152,6 +143,7 @@ export async function readDatabase(file = DATA_FILE) {
     status: normalizeOpportunityStatus(LEGACY_OPPORTUNITY_STATUS_MAP[opportunity.status] ?? opportunity.status ?? 'Open'),
     model: normalizeOpportunityModel(opportunity.model ?? 'Alocação')
   }));
+  data.faturamento = data.faturamento.map((item) => normalizeFaturamento(item));
 
   data.curriculums = data.curriculums.map((curriculum) => normalizeCurriculum(curriculum));
   data.candidates = data.candidates.map((candidate) => normalizeCandidate(candidate));
@@ -285,6 +277,10 @@ export function normalizeCurriculum(curriculum) {
     cursos_certificacoes: String(curriculum.cursos_certificacoes ?? '').trim(),
     conhecimento_tecnico: String(curriculum.conhecimento_tecnico ?? '').trim(),
     experiencia_profissional: String(curriculum.experiencia_profissional ?? '').trim(),
+    cargo_alvo: String(curriculum.cargo_alvo ?? '').trim(),
+    observacoes_entrevista: String(curriculum.observacoes_entrevista ?? '').trim(),
+    feedback_entrevista_ingles: String(curriculum.feedback_entrevista_ingles ?? '').trim(),
+    disponibilidade_viagem: String(curriculum.disponibilidade_viagem ?? '').trim(),
     hash_documento: String(curriculum.hash_documento ?? '').trim(),
     fonte: String(curriculum.fonte ?? '').trim(),
     data_criacao: String(curriculum.data_criacao ?? curriculum.createdAt ?? toISODate()).trim(),
@@ -348,6 +344,19 @@ export function normalizeAllocated(allocated) {
   };
 }
 
+export function normalizeFaturamento(item) {
+  return {
+    ...item,
+    id: String(item.id ?? createId('faturamento', item.monthYear ?? item.mesAno ?? item.month)).trim().replace(new RegExp(['^sa', 'le_'].join('')), 'faturamento_'),
+    monthYear: String(item.monthYear ?? item.mesAno ?? item.month ?? '').trim(),
+    forecast: Number(item.forecast ?? item.previsto ?? 0),
+    realized: Number(item.realized ?? item.realizado ?? 0),
+    accumulatedGrowth: Number(item.accumulatedGrowth ?? item.acumuladoCrescimento ?? 0),
+    accumulatedRealized: Number(item.accumulatedRealized ?? item.acumuladoRealizado ?? 0),
+    createdAt: String(item.createdAt ?? toISODate()).trim()
+  };
+}
+
 export function normalizeCvFilter(filter) {
   const state = String(filter.state ?? filter.estado ?? '').trim().toUpperCase();
   const matchPercent = Number(filter.matchPercent ?? filter.percentualAcerto ?? filter.percentual_acerto ?? 0);
@@ -402,7 +411,7 @@ export function normalizeCvSearchResult(result) {
     source: String(result.source ?? result.fonte ?? 'APINFO').trim(),
     link: String(result.link ?? '').trim(),
     score: Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : 0,
-    observation: String(result.observation ?? result.observacao ?? result.observação ?? '').trim()
+    observation: String(result.observation ?? result.observacao ?? result['observacao'] ?? '').trim()
   };
 }
 
@@ -419,7 +428,7 @@ export function normalizeSelectedCandidate(candidate) {
     score: Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : 0,
     origin: String(candidate.origin ?? candidate.origem ?? 'Resultado').trim(),
     candidateMessage: String(candidate.candidateMessage ?? candidate.mensagemCandidato ?? '').trim(),
-    observation: String(candidate.observation ?? candidate.observacao ?? candidate['observação'] ?? candidate['observaÃ§Ã£o'] ?? '').trim(),
+    observation: String(candidate.observation ?? candidate.observacao ?? candidate['observação'] ?? candidate['observação'] ?? '').trim(),
     createdAt: String(candidate.createdAt ?? toISODate()).trim(),
     updatedAt: String(candidate.updatedAt ?? '').trim()
   };
@@ -512,37 +521,15 @@ export function enrichSelectedCandidate(candidate, db) {
   };
 }
 
-function latestOpportunityMonth(opportunities) {
-  const months = opportunities
-    .map((opportunity) =>
-      monthKeyFromValue(
-        opportunity.monthYear ||
-        opportunity.closingDate ||
-        opportunity.openingDate
-      )
-    )
-    .filter(Boolean)
-    .sort();
-
-  return months.at(-1) || monthYearFromDate(new Date());
-}
-
 export function calculateIndicators(db, now = new Date()) {
   const openOpportunities = db.opportunities.filter((opportunity) => opportunity.status === 'Open').length;
-  const currentMonth = latestOpportunityMonth(db.opportunities);
-  const baseMonthDate = new Date(`${currentMonth}-01T00:00:00`);
-  const lastSixMonths = rollingMonthKeys(baseMonthDate);
+  const currentMonth = monthYearFromDate(now);
+  const lastSixMonths = rollingMonthKeys(now);
   const wonCurrentMonth = db.opportunities.filter(
-    (opportunity) =>
-      opportunity.status === 'WON' &&
-      monthKeyFromValue(
-        opportunity.closingDate ||
-        opportunity.monthYear ||
-        opportunity.openingDate
-      ) === currentMonth
+    (opportunity) => opportunity.status === 'WON' && monthKeyFromValue(opportunity.closingDate) === currentMonth
   );
   const wonContractValueCurrentMonth = wonCurrentMonth.reduce(
-    (sum, opportunity) => sum + Number(opportunity.contractValue ?? 0),
+    (sum, opportunity) => sum + Number(opportunity.closedQuantity ?? 0) * Number(opportunity.contractValue ?? 0),
     0
   );
   const wonByModelCurrentMonth = Object.fromEntries(OPPORTUNITY_MODELS.map((model) => [model, 0]));
@@ -551,9 +538,9 @@ export function calculateIndicators(db, now = new Date()) {
   }
   const wonContractValueByMonth = Object.fromEntries(lastSixMonths.map((month) => [month, 0]));
   for (const opportunity of db.opportunities) {
-    const month = monthKeyFromValue(opportunity.closingDate ||opportunity.monthYear ||opportunity.openingDate);
+    const month = monthKeyFromValue(opportunity.closingDate || opportunity.monthYear);
     if (opportunity.status === 'WON' && Object.hasOwn(wonContractValueByMonth, month)) {
-      wonContractValueByMonth[month] += Number(opportunity.contractValue ?? 0);
+      wonContractValueByMonth[month] += Number(opportunity.closedQuantity ?? 0) * Number(opportunity.contractValue ?? 0);
     }
   }
   const activeContractValue = db.opportunities
@@ -683,3 +670,4 @@ export function moveCandidateStage(candidate, nextStage, now = new Date()) {
 
   return candidate;
 }
+

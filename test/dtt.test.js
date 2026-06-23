@@ -1,0 +1,170 @@
+import assert from 'node:assert/strict';
+import path from 'node:path';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+import PizZip from 'pizzip';
+
+import {
+  buildDttZip,
+  buildGeminiRequest,
+  buildOpenAIRequest,
+  extractGeminiText,
+  extractOpenAIText,
+  generateCurriculumContent,
+  prepareDocumentData,
+  renderCurriculumDocuments
+} from '../dtt.js';
+
+
+const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const TEMPLATE_DIR = path.join(ROOT, 'assets', 'templates', 'dtt');
+
+const curriculum = {
+  nome: 'Marina Teste',
+  email: 'marina@example.com',
+  telefone: '(11) 99999-9999',
+  endereco: 'São Paulo/SP',
+  nacionalidade: 'Brasileira',
+  idade: '39',
+  linkedin: 'https://linkedin.com/in/marina',
+  cargo_alvo: 'Analista de Sistemas Sênior',
+  skills: 'Java, SQL, APIs',
+  conhecimento_tecnico: 'Java, SQL, APIs',
+  experiencia_profissional: 'Empresa Atual - 2020/Atual - Analista. Empresa Antiga - 2010/2020 - Desenvolvedora.',
+  formacao_academica: 'Bacharelado em Sistemas de Informação',
+  cursos_certificacoes: 'Scrum Foundation',
+  nivel_ingles: 'Intermediário',
+  observacoes_entrevista: 'Comunicação clara e experiência compatível.',
+  feedback_entrevista_ingles: 'Compreende textos e mantém conversação técnica.',
+  disponibilidade_viagem: 'Sim'
+};
+
+const generated = {
+  target_role_pt: 'Analista de Sistemas Sênior',
+  target_role_en: 'Senior Systems Analyst',
+  profile_pt: ['Profissional com experiência em desenvolvimento de sistemas.'],
+  profile_en: ['Professional experienced in systems development.'],
+  technical_skills_pt: ['Linguagens: Java', 'Banco de dados: SQL', 'Integrações: APIs'],
+  experiences: [
+    {
+      company: 'Empresa Atual',
+      role_pt: 'Analista de Sistemas',
+      role_en: 'Systems Analyst',
+      period_pt: '2020 – Atual',
+      period_en: '2020 – Present',
+      details_pt: ['Desenvolvimento de sistemas em Java.', 'Consultas SQL.'],
+      details_en: ['Development of Java systems.', 'SQL queries.']
+    },
+    {
+      company: 'Empresa Antiga',
+      role_pt: 'Desenvolvedora',
+      role_en: 'Developer',
+      period_pt: '2010 – 2020',
+      period_en: '2010 – 2020',
+      details_pt: ['Desenvolvimento e manutenção de APIs.'],
+      details_en: ['API development and maintenance.']
+    }
+  ],
+  education_pt: ['Bacharelado em Sistemas de Informação'],
+  education_en: ["Bachelor's Degree in Information Systems"],
+  certifications_pt: ['Scrum Foundation'],
+  certifications_en: ['Scrum Foundation'],
+  languages_pt: ['Inglês Intermediário'],
+  languages_en: ['English – Intermediate'],
+  interview_summary_pt: ['Comunicação clara e experiência compatível.'],
+  required_technical_knowledge_pt: ['Java', 'SQL', 'APIs'],
+  english_level_pt: 'Intermediário',
+  english_interview_feedback_pt: 'Compreende textos e mantém conversação técnica.',
+  travel_availability_pt: 'Sim'
+};
+
+function allXml(buffer) {
+  const zip = new PizZip(buffer);
+  return Object.keys(zip.files)
+    .filter((name) => name.endsWith('.xml'))
+    .map((name) => zip.file(name).asText())
+    .join('\n');
+}
+
+test('requisição de IA usa Responses API estruturada e não armazena o currículo', () => {
+  const request = buildOpenAIRequest(curriculum);
+  assert.equal(request.model, 'gpt-5.5');
+  assert.equal(request.store, false);
+  assert.equal(request.text.format.type, 'json_schema');
+  assert.equal(request.text.format.strict, true);
+  assert.equal(request.text.format.schema.additionalProperties, false);
+  assert.match(request.input[1].content, /Empresa Antiga/);
+});
+
+test('resposta estruturada da IA é extraída e recusas são tratadas', () => {
+  assert.equal(extractOpenAIText({ output: [{ content: [{ type: 'output_text', text: '{"ok":true}' }] }] }), '{"ok":true}');
+  assert.throws(
+    () => extractOpenAIText({ output: [{ content: [{ type: 'refusal', refusal: 'Não posso.' }] }] }),
+    /recusou/
+  );
+});
+
+test('geração de conteúdo aceita uma resposta mockada da Responses API', async () => {
+  const result = await generateCurriculumContent(curriculum, {
+    apiKey: 'teste',
+    fetchImpl: async (_url, options) => {
+      const request = JSON.parse(options.body);
+      assert.equal(request.store, false);
+      return {
+        ok: true,
+        json: async () => ({ output: [{ content: [{ type: 'output_text', text: JSON.stringify(generated) }] }] })
+      };
+    }
+  });
+  assert.equal(result.experiences.length, 2);
+});
+
+test('geração de conteúdo usa Gemini quando essa é a integração configurada', async () => {
+  const request = buildGeminiRequest(curriculum);
+  assert.equal(request.generationConfig.responseMimeType, 'application/json');
+  assert.equal(request.generationConfig.responseJsonSchema.additionalProperties, undefined);
+  assert.equal(extractGeminiText({ candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }] }), '{"ok":true}');
+
+  const result = await generateCurriculumContent(curriculum, {
+    geminiKey: 'teste',
+    fetchImpl: async (url, options) => {
+      assert.match(url, /generativelanguage\.googleapis\.com/);
+      assert.equal(JSON.parse(options.body).generationConfig.responseMimeType, 'application/json');
+      return {
+        ok: true,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(generated) }] } }] })
+      };
+    }
+  });
+  assert.equal(result.experiences.length, 2);
+});
+
+test('dados diretos de contato não dependem da IA', () => {
+  const data = prepareDocumentData(curriculum, generated);
+  assert.equal(data.candidate_name, 'Marina Teste');
+  assert.equal(data.nationality_age, 'Brasileira, 39 anos');
+  assert.equal(data.phone, '(11) 99999-9999');
+});
+
+test('templates geram os quatro DOCX e o pacote DTT com três arquivos', async () => {
+  const documents = await renderCurriculumDocuments(curriculum, generated, TEMPLATE_DIR);
+  for (const document of Object.values(documents)) {
+    assert.ok(Buffer.isBuffer(document));
+    assert.ok(document.length > 10_000);
+    assert.doesNotMatch(allXml(document), /\{[#/.]?[a-z_]+\}/i);
+  }
+
+  assert.match(allXml(documents.portuguese), /Empresa Antiga/);
+  assert.match(allXml(documents.english), /Empresa Antiga/);
+  assert.match(allXml(documents.interview), /Comunicação clara/);
+  assert.match(allXml(documents.alcateia), /Empresa Antiga/);
+
+  const bundle = new PizZip(buildDttZip('Marina-Teste', documents));
+  const names = Object.keys(bundle.files).sort();
+  assert.deepEqual(names, [
+    'Marina-Teste-DTT-CV-EN.docx',
+    'Marina-Teste-DTT-CV-PT.docx',
+    'Marina-Teste-DTT-Resumo-Entrevista-PT.docx'
+  ]);
+});
