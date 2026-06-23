@@ -1130,6 +1130,17 @@ function renderCurriculums() {
   renderEmailProcessingStatus();
   const curriculums = getFilteredCurriculums();
   $('#curriculumCount').textContent = curriculums.length;
+  const searchStatus = $('#curriculumSearchStatus');
+
+  if (searchStatus) {
+    if (state.curriculumSearch.hasSearched) {
+      searchStatus.textContent = curriculums.length
+        ? `${curriculums.length} talento(s) encontrado(s).`
+        : `Nenhum talento encontrado para os filtros informados. A base atual possui ${state.curriculums.length} talento(s).`;
+    } else {
+      searchStatus.textContent = `${state.curriculums.length} talento(s) disponível(is) para pesquisa.`;
+    }
+  }
 
   if (!curriculums.some((curriculum) => curriculumIdentifier(curriculum) === state.selectedCurriculumId)) {
     state.selectedCurriculumId = '';
@@ -1140,7 +1151,7 @@ function renderCurriculums() {
   }
 
   renderCurriculumTabs();
-$('#curriculumTable').innerHTML = curriculums
+const curriculumRows = curriculums
   .slice()
   .sort(byCurriculumControl)
   .map((curriculum) => {
@@ -1171,6 +1182,12 @@ $('#curriculumTable').innerHTML = curriculums
     `;
   })
   .join('');
+
+$('#curriculumTable').innerHTML = curriculumRows || `
+  <tr>
+    <td colspan="3">Nenhum talento encontrado para os filtros informados.</td>
+  </tr>
+`;
 
   renderCurriculumDetail();
 }
@@ -2318,24 +2335,45 @@ function bindEditableRows() {
 }
 
 function bindCurriculumSearch() {
-  const search = () => {
+  const search = async () => {
+    const button = $('#curriculumSearchButton');
+    if (button?.disabled) return;
+
     const name = $('#curriculumSearchName')?.value.trim() ?? '';
     const skills = $('#curriculumSearchSkills')?.value.trim() ?? '';
 
-    state.curriculumSearch = {
-      name,
-      skills,
-      hasSearched: Boolean(name || skills)
-    };
-    renderCurriculums();
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Pesquisando...';
+      button.setAttribute('aria-busy', 'true');
+    }
+
+    try {
+      await new Promise((resolve) => window.setTimeout(resolve, 500));
+
+      state.curriculumSearch = {
+        name,
+        skills,
+        hasSearched: Boolean(name || skills)
+      };
+      renderCurriculums();
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = 'Pesquisar';
+        button.removeAttribute('aria-busy');
+      }
+    }
   };
 
-  $('#curriculumSearchButton')?.addEventListener('click', search);
+  $('#curriculumSearchButton')?.addEventListener('click', () => {
+    void search();
+  });
   ['#curriculumSearchName', '#curriculumSearchSkills'].forEach((selector) => {
     $(selector)?.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
         event.preventDefault();
-        search();
+        void search();
       }
     });
   });
