@@ -29,8 +29,8 @@ load_dotenv(ROOT / ".env")
 
 MONGODB_URL = os.getenv("MONGODB_URL")
 MONGODB_DB = os.getenv("MONGODB_DB", "Banco_de_Talentos")
-MONGODB_COLLECTION = os.getenv("MONGODB_COLLECTION", "candidatos")
-OUTPUT = ROOT / "data" / "candidatos_old.json"
+MONGODB_COLLECTION = os.getenv("MONGODB_CURRICULUM_COLLECTION") or os.getenv("MONGODB_COLLECTION", "curriculums")
+OUTPUT = ROOT / "data" / "curriculums_export.json"
 
 if not MONGODB_URL:
     raise SystemExit("Configure MONGODB_URL no arquivo .env antes de executar.")

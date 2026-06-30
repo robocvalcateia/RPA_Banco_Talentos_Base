@@ -8,6 +8,9 @@
     "dev": "node --watch server.js",
     "test": "node --test",
     "import:curriculums": "node scripts/import_banco_talentos_json.mjs",
+    "mongo:rename-curriculums": "node scripts/rename_mongo_candidatos_to_curriculums.mjs",
+    "mongo:migrate-app": "node scripts/migrate_database_json_to_mongodb.mjs",
+    "mongo:indexes": "node scripts/create_mongo_indexes.mjs",
     "install:legacy": "python -m pip install -r legacy_banco_talentos/requirements.txt"
   },
   "keywords": [

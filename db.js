@@ -79,18 +79,76 @@ const REQUIRED_COLLECTIONS = [
   'selectedCandidates'
 ];
 
-export async function readDatabase(file = DATA_FILE) {
-  let content = '';
+export const MONGO_APP_COLLECTIONS = REQUIRED_COLLECTIONS.filter((collection) => collection !== 'curriculums');
+
+let mongoAppClient = null;
+let mongoAppClientUrl = '';
+let MongoClientCtor = null;
+
+async function loadMongoDriver() {
+  if (MongoClientCtor) return { MongoClient: MongoClientCtor };
   try {
-    content = await fs.readFile(file, 'utf8');
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
-    const initialData = Object.fromEntries(REQUIRED_COLLECTIONS.map((collection) => [collection, []]));
-    await fs.mkdir(path.dirname(file), { recursive: true });
-    await fs.writeFile(file, `${JSON.stringify(initialData, null, 2)}\n`, 'utf8');
-    content = JSON.stringify(initialData);
+    const driver = await import('mongodb');
+    MongoClientCtor = driver.MongoClient;
+    return { MongoClient: MongoClientCtor };
+  } catch {
+    throw new Error('Dependencia mongodb nao instalada. Rode npm install antes de usar MongoDB.');
   }
-  const data = JSON.parse(content);
+}
+
+function readMongoAppConfig(env = process.env) {
+  return {
+    enabled: env.MONGODB_APP_COLLECTIONS !== 'false',
+    required: env.MONGODB_APP_REQUIRED === 'true',
+    url: env.MONGODB_URL || env.MONGODB_URI || '',
+    dbName: env.MONGODB_DB || 'Banco_de_Talentos',
+    prefix: env.MONGODB_APP_COLLECTION_PREFIX || ''
+  };
+}
+
+export function isMongoAppDatabaseConfigured(env = process.env) {
+  const config = readMongoAppConfig(env);
+  return Boolean(config.enabled && config.url && config.dbName);
+}
+
+function shouldUseMongoAppDatabase(file = DATA_FILE) {
+  return path.resolve(file) === path.resolve(DATA_FILE) && isMongoAppDatabaseConfigured();
+}
+
+function mongoAppCollectionName(collection, config = readMongoAppConfig()) {
+  return `${config.prefix}${collection}`;
+}
+
+async function getMongoAppClient(config = readMongoAppConfig()) {
+  if (mongoAppClient && mongoAppClientUrl === config.url) {
+    return mongoAppClient;
+  }
+
+  if (mongoAppClient) {
+    await mongoAppClient.close().catch(() => null);
+  }
+
+  const { MongoClient } = await loadMongoDriver();
+  mongoAppClient = new MongoClient(config.url, {
+    serverSelectionTimeoutMS: 8000,
+    connectTimeoutMS: 8000,
+    socketTimeoutMS: 30000
+  });
+  await mongoAppClient.connect();
+  await mongoAppClient.db('admin').command({ ping: 1 });
+  mongoAppClientUrl = config.url;
+  return mongoAppClient;
+}
+
+function stripMongoInternalFields(doc = {}) {
+  const { _id, ...cleanDoc } = doc;
+  return cleanDoc;
+}
+
+export function normalizeDatabase(data = {}) {
+  if (!data || typeof data !== 'object') {
+    data = {};
+  }
 
   if (!Array.isArray(data.clients) && Array.isArray(data.companies)) {
     data.clients = data.companies.map((company) => ({
@@ -156,7 +214,109 @@ export async function readDatabase(file = DATA_FILE) {
   return data;
 }
 
+export async function readLocalDatabase(file = DATA_FILE) {
+  let content = '';
+  try {
+    content = await fs.readFile(file, 'utf8');
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    const initialData = Object.fromEntries(REQUIRED_COLLECTIONS.map((collection) => [collection, []]));
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, `${JSON.stringify(initialData, null, 2)}\n`, 'utf8');
+    content = JSON.stringify(initialData);
+  }
+  const data = JSON.parse(content);
+  return normalizeDatabase(data);
+}
+
+export async function readMongoAppDatabase() {
+  const config = readMongoAppConfig();
+  const client = await getMongoAppClient(config);
+  const mongoDb = client.db(config.dbName);
+  const data = Object.fromEntries(REQUIRED_COLLECTIONS.map((collection) => [collection, []]));
+
+  for (const collection of MONGO_APP_COLLECTIONS) {
+    data[collection] = await mongoDb
+      .collection(mongoAppCollectionName(collection, config))
+      .find({})
+      .sort({ createdAt: 1, id: 1, _id: 1 })
+      .toArray()
+      .then((docs) => docs.map(stripMongoInternalFields));
+  }
+
+  return normalizeDatabase(data);
+}
+
+async function hasMongoAppCollectionsData() {
+  const config = readMongoAppConfig();
+  const client = await getMongoAppClient(config);
+  const mongoDb = client.db(config.dbName);
+  return (await mongoDb.collection(mongoAppCollectionName('users', config)).countDocuments({})) > 0;
+}
+
+export async function writeMongoAppDatabase(data) {
+  const config = readMongoAppConfig();
+  const client = await getMongoAppClient(config);
+  const mongoDb = client.db(config.dbName);
+  const normalized = normalizeDatabase({ ...data, curriculums: [] });
+
+  for (const collection of MONGO_APP_COLLECTIONS) {
+    const mongoCollection = mongoDb.collection(mongoAppCollectionName(collection, config));
+    const rows = Array.isArray(normalized[collection]) ? normalized[collection] : [];
+    const ids = [];
+
+    for (const row of rows) {
+      const cleanRow = stripMongoInternalFields(row);
+      if (!cleanRow.id) {
+        cleanRow.id = createId(collection, cleanRow.name || cleanRow.customerName || cleanRow.opportunity || cleanRow.monthYear);
+      }
+      ids.push(cleanRow.id);
+      await mongoCollection.replaceOne({ id: cleanRow.id }, cleanRow, { upsert: true });
+    }
+
+    if (ids.length) {
+      await mongoCollection.deleteMany({ id: { $nin: ids } });
+    } else {
+      await mongoCollection.deleteMany({});
+    }
+  }
+
+  return normalized;
+}
+
+export async function readDatabase(file = DATA_FILE) {
+  const config = readMongoAppConfig();
+  if (shouldUseMongoAppDatabase(file)) {
+    try {
+      const mongoDb = await readMongoAppDatabase();
+      if (mongoDb.users.length) {
+        return mongoDb;
+      }
+      if (config.required) {
+        throw new Error('Colecoes operacionais do MongoDB ainda nao possuem usuarios migrados.');
+      }
+    } catch (error) {
+      if (config.required) throw error;
+      console.warn(`[mongo-app] Falha ao ler MongoDB. Usando data/database.json. Detalhe: ${error.message}`);
+    }
+  }
+
+  return readLocalDatabase(file);
+}
+
 export async function writeDatabase(data, file = DATA_FILE) {
+  const config = readMongoAppConfig();
+  if (shouldUseMongoAppDatabase(file)) {
+    try {
+      if (config.required || await hasMongoAppCollectionsData()) {
+        return await writeMongoAppDatabase(data);
+      }
+    } catch (error) {
+      if (config.required) throw error;
+      console.warn(`[mongo-app] Falha ao gravar MongoDB. Usando data/database.json. Detalhe: ${error.message}`);
+    }
+  }
+
   await fs.writeFile(file, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
   return data;
 }

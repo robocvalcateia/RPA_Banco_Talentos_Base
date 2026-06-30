@@ -30,12 +30,15 @@ import {
   normalizeStage,
   OPPORTUNITY_MODELS,
   OPPORTUNITY_STATUSES,
+  MONGO_APP_COLLECTIONS,
   readDatabase,
+  readLocalDatabase,
   sanitizeUser,
   syncCandidatesWithOpportunityClosures,
   toISODate,
   verifyPassword,
-  writeDatabase
+  writeDatabase,
+  writeMongoAppDatabase
 } from './db.js';
 import { extractApinfoCandidateEmails, extractEmailsFromText, searchApinfoAndLinkedinCandidates } from './apinfo.js';
 import { getSmtpConfigFromEnv, sendMail } from './smtp.js';
@@ -49,6 +52,7 @@ import {
   getCurriculumFromMongo,
   getMongoTalentStats,
   isMongoTalentosConfigured,
+  renameLegacyCurriculumsCollection,
   updateCurriculumInMongo,
   upsertSelectedCandidatesIntoMongo
 } from './mongo_talentos.js';
@@ -944,31 +948,80 @@ async function handleApi(request, response) {
       return;
     }
 
+    if (request.method === 'POST' && pathname === '/api/admin/migrate-mongodb') {
+      if (String(auth.user.role || '').toLowerCase() !== 'admin') {
+        sendError(response, 403, 'Apenas administradores podem executar a migracao.');
+        return;
+      }
+
+      const payload = await readJsonBody(request);
+      if (String(payload.confirm || '').trim() !== 'MIGRAR_PARA_MONGO') {
+        sendError(response, 422, 'Informe confirm=MIGRAR_PARA_MONGO para executar a migracao.');
+        return;
+      }
+
+      if (!isMongoTalentosConfigured()) {
+        sendError(response, 500, 'MongoDB nao esta configurado neste ambiente.');
+        return;
+      }
+
+      const localDb = await readLocalDatabase();
+      const renameResult = await renameLegacyCurriculumsCollection().catch((error) => ({
+        changed: false,
+        error: error.message
+      }));
+      const migratedDb = await writeMongoAppDatabase(localDb);
+      const migratedCollections = Object.fromEntries(
+        MONGO_APP_COLLECTIONS.map((collection) => [
+          collection,
+          Array.isArray(migratedDb[collection]) ? migratedDb[collection].length : 0
+        ])
+      );
+      const curriculumBootstrap = await loadCurriculumsForBootstrap({
+        ...migratedDb,
+        curriculums: []
+      });
+
+      sendJson(response, 200, {
+        ok: true,
+        database: process.env.MONGODB_DB || 'Banco_de_Talentos',
+        renamedCurriculums: renameResult,
+        migratedCollections,
+        curriculums: {
+          source: curriculumBootstrap.source,
+          total: curriculumBootstrap.stats?.total_candidatos ?? curriculumBootstrap.curriculums.length,
+          loaded: curriculumBootstrap.curriculums.length
+        }
+      });
+      return;
+    }
+
     if (request.method === 'GET' && pathname === '/api/bootstrap') {
       const curriculumBootstrap = await loadCurriculumsForBootstrap(auth.db);
+      const responseDb = { ...auth.db, curriculums: curriculumBootstrap.curriculums };
       const curriculumTemplates = await listCurriculumTemplates().catch(() => []);
       sendJson(response, 200, {
-        clients: auth.db.clients,
-        opportunities: auth.db.opportunities,
-        faturamento: auth.db.faturamento,
-        cvFilters: auth.db.cvFilters.map((filter) => enrichCvFilter(filter, auth.db)),
-        selectedCandidates: auth.db.selectedCandidates.map((candidate) => enrichSelectedCandidate(candidate, auth.db)),
+        clients: responseDb.clients,
+        opportunities: responseDb.opportunities,
+        faturamento: responseDb.faturamento,
+        cvFilters: responseDb.cvFilters.map((filter) => enrichCvFilter(filter, responseDb)),
+        selectedCandidates: responseDb.selectedCandidates.map((candidate) => enrichSelectedCandidate(candidate, responseDb)),
         curriculums: curriculumBootstrap.curriculums,
         curriculumTemplates,
         talentSource: curriculumBootstrap.source,
         talentStats: curriculumBootstrap.stats,
         talentError: curriculumBootstrap.error,
         emailProcessing: { ...emailProcessing },
-        candidates: auth.db.candidates.map((candidate) => enrichCandidate(candidate, auth.db)),
-        allocateds: auth.db.allocateds.map((allocated) => enrichAllocated(allocated, auth.db)),
-        users: auth.db.users.map(sanitizeUser),
+        candidates: responseDb.candidates.map((candidate) => enrichCandidate(candidate, responseDb)),
+        allocateds: responseDb.allocateds.map((allocated) => enrichAllocated(allocated, responseDb)),
+        users: responseDb.users.map(sanitizeUser),
         currentUser: sanitizeUser(auth.user),
         stages: CANDIDATE_STAGES,
         aderenciaOptions: CANDIDATE_ADERENCIA_OPTIONS,
         opportunityModels: OPPORTUNITY_MODELS,
         opportunityStatuses: OPPORTUNITY_STATUSES,
         brazilUfs: BRAZIL_UFS,
-        indicators: calculateIndicators({ ...auth.db, curriculums: curriculumBootstrap.curriculums })
+        indicators: calculateIndicators(responseDb)
       });
       return;
     }

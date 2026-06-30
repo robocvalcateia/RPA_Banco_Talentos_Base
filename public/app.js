@@ -1204,7 +1204,7 @@ function getFilteredCurriculums() {
 
 function talentSourceLabel() {
   const labels = {
-    mongodb: 'MongoDB Banco_de_Talentos/candidatos',
+    mongodb: 'MongoDB Banco_de_Talentos/curriculums',
     local_json: 'data/database.json',
     local_json_fallback: 'data/database.json (fallback)'
   };

@@ -18,10 +18,13 @@ async function loadMongoDriver() {
 }
 
 function readMongoConfig(env = process.env) {
+  const collectionName = env.MONGODB_CURRICULUM_COLLECTION || 'curriculums';
+  const legacyCollectionName = env.MONGODB_LEGACY_CURRICULUM_COLLECTION || env.MONGODB_COLLECTION || 'candidatos';
   return {
     url: env.MONGODB_URL || env.MONGODB_URI || '',
     dbName: env.MONGODB_DB || 'Banco_de_Talentos',
-    collectionName: env.MONGODB_COLLECTION || 'candidatos',
+    collectionName,
+    legacyCollectionName: legacyCollectionName === collectionName ? '' : legacyCollectionName,
     limit: Math.max(1, Math.min(Number(env.MONGODB_CURRICULUM_LIMIT || 5000), 20000))
   };
 }
@@ -106,13 +109,24 @@ export function mongoCandidateToCurriculum(doc = {}) {
 export async function getMongoTalentosCollection() {
   const config = readMongoConfig();
   const client = await getMongoClient(config);
-  return client.db(config.dbName).collection(config.collectionName);
+  const db = client.db(config.dbName);
+  const target = db.collection(config.collectionName);
+
+  if (!config.legacyCollectionName) {
+    return target;
+  }
+
+  const [targetCount, legacyCount] = await Promise.all([
+    target.countDocuments({}).catch(() => 0),
+    db.collection(config.legacyCollectionName).countDocuments({}).catch(() => 0)
+  ]);
+
+  return targetCount || !legacyCount ? target : db.collection(config.legacyCollectionName);
 }
 
 export async function getCurriculumsFromMongo() {
   const config = readMongoConfig();
-  const client = await getMongoClient(config);
-  const collection = client.db(config.dbName).collection(config.collectionName);
+  const collection = await getMongoTalentosCollection();
 
   const projection = {
     _id: 1,
@@ -270,7 +284,7 @@ export async function updateCurriculumInMongo(identifier, payload = {}) {
   const doc = result?.value || result;
   return doc ? mongoCandidateToCurriculum(doc) : null;
 }
-const COUNTER_ID = 'candidatos_id_controle';
+const COUNTER_ID = 'curriculums_id_controle';
 
 function normalizarTextoChave(value) {
   return String(value || '')
@@ -493,4 +507,79 @@ export async function upsertSelectedCandidatesIntoMongo({ candidates = [], oppor
   }
 
   return results;
+}
+
+export async function renameLegacyCurriculumsCollection() {
+  const config = readMongoConfig();
+  const client = await getMongoClient(config);
+  const db = client.db(config.dbName);
+  const sourceName = config.legacyCollectionName || 'candidatos';
+  const targetName = config.collectionName || 'curriculums';
+
+  if (!sourceName || sourceName === targetName) {
+    return {
+      changed: false,
+      sourceName,
+      targetName,
+      message: 'Origem e destino ja apontam para a mesma collection.'
+    };
+  }
+
+  const collectionNames = new Set(
+    (await db.listCollections({}, { nameOnly: true }).toArray()).map((collection) => collection.name)
+  );
+  const sourceExists = collectionNames.has(sourceName);
+  const targetExists = collectionNames.has(targetName);
+
+  if (!sourceExists && targetExists) {
+    const total = await db.collection(targetName).countDocuments({});
+    return {
+      changed: false,
+      sourceName,
+      targetName,
+      total,
+      message: `Migration already applied: ${targetName} exists.`
+    };
+  }
+
+  if (!sourceExists && !targetExists) {
+    return {
+      changed: false,
+      sourceName,
+      targetName,
+      total: 0,
+      message: `Neither ${sourceName} nor ${targetName} exists.`
+    };
+  }
+
+  if (sourceExists && targetExists) {
+    const [sourceTotal, targetTotal] = await Promise.all([
+      db.collection(sourceName).countDocuments({}),
+      db.collection(targetName).countDocuments({})
+    ]);
+
+    if (targetTotal > 0) {
+      return {
+        changed: false,
+        sourceName,
+        targetName,
+        sourceTotal,
+        targetTotal,
+        message: `Both collections exist and target is not empty. Manual review required.`
+      };
+    }
+
+    await db.collection(targetName).drop();
+  }
+
+  await db.collection(sourceName).rename(targetName, { dropTarget: false });
+  const total = await db.collection(targetName).countDocuments({});
+
+  return {
+    changed: true,
+    sourceName,
+    targetName,
+    total,
+    message: `Collection renamed from ${sourceName} to ${targetName}.`
+  };
 }
