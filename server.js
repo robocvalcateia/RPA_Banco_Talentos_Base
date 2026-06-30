@@ -1042,6 +1042,162 @@ async function handleApi(request, response) {
       return;
     }
 
+    if (request.method === 'POST' && pathname === '/api/admin/import-operational-data') {
+      if (String(auth.user.role || '').toLowerCase() !== 'admin') {
+        sendError(response, 403, 'Apenas administradores podem importar dados operacionais.');
+        return;
+      }
+
+      const payload = await readJsonBody(request);
+      if (String(payload.confirm || '').trim() !== 'IMPORTAR_MIGRACAO_PROD') {
+        sendError(response, 422, 'Informe confirm=IMPORTAR_MIGRACAO_PROD para executar a importacao.');
+        return;
+      }
+
+      const clients = Array.isArray(payload.clients) ? payload.clients : [];
+      const opportunities = Array.isArray(payload.opportunities) ? payload.opportunities : [];
+      const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
+      const allocateds = Array.isArray(payload.allocateds) ? payload.allocateds : [];
+      const before = {
+        clients: auth.db.clients.length,
+        opportunities: auth.db.opportunities.length,
+        candidates: auth.db.candidates.length,
+        allocateds: auth.db.allocateds.length
+      };
+
+      const clientKey = (value) => String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+      const existingClientKeys = new Set(auth.db.clients.map((client) => clientKey(client.customerName)));
+
+      for (const item of clients) {
+        const customerName = String(item.customerName ?? item.name ?? '').trim();
+        if (!customerName || existingClientKeys.has(clientKey(customerName))) continue;
+
+        auth.db.clients.push({
+          id: String(item.id || createId('client', customerName)).trim(),
+          customerName,
+          primaryContactName: String(item.primaryContactName ?? '').trim(),
+          primaryContactEmail: String(item.primaryContactEmail ?? '').trim(),
+          primaryContactPhone: String(item.primaryContactPhone ?? '').trim(),
+          observation: String(item.observation ?? '').trim(),
+          createdAt: String(item.createdAt ?? toISODate()).trim()
+        });
+        existingClientKeys.add(clientKey(customerName));
+      }
+
+      if (payload.replaceOperationalData !== false) {
+        auth.db.opportunities = [];
+        auth.db.candidates = [];
+        auth.db.allocateds = [];
+      }
+
+      const validClientIds = new Set(auth.db.clients.map((client) => client.id));
+      const importedOpportunities = opportunities.map((item) => ({
+        id: String(item.id || createId('opp', item.opportunity)).trim(),
+        externalId: String(item.externalId ?? '').trim(),
+        clientId: String(item.clientId ?? '').trim(),
+        opportunity: String(item.opportunity ?? '').trim(),
+        opportunityOriginalName: String(item.opportunityOriginalName ?? '').trim(),
+        opportunityCode: String(item.opportunityCode ?? '').trim(),
+        status: normalizeOpportunityStatus(item.status || 'Open'),
+        openingDate: String(item.openingDate ?? new Date().toISOString().slice(0, 10)).trim(),
+        closingDate: String(item.closingDate ?? '').trim(),
+        monthYear: String(item.monthYear ?? monthYearFromDate(item.openingDate)).trim(),
+        model: normalizeOpportunityModel(item.model || 'Alocação'),
+        owner: String(item.owner ?? '').trim(),
+        quantity: Number(item.quantity ?? 1),
+        closedQuantity: Number(item.closedQuantity ?? 0),
+        contractValue: Number(item.contractValue ?? 0),
+        observation: String(item.observation ?? '').trim(),
+        source: String(item.source ?? 'importacao').trim(),
+        createdAt: String(item.createdAt ?? toISODate()).trim()
+      }));
+      const invalidOpportunity = importedOpportunities.find((item) => !item.opportunity || !validClientIds.has(item.clientId));
+      if (invalidOpportunity) {
+        sendError(response, 422, `Oportunidade invalida ou sem cliente valido: ${invalidOpportunity.opportunity || invalidOpportunity.id}`);
+        return;
+      }
+
+      auth.db.opportunities.push(...importedOpportunities);
+      const validOpportunityIds = new Set(auth.db.opportunities.map((opportunity) => opportunity.id));
+      const importedCandidates = candidates.map((item) => normalizeCandidate({
+        id: String(item.id || createId('cand', item.name)).trim(),
+        externalId: String(item.externalId ?? '').trim(),
+        name: item.name,
+        curriculumId: item.curriculumId,
+        opportunityId: item.opportunityId,
+        hourlyRate: item.hourlyRate,
+        observation: item.observation,
+        approved: item.approved,
+        stage: item.stage,
+        aderencia: item.aderencia,
+        source: item.source,
+        notes: item.notes,
+        createdAt: String(item.createdAt ?? toISODate()).trim()
+      }));
+      const invalidCandidate = importedCandidates.find((item) => !item.name || !validOpportunityIds.has(item.opportunityId));
+      if (invalidCandidate) {
+        sendError(response, 422, `Candidato invalido ou sem oportunidade valida: ${invalidCandidate?.name || invalidCandidate?.id || '-'}`);
+        return;
+      }
+
+      auth.db.candidates.push(...importedCandidates);
+      const validCandidateIds = new Set(auth.db.candidates.map((candidate) => candidate.id));
+      const importedAllocateds = allocateds.map((item) => normalizeAllocated({
+        id: String(item.id || createId('alloc', item.code || item.consultant)).trim(),
+        externalId: item.externalId,
+        code: item.code,
+        consultant: item.consultant,
+        skill: item.skill,
+        clientId: item.clientId,
+        hourlyRate: item.hourlyRate,
+        phone: item.phone,
+        consultantEmail: item.consultantEmail,
+        startDate: item.startDate,
+        active: item.active,
+        endDate: item.endDate,
+        manager: item.manager,
+        managerEmail: item.managerEmail,
+        managerPhone: item.managerPhone,
+        candidateId: validCandidateIds.has(String(item.candidateId ?? '').trim()) ? String(item.candidateId).trim() : '',
+        curriculumId: item.curriculumId,
+        opportunityId: validOpportunityIds.has(String(item.opportunityId ?? '').trim()) ? String(item.opportunityId).trim() : '',
+        source: item.source,
+        createdAt: String(item.createdAt ?? toISODate()).trim()
+      }));
+      const invalidAllocated = importedAllocateds.find((item) => !item.code || !item.consultant || !validClientIds.has(item.clientId));
+      if (invalidAllocated) {
+        sendError(response, 422, `Alocado invalido ou sem cliente valido: ${invalidAllocated?.consultant || invalidAllocated?.code || '-'}`);
+        return;
+      }
+
+      auth.db.allocateds.push(...importedAllocateds);
+      syncCandidatesWithOpportunityClosures(auth.db);
+      await writeDatabase(auth.db);
+
+      sendJson(response, 200, {
+        ok: true,
+        before,
+        imported: {
+          clients: clients.length,
+          opportunities: importedOpportunities.length,
+          candidates: importedCandidates.length,
+          allocateds: importedAllocateds.length
+        },
+        after: {
+          clients: auth.db.clients.length,
+          opportunities: auth.db.opportunities.length,
+          candidates: auth.db.candidates.length,
+          allocateds: auth.db.allocateds.length
+        }
+      });
+      return;
+    }
+
     if (request.method === 'GET' && pathname === '/api/bootstrap') {
       const curriculumBootstrap = await loadCurriculumsForBootstrap(auth.db);
       const responseDb = { ...auth.db, curriculums: curriculumBootstrap.curriculums };
