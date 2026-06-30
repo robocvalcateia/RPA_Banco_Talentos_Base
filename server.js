@@ -997,6 +997,51 @@ async function handleApi(request, response) {
       return;
     }
 
+    if (request.method === 'POST' && pathname === '/api/admin/clear-operational-data') {
+      if (String(auth.user.role || '').toLowerCase() !== 'admin') {
+        sendError(response, 403, 'Apenas administradores podem limpar dados operacionais.');
+        return;
+      }
+
+      const payload = await readJsonBody(request);
+      const allowedCollections = new Set(['opportunities', 'candidates', 'allocateds']);
+      const requestedCollections = Array.isArray(payload.collections)
+        ? payload.collections.map((collection) => String(collection || '').trim()).filter(Boolean)
+        : ['opportunities', 'candidates', 'allocateds'];
+      const invalidCollections = requestedCollections.filter((collection) => !allowedCollections.has(collection));
+
+      if (String(payload.confirm || '').trim() !== 'APAGAR_DADOS_OPERACIONAIS') {
+        sendError(response, 422, 'Informe confirm=APAGAR_DADOS_OPERACIONAIS para executar a limpeza.');
+        return;
+      }
+      if (invalidCollections.length) {
+        sendError(response, 422, `Colecoes nao permitidas: ${invalidCollections.join(', ')}`);
+        return;
+      }
+
+      const before = Object.fromEntries(
+        requestedCollections.map((collection) => [
+          collection,
+          Array.isArray(auth.db[collection]) ? auth.db[collection].length : 0
+        ])
+      );
+
+      for (const collection of requestedCollections) {
+        auth.db[collection] = [];
+      }
+
+      await writeDatabase(auth.db);
+
+      const after = Object.fromEntries(requestedCollections.map((collection) => [collection, 0]));
+      sendJson(response, 200, {
+        ok: true,
+        clearedCollections: requestedCollections,
+        before,
+        after
+      });
+      return;
+    }
+
     if (request.method === 'GET' && pathname === '/api/bootstrap') {
       const curriculumBootstrap = await loadCurriculumsForBootstrap(auth.db);
       const responseDb = { ...auth.db, curriculums: curriculumBootstrap.curriculums };
