@@ -48,6 +48,7 @@ import {
   renderCurriculumDocuments
 } from './dtt.js';
 import {
+  createCurriculumInMongo,
   getCurriculumsFromMongo,
   getCurriculumFromMongo,
   getMongoTalentStats,
@@ -1890,6 +1891,21 @@ async function handleApi(request, response) {
 
     if (request.method === 'POST' && pathname === '/api/curriculums') {
       const payload = await readJsonBody(request);
+
+      if (isMongoTalentosConfigured()) {
+        try {
+          const curriculum = await createCurriculumInMongo(payload);
+          sendJson(response, 201, curriculum);
+          return;
+        } catch (error) {
+          if (/Ja existe/.test(error.message || '')) {
+            sendError(response, 409, error.message);
+            return;
+          }
+          throw error;
+        }
+      }
+
       const db = await readDatabase();
       const curriculum = normalizeCurriculum({
         id: createId('curr', payload.nome || payload.email),

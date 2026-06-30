@@ -284,6 +284,40 @@ export async function updateCurriculumInMongo(identifier, payload = {}) {
   const doc = result?.value || result;
   return doc ? mongoCandidateToCurriculum(doc) : null;
 }
+
+export async function createCurriculumInMongo(payload = {}) {
+  await loadMongoDriver();
+  const collection = await getMongoTalentosCollection();
+  const doc = curriculumPayloadToMongoUpdate(payload);
+
+  if (!doc.nome) {
+    throw new Error('Informe o nome do candidato.');
+  }
+
+  const duplicateChecks = [];
+  if (doc.email) duplicateChecks.push({ email: doc.email });
+  if (doc.id_controle) duplicateChecks.push({ id_controle: doc.id_controle });
+  if (payload.hash_documento) duplicateChecks.push({ hash_documento: String(payload.hash_documento).trim() });
+
+  if (duplicateChecks.length) {
+    const existing = await collection.findOne({ $or: duplicateChecks });
+    if (existing) {
+      throw new Error('Ja existe um curriculo com os dados informados.');
+    }
+  }
+
+  if (!doc.id_controle) {
+    doc.id_controle = String(await getNextIdControle(collection));
+  }
+  if (payload.hash_documento) {
+    doc.hash_documento = String(payload.hash_documento).trim();
+  }
+  doc.data_criacao = String(payload.data_criacao || new Date().toISOString()).trim();
+  doc.data_atualizacao = String(payload.data_atualizacao || '').trim();
+
+  const result = await collection.insertOne(doc);
+  return mongoCandidateToCurriculum({ ...doc, _id: result.insertedId });
+}
 const COUNTER_ID = 'curriculums_id_controle';
 
 function normalizarTextoChave(value) {
