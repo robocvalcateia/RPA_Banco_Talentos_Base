@@ -54,6 +54,7 @@ import {
   getMongoTalentStats,
   isMongoTalentosConfigured,
   renameLegacyCurriculumsCollection,
+  syncLegacyCandidatesIntoCurriculums,
   updateCurriculumInMongo,
   upsertSelectedCandidatesIntoMongo
 } from './mongo_talentos.js';
@@ -499,8 +500,17 @@ function parseLegacyProcessResult(output) {
   }
 }
 
-function startLegacyEmailProcessing() {
+function startLegacyEmailProcessing(options = {}) {
   const jobId = randomBytes(12).toString('hex');
+  const subjectFilter = String(options.subjectFilter || options.query || '').trim();
+  const foldersFromPayload = Array.isArray(options.folders)
+    ? options.folders.map((folder) => String(folder).trim()).filter(Boolean).join(',')
+    : String(options.folders || '').trim();
+  const includeErrorFolder = Boolean(options.includeErrorFolder || subjectFilter);
+  const emailFolders = foldersFromPayload
+    || process.env.EMAIL_FOLDERS
+    || (includeErrorFolder ? 'inbox,CVs_Processados_Erro,CVs_Processados' : 'inbox');
+
   emailProcessing.running = true;
   emailProcessing.jobId = jobId;
   emailProcessing.status = 'processando';
@@ -508,11 +518,21 @@ function startLegacyEmailProcessing() {
   emailProcessing.finishedAt = '';
   emailProcessing.resultado = null;
   emailProcessing.erro = '';
-  emailProcessing.logs = '';
+  emailProcessing.logs = [
+    'Processamento de e-mails iniciado.',
+    subjectFilter ? `Filtro: ${subjectFilter}` : '',
+    `Pastas: ${emailFolders}`,
+    ''
+  ].filter(Boolean).join('\n');
 
   const child = spawn(getPythonExecutable(), ['run_process_emails.py'], {
     cwd: LEGACY_PROCESSOR_DIR,
-    env: process.env,
+    env: {
+      ...process.env,
+      PYTHONIOENCODING: 'utf-8',
+      EMAIL_SUBJECT_FILTER: subjectFilter,
+      EMAIL_FOLDERS: emailFolders
+    },
     windowsHide: true
   });
 
@@ -543,7 +563,7 @@ function startLegacyEmailProcessing() {
     };
   });
 
-  child.on('close', (code) => {
+  child.on('close', async (code) => {
     const result = parseLegacyProcessResult(combinedOutput);
     emailProcessing.running = false;
     emailProcessing.finishedAt = formatDateTimeBR();
@@ -552,6 +572,26 @@ function startLegacyEmailProcessing() {
       emailProcessing.resultado = result;
       emailProcessing.status = result.success ? 'finalizado' : 'erro';
       emailProcessing.erro = result.success ? '' : (result.message || `Processamento finalizado com codigo ${code}.`);
+
+      if (result.success && isMongoTalentosConfigured()) {
+        try {
+          const sync = await syncLegacyCandidatesIntoCurriculums();
+          emailProcessing.resultado = {
+            ...result,
+            sync,
+            message: `${result.message || 'Processamento finalizado.'} ${sync.message}`
+          };
+        } catch (error) {
+          emailProcessing.status = 'erro';
+          emailProcessing.erro = `Processamento concluiu, mas a sincronizacao com curriculums falhou: ${error.message}`;
+          emailProcessing.resultado = {
+            ...result,
+            success: false,
+            message: emailProcessing.erro,
+            sync_error: error.message
+          };
+        }
+      }
     } else {
       emailProcessing.status = code === 0 ? 'finalizado' : 'erro';
       emailProcessing.erro = code === 0 ? '' : `Processamento finalizado com codigo ${code}, mas sem retorno JSON.`;
@@ -1306,6 +1346,8 @@ async function handleApi(request, response) {
     }
 
     if (request.method === 'POST' && pathname === '/api/processar-emails') {
+      const payload = await readJsonBody(request).catch(() => ({}));
+
       if (emailProcessing.running) {
         sendJson(response, 409, {
           success: false,
@@ -1325,7 +1367,7 @@ async function handleApi(request, response) {
         return;
       }
 
-      const jobId = startLegacyEmailProcessing();
+      const jobId = startLegacyEmailProcessing(payload);
       sendJson(response, 202, {
         success: true,
         message: 'Processamento de e-mails iniciado em background.',
