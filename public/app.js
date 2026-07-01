@@ -451,23 +451,32 @@ function getDashboardModelOptions() {
 
 function ensureDashboardMonth() {
   const months = getDashboardMonthOptions();
-  if (!months.length) {
+  if (!months.length && state.dashboardMonth) {
     state.dashboardMonth = '';
     return months;
   }
-  if (!state.dashboardMonth || !months.includes(state.dashboardMonth)) {
-    state.dashboardMonth = months[0];
+  if (state.dashboardMonth && !months.includes(state.dashboardMonth)) {
+    state.dashboardMonth = '';
   }
   return months;
 }
 
 function getSelectedWonOpportunities() {
-  if (!state.dashboardMonth) return [];
   return state.opportunities.filter((opportunity) => (
     opportunity.status === 'WON'
-    && getWonOpportunityMonth(opportunity) === state.dashboardMonth
+    && (!state.dashboardMonth || getWonOpportunityMonth(opportunity) === state.dashboardMonth)
     && matchesDashboardModel(opportunity)
   ));
+}
+
+function isDashboardOpenOpportunity(opportunity) {
+  return Boolean(opportunity) && !['Closed', 'LOST', 'WON'].includes(opportunity.status);
+}
+
+function getDashboardOpenCandidates() {
+  return state.candidates
+    .filter((candidate) => isDashboardOpenOpportunity(opportunityById(candidate.opportunityId)))
+    .sort((first, second) => String(first.name).localeCompare(String(second.name), 'pt-BR', { sensitivity: 'base' }));
 }
 
 function calculateWonContractValue(opportunities) {
@@ -494,6 +503,7 @@ function formatDateBR(value) {
 function opportunityAnalyticsRow(opportunity, includeClosedValue = false) {
   const closedValue = Number(opportunity.closedQuantity ?? 0) * Number(opportunity.contractValue ?? 0);
   const row = {
+    __meta: { type: 'opportunity', id: opportunity.id },
     'Código': opportunity.opportunityCode || '',
     'Oportunidade': opportunity.opportunity || '',
     'Cliente': clientNameById(opportunity.clientId),
@@ -517,6 +527,7 @@ function opportunityAnalyticsRow(opportunity, includeClosedValue = false) {
 function candidateAnalyticsRow(candidate) {
   const opportunity = opportunityById(candidate.opportunityId);
   return {
+    __meta: { type: 'candidate', id: candidate.id },
     'Candidato': candidate.name || '',
     'Oportunidade': opportunity?.opportunity || candidate.opportunityName || '',
     'Código oportunidade': opportunity?.opportunityCode || candidate.opportunityCode || '',
@@ -536,6 +547,7 @@ function clientAnalyticsRow(client) {
   const clientAllocateds = state.allocateds.filter((allocated) => allocated.clientId === client.id && allocated.active === true);
 
   return {
+    __meta: { type: 'client', id: client.id },
     'Cliente': client.customerName || '',
     'Contato principal': client.primaryContactName || '',
     'E-mail': client.primaryContactEmail || '',
@@ -550,12 +562,13 @@ function clientAnalyticsRow(client) {
 function buildDashboardAnalytics(metricId) {
   const wonOpportunities = getSelectedWonOpportunities().slice().sort(byOpportunityCode);
   const activeOpportunities = state.opportunities
-    .filter((opportunity) => !['Closed', 'LOST', 'WON'].includes(opportunity.status))
+    .filter(isDashboardOpenOpportunity)
     .sort(byOpportunityCode);
   const openOpportunities = state.opportunities
     .filter((opportunity) => opportunity.status === 'Open')
     .sort(byOpportunityCode);
-  const selectedMonthLabel = state.dashboardMonth ? formatMonthLabel(state.dashboardMonth) : 'sem periodo';
+  const openCandidates = getDashboardOpenCandidates();
+  const selectedMonthLabel = state.dashboardMonth ? formatMonthLabel(state.dashboardMonth) : 'todos os meses/anos';
   const selectedModelLabel = state.dashboardModel || 'todos os modelos';
 
   const configs = {
@@ -585,8 +598,8 @@ function buildDashboardAnalytics(metricId) {
     },
     candidates: {
       title: 'Candidatos',
-      summary: `${state.candidates.length} candidato(s) entrevistado(s).`,
-      rows: state.candidates.slice().sort((first, second) => String(first.name).localeCompare(String(second.name), 'pt-BR', { sensitivity: 'base' })).map(candidateAnalyticsRow),
+      summary: `${openCandidates.length} candidato(s) relacionado(s) com vagas em aberto.`,
+      rows: openCandidates.map(candidateAnalyticsRow),
       filename: 'dashboard-candidatos'
     },
     clients: {
@@ -594,16 +607,32 @@ function buildDashboardAnalytics(metricId) {
       summary: `${state.clients.length} cliente(s) cadastrado(s).`,
       rows: state.clients.slice().sort((first, second) => String(first.customerName).localeCompare(String(second.customerName), 'pt-BR', { sensitivity: 'base' })).map(clientAnalyticsRow),
       filename: 'dashboard-clientes'
-    },
-    averageAderencia: {
-      title: 'Aderência média',
-      summary: `Aderência média: ${state.indicators.totals.averageAderencia ?? 0}%.`,
-      rows: state.candidates.slice().sort((first, second) => Number(second.aderencia ?? 0) - Number(first.aderencia ?? 0)).map(candidateAnalyticsRow),
-      filename: 'dashboard-aderencia-media'
     }
   };
 
   return configs[metricId] || null;
+}
+
+function analyticsDisplayColumns(rows) {
+  return rows.length ? Object.keys(rows[0]).filter((column) => !column.startsWith('__')) : [];
+}
+
+function analyticsHasEditableRows(rows) {
+  return rows.some((row) => row.__meta?.type && row.__meta?.id);
+}
+
+function renderAnalyticsEditAction(row) {
+  const meta = row.__meta || {};
+  if (!meta.type || !meta.id) return '-';
+
+  return `
+    <button
+      class="secondary-action compact-action"
+      type="button"
+      data-dashboard-analytics-edit="${escapeHtml(meta.type)}"
+      data-dashboard-analytics-id="${escapeHtml(meta.id)}"
+    >Editar</button>
+  `;
 }
 
 function renderAnalyticsTable(rows) {
@@ -611,17 +640,41 @@ function renderAnalyticsTable(rows) {
     return '<p class="empty-state">Nenhum registro encontrado para este indicador.</p>';
   }
 
-  const columns = Object.keys(rows[0]);
+  const columns = analyticsDisplayColumns(rows);
+  const hasActions = analyticsHasEditableRows(rows);
   return `
     <div class="table-wrap dashboard-analytics-table-wrap">
       <table class="dashboard-analytics-table">
         <thead>
-          <tr>${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join('')}</tr>
+          <tr>
+            ${hasActions ? '<th>Ações</th>' : ''}
+            ${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join('')}
+          </tr>
+          <tr class="dashboard-analytics-filter-row">
+            ${hasActions ? '<th></th>' : ''}
+            ${columns.map((column) => `
+              <th>
+                <input
+                  type="search"
+                  class="dashboard-analytics-filter"
+                  data-dashboard-analytics-filter="${escapeHtml(column)}"
+                  placeholder="Filtrar"
+                  aria-label="Filtrar ${escapeHtml(column)}"
+                >
+              </th>
+            `).join('')}
+          </tr>
         </thead>
         <tbody>
           ${rows.map((row) => `
-            <tr>${columns.map((column) => `<td>${escapeHtml(row[column] ?? '')}</td>`).join('')}</tr>
+            <tr data-dashboard-analytics-row>
+              ${hasActions ? `<td>${renderAnalyticsEditAction(row)}</td>` : ''}
+              ${columns.map((column) => `<td data-dashboard-analytics-column="${escapeHtml(column)}">${escapeHtml(row[column] ?? '')}</td>`).join('')}
+            </tr>
           `).join('')}
+          <tr class="dashboard-analytics-empty-row hidden">
+            <td colspan="${columns.length + (hasActions ? 1 : 0)}">Nenhum registro encontrado para os filtros informados.</td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -635,7 +688,7 @@ function csvEscape(value) {
 
 function buildDashboardAnalyticsCsv(analytics) {
   const rows = analytics.rows || [];
-  const columns = rows.length ? Object.keys(rows[0]) : ['Mensagem'];
+  const columns = rows.length ? analyticsDisplayColumns(rows) : ['Mensagem'];
   const bodyRows = rows.length ? rows : [{ Mensagem: 'Nenhum registro encontrado para este indicador.' }];
   return [
     columns.map(csvEscape).join(';'),
@@ -699,6 +752,71 @@ function closeDashboardAnalytics() {
   revokeDashboardAnalyticsCsvUrl(5000);
 }
 
+function applyDashboardAnalyticsFilters() {
+  const modal = $('#dashboardAnalyticsModal');
+  if (!modal || modal.classList.contains('hidden')) return;
+
+  const filters = $$('.dashboard-analytics-filter', modal)
+    .map((input) => ({
+      column: input.dataset.dashboardAnalyticsFilter,
+      value: normalizeText(input.value)
+    }))
+    .filter((filter) => filter.column && filter.value);
+  const rows = $$('[data-dashboard-analytics-row]', modal);
+  let visibleRows = 0;
+
+  rows.forEach((row) => {
+    const matches = filters.every((filter) => {
+      const cell = $$('[data-dashboard-analytics-column]', row)
+        .find((item) => item.dataset.dashboardAnalyticsColumn === filter.column);
+      return normalizeText(cell?.textContent).includes(filter.value);
+    });
+    row.classList.toggle('hidden', !matches);
+    if (matches) visibleRows += 1;
+  });
+
+  $('.dashboard-analytics-empty-row', modal)?.classList.toggle('hidden', visibleRows > 0);
+}
+
+function editDashboardAnalyticsRecord(type, id) {
+  if (!type || !id) return;
+
+  if (type === 'opportunity') {
+    const opportunity = state.opportunities.find((item) => item.id === id);
+    if (!opportunity) {
+      toast('Oportunidade não encontrada para edição.');
+      return;
+    }
+    closeDashboardAnalytics();
+    showView('opportunities');
+    loadOpportunityForEdit(opportunity);
+    return;
+  }
+
+  if (type === 'candidate') {
+    const candidate = state.candidates.find((item) => item.id === id);
+    if (!candidate) {
+      toast('Candidato não encontrado para edição.');
+      return;
+    }
+    closeDashboardAnalytics();
+    showView('candidates');
+    loadCandidateForEdit(candidate);
+    return;
+  }
+
+  if (type === 'client') {
+    const client = state.clients.find((item) => item.id === id);
+    if (!client) {
+      toast('Cliente não encontrado para edição.');
+      return;
+    }
+    closeDashboardAnalytics();
+    showView('clients');
+    loadClientForEdit(client);
+  }
+}
+
 function openDashboardAnalytics(metricId) {
   const analytics = buildDashboardAnalytics(metricId);
   if (!analytics) return;
@@ -729,11 +847,12 @@ function renderDashboardFilters() {
   modelSelect.value = state.dashboardModel;
 
   const months = ensureDashboardMonth();
-  monthSelect.innerHTML = months.length
-    ? months.map((month) => `<option value="${month}">${formatMonthLabel(month)}</option>`).join('')
-    : '<option value="">Sem WON</option>';
+  monthSelect.innerHTML = [
+    '<option value="">Todos os meses/anos</option>',
+    ...months.map((month) => `<option value="${month}">${formatMonthLabel(month)}</option>`)
+  ].join('');
   monthSelect.value = state.dashboardMonth;
-  monthSelect.disabled = !months.length;
+  monthSelect.disabled = false;
 }
 
 function faturamentoChartRows() {
@@ -879,16 +998,16 @@ function renderMetrics() {
   const totals = state.indicators.totals;
   const wonOpportunities = getSelectedWonOpportunities();
   const wonContractValue = calculateWonContractValue(wonOpportunities);
-  const selectedMonthLabel = state.dashboardMonth ? formatMonthLabel(state.dashboardMonth) : 'sem periodo';
+  const openCandidates = getDashboardOpenCandidates();
+  const selectedMonthLabel = state.dashboardMonth ? formatMonthLabel(state.dashboardMonth) : 'todos os meses/anos';
   const selectedModelLabel = state.dashboardModel || 'todos os modelos';
   $('#metrics').innerHTML = [
     ['won', `WON em ${selectedMonthLabel} (${selectedModelLabel})`, wonOpportunities.length],
     ['wonValue', `Valor fechado em ${selectedMonthLabel} (${selectedModelLabel})`, formatCurrencyK(wonContractValue)],
     ['activeValue', 'Oportunidades em aberto', formatCurrencyK(totals.activeContractValue ?? 0)],
     ['openOpportunities', 'Oportunidades abertas', totals.openOpportunities],
-    ['candidates', 'Candidatos', totals.candidates],
-    ['clients', 'Clientes', totals.clients],
-    ['averageAderencia', 'Aderência média', `${totals.averageAderencia ?? 0}%`]
+    ['candidates', 'Candidatos', openCandidates.length],
+    ['clients', 'Clientes', totals.clients]
   ]
     .map(([id, label, value]) => `
       <button class="metric-card metric-card-button" type="button" data-dashboard-analytics="${id}" aria-label="Abrir detalhe de ${escapeHtml(label)}">
@@ -2801,6 +2920,15 @@ function bindDashboardFilters() {
   });
 
   document.addEventListener('click', (event) => {
+    const editButton = event.target.closest('[data-dashboard-analytics-edit]');
+    if (editButton) {
+      editDashboardAnalyticsRecord(
+        editButton.dataset.dashboardAnalyticsEdit,
+        editButton.dataset.dashboardAnalyticsId
+      );
+      return;
+    }
+
     if (event.target.closest('[data-close-dashboard-analytics]')) {
       closeDashboardAnalytics();
       return;
@@ -2814,6 +2942,12 @@ function bindDashboardFilters() {
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       closeDashboardAnalytics();
+    }
+  });
+
+  document.addEventListener('input', (event) => {
+    if (event.target.closest('.dashboard-analytics-filter')) {
+      applyDashboardAnalyticsFilters();
     }
   });
 

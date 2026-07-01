@@ -953,6 +953,25 @@ th {
   z-index: 1;
 }
 
+.dashboard-analytics-filter-row th {
+  top: 38px;
+}
+
+.dashboard-analytics-filter {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+  min-width: 120px;
+  padding: 8px 10px;
+  width: 100%;
+}
+
+.dashboard-analytics-empty-row td {
+  color: var(--muted);
+  padding: 18px;
+  text-align: center;
+}
+
 @media (max-width: 980px) {
   .sidebar {
     position: static;
