@@ -5,7 +5,10 @@ import re
 import json
 import time
 import logging
+from pathlib import Path
 from google.genai import types
+from docx import Document
+import PyPDF2
 from config.gemini import get_gemini
 from utils.file_handler import FileHandler
 
@@ -143,10 +146,20 @@ FORMATO FINAL OBRIGATÓRIO:
     
     def __init__(self):
         """Inicializa o extrator Gemini"""
-        self.gemini_config = get_gemini()
-        self.client = self.gemini_config.get_client()
-        self.model = self.gemini_config.get_model()
+        self.gemini_config = None
+        self.client = None
+        self.model = None
         self.last_error = None
+        try:
+            self.gemini_config = get_gemini()
+            self.client = self.gemini_config.get_client()
+            self.model = self.gemini_config.get_model()
+        except Exception as e:
+            tipo_erro = self._classificar_exception(e)
+            self._set_error(tipo_erro, f"Gemini indisponivel: {e}")
+            logger.warning(
+                f"Gemini indisponivel. Extracao local sera usada como fallback: {e}"
+            )
 
     def _normalizar_campo_multilinha(self, valor, usar_bullet=True):
         """
@@ -300,6 +313,10 @@ FORMATO FINAL OBRIGATÓRIO:
             dict: Dados extraídos ou None em caso de erro
         """
         
+        if not self.client or not self.model:
+            logger.warning("Gemini nao configurado. Usando fallback local.")
+            return None
+
         for tentativa in range(1, max_tentativas + 1):
             try:
                 logger.info(f" Processando PDF (tentativa {tentativa}/{max_tentativas}): {pdf_path}")
@@ -348,6 +365,13 @@ FORMATO FINAL OBRIGATÓRIO:
                 )
 
                 logger.error(f" Erro na tentativa {tentativa}: {e}")
+
+                if tipo_erro in {"gemini_limite_quota", "gemini_erro_autenticacao"}:
+                    logger.warning(
+                        "Falha nao recuperavel nesta execucao. "
+                        "Usando extracao local sem aguardar novas tentativas."
+                    )
+                    return None
                 
                 if tentativa < max_tentativas:
                     if tipo_erro == "gemini_limite_quota":
@@ -366,6 +390,129 @@ FORMATO FINAL OBRIGATÓRIO:
                 else:
                     logger.error(f" Limite de tentativas atingido para {pdf_path}")
                     return None
+
+    def _extract_text_from_pdf(self, pdf_path):
+        text_parts = []
+        with open(pdf_path, "rb") as file:
+            reader = PyPDF2.PdfReader(file)
+            for page in reader.pages:
+                text_parts.append(page.extract_text() or "")
+        return "\n".join(text_parts)
+
+    def _extract_text_from_docx(self, docx_path):
+        document = Document(docx_path)
+        parts = [paragraph.text for paragraph in document.paragraphs if paragraph.text]
+        for table in document.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    if cell.text:
+                        parts.append(cell.text)
+        return "\n".join(parts)
+
+    def _extract_text_local(self, file_path):
+        suffix = Path(file_path).suffix.lower()
+        if suffix == ".pdf":
+            return self._extract_text_from_pdf(file_path)
+        if suffix == ".docx":
+            return self._extract_text_from_docx(file_path)
+
+        pdf_path = FileHandler.ensure_pdf(file_path)
+        if pdf_path:
+            try:
+                return self._extract_text_from_pdf(pdf_path)
+            finally:
+                if pdf_path != file_path:
+                    FileHandler.delete_file(pdf_path)
+
+        return ""
+
+    def _fallback_extract_from_text(self, text, file_path):
+        raw_text = str(text or "")
+        clean_lines = [
+            re.sub(r"\s+", " ", line).strip()
+            for line in raw_text.splitlines()
+            if re.sub(r"\s+", " ", line).strip()
+        ]
+        compact_text = re.sub(r"\s+", " ", raw_text).strip()
+
+        email_match = re.search(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", compact_text)
+        phone_match = re.search(
+            r"(?:\+?55\s*)?(?:\(?\d{2}\)?\s*)?(?:9\s*)?\d{4}[-.\s]?\d{4}",
+            compact_text,
+        )
+        linkedin_match = re.search(
+            r"(?:https?://)?(?:www\.)?linkedin\.com/in/[A-Za-z0-9%_\-./]+|/in/[A-Za-z0-9%_\-./]+",
+            compact_text,
+            re.IGNORECASE,
+        )
+
+        skip_name_patterns = re.compile(
+            r"curr[ií]culo|resume|linkedin|e-mail|email|telefone|phone|celular|"
+            r"endereco|address|objetivo|summary|perfil|github",
+            re.IGNORECASE,
+        )
+        name = ""
+        for line in clean_lines[:25]:
+            if len(line) < 3 or len(line) > 90:
+                continue
+            if skip_name_patterns.search(line):
+                continue
+            if re.search(r"[@:/\\]|\d{3,}", line):
+                continue
+            words = [word for word in re.split(r"\s+", line) if word]
+            if 2 <= len(words) <= 8:
+                name = line
+                break
+
+        if not name and email_match:
+            name = email_match.group(0).split("@", 1)[0].replace(".", " ").replace("_", " ").title()
+
+        if not name and not email_match and not phone_match:
+            self._set_error(
+                "fallback_local_sem_identificador",
+                f"Extracao local nao encontrou nome, e-mail ou telefone em {file_path}",
+            )
+            return None
+
+        linkedin = self._normalizar_linkedin(linkedin_match.group(0) if linkedin_match else "")
+        phone = phone_match.group(0).strip() if phone_match else ""
+        email = email_match.group(0).strip().lower() if email_match else ""
+        snippet = compact_text[:3000]
+        source_note = "Dados extraidos localmente porque o Gemini falhou ou estava indisponivel."
+
+        return {
+            "Nome": name,
+            "Nacionalidade": "",
+            "Estado_Civil": "",
+            "Idade": "",
+            "Endereco": "",
+            "Telefone": phone,
+            "Email": email,
+            "Link_Linkedin": linkedin,
+            "Skil": source_note,
+            "Formacao_Academica": "",
+            "Nivel_Idioma_Ingles": "",
+            "Nivel_Idioma_Espanhol": "",
+            "Cursos_Certificacoes": "",
+            "Conhecimento_Tecnico": snippet,
+            "Experiencia_Profissional": snippet,
+        }
+
+    def extract_with_local_fallback(self, file_path):
+        try:
+            text = self._extract_text_local(file_path)
+            dados = self._fallback_extract_from_text(text, file_path)
+            if dados:
+                logger.warning(
+                    f"CV processado com extracao local de contingencia: {file_path}"
+                )
+                return dados
+        except Exception as e:
+            tipo_erro = self._classificar_exception(e)
+            self._set_error(tipo_erro, f"Erro na extracao local de {file_path}: {e}")
+            logger.error(f" Erro na extracao local do arquivo: {e}")
+
+        return None
     
     def extract_from_file(self, file_path):
         """
@@ -388,7 +535,7 @@ FORMATO FINAL OBRIGATÓRIO:
                     f"Não foi possível converter o arquivo para PDF: {file_path}"
                 )
                 logger.error(f" Não foi possível converter arquivo para PDF: {file_path}")
-                return None
+                return self.extract_with_local_fallback(file_path)
             
             # Extrair dados
             dados = self.extract_from_pdf(pdf_path)
@@ -397,7 +544,7 @@ FORMATO FINAL OBRIGATÓRIO:
             if pdf_path != file_path:
                 FileHandler.delete_file(pdf_path)
             
-            return dados
+            return dados or self.extract_with_local_fallback(file_path)
             
         except Exception as e:
             tipo_erro = self._classificar_exception(e)
@@ -408,7 +555,7 @@ FORMATO FINAL OBRIGATÓRIO:
             )
 
             logger.error(f" Erro ao extrair dados do arquivo: {e}")
-            return None
+            return self.extract_with_local_fallback(file_path)
 
 
 def extract_cv_data_detalhado(file_path):
