@@ -24,6 +24,7 @@
   faturamentoChartOffset: 0,
   dashboardMonth: '',
   dashboardModel: '',
+  dashboardAnalyticsCsvUrl: '',
   selectedCandidateFilter: { type: '', value: '' },
   allocatedFilter: { type: '', value: '' },
   huntingFilter: { type: '', value: '' },
@@ -632,23 +633,35 @@ function csvEscape(value) {
   return `"${text.replaceAll('"', '""')}"`;
 }
 
-function downloadDashboardAnalyticsCsv(analytics) {
+function buildDashboardAnalyticsCsv(analytics) {
   const rows = analytics.rows || [];
   const columns = rows.length ? Object.keys(rows[0]) : ['Mensagem'];
   const bodyRows = rows.length ? rows : [{ Mensagem: 'Nenhum registro encontrado para este indicador.' }];
-  const csv = [
+  return [
     columns.map(csvEscape).join(';'),
     ...bodyRows.map((row) => columns.map((column) => csvEscape(row[column])).join(';'))
   ].join('\r\n');
+}
+
+function revokeDashboardAnalyticsCsvUrl(delay = 0) {
+  if (!state.dashboardAnalyticsCsvUrl) return;
+
+  const url = state.dashboardAnalyticsCsvUrl;
+  state.dashboardAnalyticsCsvUrl = '';
+  setTimeout(() => URL.revokeObjectURL(url), delay);
+}
+
+function prepareDashboardAnalyticsCsvLink(analytics) {
+  const link = $('#dashboardAnalyticsExportButton');
+  if (!link) return;
+
+  revokeDashboardAnalyticsCsvUrl();
+  const csv = buildDashboardAnalyticsCsv(analytics);
   const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
+  state.dashboardAnalyticsCsvUrl = url;
   link.href = url;
   link.download = `${analytics.filename || 'dashboard-analitico'}-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
 function ensureDashboardAnalyticsModal() {
@@ -671,7 +684,7 @@ function ensureDashboardAnalyticsModal() {
         <button class="ghost-action" type="button" data-close-dashboard-analytics aria-label="Fechar">×</button>
       </div>
       <div class="modal-actions">
-        <button class="primary-action" type="button" id="dashboardAnalyticsExportButton">Gerar CSV</button>
+        <a class="primary-action" href="#" id="dashboardAnalyticsExportButton" download role="button">Gerar CSV</a>
       </div>
       <div id="dashboardAnalyticsContent"></div>
     </div>
@@ -683,6 +696,7 @@ function ensureDashboardAnalyticsModal() {
 function closeDashboardAnalytics() {
   const modal = $('#dashboardAnalyticsModal');
   if (modal) modal.classList.add('hidden');
+  revokeDashboardAnalyticsCsvUrl(5000);
 }
 
 function openDashboardAnalytics(metricId) {
@@ -694,7 +708,7 @@ function openDashboardAnalytics(metricId) {
   $('#dashboardAnalyticsSummary').textContent = analytics.summary;
   $('#dashboardAnalyticsContent').innerHTML = renderAnalyticsTable(analytics.rows);
   const exportButton = $('#dashboardAnalyticsExportButton');
-  exportButton.onclick = () => downloadDashboardAnalyticsCsv(analytics);
+  prepareDashboardAnalyticsCsvLink(analytics);
   modal.classList.remove('hidden');
   exportButton.focus();
 }
