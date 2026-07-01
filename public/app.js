@@ -643,6 +643,19 @@ function renderAnalyticsTable(rows) {
   const columns = analyticsDisplayColumns(rows);
   const hasActions = analyticsHasEditableRows(rows);
   return `
+    <div class="dashboard-analytics-toolbar">
+      <label>
+        Filtrar em todos os campos
+        <input
+          type="search"
+          id="dashboardAnalyticsGlobalFilter"
+          class="dashboard-analytics-global-filter"
+          placeholder="Digite para filtrar a tabela"
+        >
+      </label>
+      <button class="secondary-action compact-action" type="button" data-clear-dashboard-analytics-filters>Limpar filtros</button>
+      <span id="dashboardAnalyticsFilterCount">${rows.length} registro(s)</span>
+    </div>
     <div class="table-wrap dashboard-analytics-table-wrap">
       <table class="dashboard-analytics-table">
         <thead>
@@ -658,7 +671,7 @@ function renderAnalyticsTable(rows) {
                   type="search"
                   class="dashboard-analytics-filter"
                   data-dashboard-analytics-filter="${escapeHtml(column)}"
-                  placeholder="Filtrar"
+                  placeholder="Filtrar ${escapeHtml(column)}"
                   aria-label="Filtrar ${escapeHtml(column)}"
                 >
               </th>
@@ -756,6 +769,7 @@ function applyDashboardAnalyticsFilters() {
   const modal = $('#dashboardAnalyticsModal');
   if (!modal || modal.classList.contains('hidden')) return;
 
+  const globalFilter = normalizeText($('#dashboardAnalyticsGlobalFilter', modal)?.value);
   const filters = $$('.dashboard-analytics-filter', modal)
     .map((input) => ({
       column: input.dataset.dashboardAnalyticsFilter,
@@ -766,16 +780,29 @@ function applyDashboardAnalyticsFilters() {
   let visibleRows = 0;
 
   rows.forEach((row) => {
-    const matches = filters.every((filter) => {
+    const rowText = normalizeText(row.textContent);
+    const matchesGlobal = !globalFilter || rowText.includes(globalFilter);
+    const matchesColumns = filters.every((filter) => {
       const cell = $$('[data-dashboard-analytics-column]', row)
         .find((item) => item.dataset.dashboardAnalyticsColumn === filter.column);
       return normalizeText(cell?.textContent).includes(filter.value);
     });
+    const matches = matchesGlobal && matchesColumns;
     row.classList.toggle('hidden', !matches);
     if (matches) visibleRows += 1;
   });
 
   $('.dashboard-analytics-empty-row', modal)?.classList.toggle('hidden', visibleRows > 0);
+  const countElement = $('#dashboardAnalyticsFilterCount', modal);
+  if (countElement) countElement.textContent = `${visibleRows} de ${rows.length} registro(s)`;
+}
+
+function clearDashboardAnalyticsFilters() {
+  const modal = $('#dashboardAnalyticsModal');
+  if (!modal) return;
+  $$('.dashboard-analytics-filter, .dashboard-analytics-global-filter', modal)
+    .forEach((input) => { input.value = ''; });
+  applyDashboardAnalyticsFilters();
 }
 
 function editDashboardAnalyticsRecord(type, id) {
@@ -828,6 +855,7 @@ function openDashboardAnalytics(metricId) {
   const exportButton = $('#dashboardAnalyticsExportButton');
   prepareDashboardAnalyticsCsvLink(analytics);
   modal.classList.remove('hidden');
+  applyDashboardAnalyticsFilters();
   exportButton.focus();
 }
 
@@ -2528,14 +2556,24 @@ async function populateCityOptions(uf, selectedCity = '') {
 function bindForms() {
   $('#clientForm').addEventListener('submit', async (event) => {
     event.preventDefault();
+    const form = event.currentTarget;
+    const submitButton = $('button[type="submit"]', form);
     const editingId = state.editing.clientId;
-    await api(editingId ? `/api/clients/${editingId}` : '/api/clients', {
-      method: editingId ? 'PATCH' : 'POST',
-      body: JSON.stringify(formPayload(event.currentTarget))
-    });
-    clearEditing(event.currentTarget, 'clientId', 'Salvar cliente');
-    toast(editingId ? 'Cliente atualizado.' : 'Cliente cadastrado.');
-    await refresh();
+
+    try {
+      if (submitButton) submitButton.disabled = true;
+      await api(editingId ? `/api/clients/${editingId}` : '/api/clients', {
+        method: editingId ? 'PATCH' : 'POST',
+        body: JSON.stringify(formPayload(form))
+      });
+      clearEditing(form, 'clientId', 'Salvar cliente');
+      toast(editingId ? 'Cliente atualizado.' : 'Cliente cadastrado.');
+      await refresh();
+    } catch (error) {
+      toast(error.message || 'Não foi possível salvar o cliente.');
+    } finally {
+      if (submitButton) submitButton.disabled = false;
+    }
   });
 
   $('#faturamentoForm')?.addEventListener('submit', async (event) => {
@@ -2552,14 +2590,24 @@ function bindForms() {
 
   $('#opportunityForm').addEventListener('submit', async (event) => {
     event.preventDefault();
+    const form = event.currentTarget;
+    const submitButton = $('button[type="submit"]', form);
     const editingId = state.editing.opportunityId;
-    await api(editingId ? `/api/opportunities/${editingId}` : '/api/opportunities', {
-      method: editingId ? 'PATCH' : 'POST',
-      body: JSON.stringify(formPayload(event.currentTarget))
-    });
-    clearEditing(event.currentTarget, 'opportunityId', 'Salvar oportunidade');
-    toast(editingId ? 'Oportunidade atualizada.' : 'Oportunidade cadastrada.');
-    await refresh();
+
+    try {
+      if (submitButton) submitButton.disabled = true;
+      await api(editingId ? `/api/opportunities/${editingId}` : '/api/opportunities', {
+        method: editingId ? 'PATCH' : 'POST',
+        body: JSON.stringify(formPayload(form))
+      });
+      clearEditing(form, 'opportunityId', 'Salvar oportunidade');
+      toast(editingId ? 'Oportunidade atualizada.' : 'Oportunidade cadastrada.');
+      await refresh();
+    } catch (error) {
+      toast(error.message || 'Não foi possível salvar a oportunidade.');
+    } finally {
+      if (submitButton) submitButton.disabled = false;
+    }
   });
 
   $('#cvFilterForm').addEventListener('submit', async (event) => {
@@ -2601,15 +2649,26 @@ function bindForms() {
 
   $('#candidateForm').addEventListener('submit', async (event) => {
     event.preventDefault();
-    const payload = formPayload(event.currentTarget);
+    const form = event.currentTarget;
+    const submitButton = $('button[type="submit"]', form);
+    const payload = formPayload(form);
+    payload.approved = form.elements.approved.checked;
     const editingId = state.editing.candidateId;
-    await api(editingId ? `/api/candidates/${editingId}` : '/api/candidates', {
-      method: editingId ? 'PATCH' : 'POST',
-      body: JSON.stringify(payload)
-    });
-    clearEditing(event.currentTarget, 'candidateId', 'Salvar candidato');
-    toast(editingId ? 'Candidato atualizado.' : 'Candidato cadastrado.');
-    await refresh();
+
+    try {
+      if (submitButton) submitButton.disabled = true;
+      await api(editingId ? `/api/candidates/${editingId}` : '/api/candidates', {
+        method: editingId ? 'PATCH' : 'POST',
+        body: JSON.stringify(payload)
+      });
+      clearEditing(form, 'candidateId', 'Salvar candidato');
+      toast(editingId ? 'Candidato atualizado.' : 'Candidato cadastrado.');
+      await refresh();
+    } catch (error) {
+      toast(error.message || 'Não foi possível salvar o candidato.');
+    } finally {
+      if (submitButton) submitButton.disabled = false;
+    }
   });
 
   $('#allocatedForm').addEventListener('submit', async (event) => {
@@ -2929,6 +2988,11 @@ function bindDashboardFilters() {
       return;
     }
 
+    if (event.target.closest('[data-clear-dashboard-analytics-filters]')) {
+      clearDashboardAnalyticsFilters();
+      return;
+    }
+
     if (event.target.closest('[data-close-dashboard-analytics]')) {
       closeDashboardAnalytics();
       return;
@@ -2946,7 +3010,7 @@ function bindDashboardFilters() {
   });
 
   document.addEventListener('input', (event) => {
-    if (event.target.closest('.dashboard-analytics-filter')) {
+    if (event.target.closest('.dashboard-analytics-filter, .dashboard-analytics-global-filter')) {
       applyDashboardAnalyticsFilters();
     }
   });

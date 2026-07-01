@@ -946,6 +946,27 @@ th {
   min-width: 920px;
 }
 
+.dashboard-analytics-toolbar {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.dashboard-analytics-toolbar label {
+  color: var(--muted);
+  display: grid;
+  flex: 1 1 280px;
+  gap: 6px;
+}
+
+.dashboard-analytics-toolbar span {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .dashboard-analytics-table th {
   background: #f4fbfa;
   position: sticky;
@@ -957,7 +978,8 @@ th {
   top: 38px;
 }
 
-.dashboard-analytics-filter {
+.dashboard-analytics-filter,
+.dashboard-analytics-global-filter {
   border: 1px solid var(--line);
   border-radius: 8px;
   font: inherit;
