@@ -420,6 +420,7 @@ export function normalizeCurriculum(curriculum) {
   const id = String(curriculum.id ?? (idControle || createId('curr', nome))).trim();
 
   return {
+    ...curriculum,
     id,
     mongoId: String(curriculum.mongoId ?? curriculum._id ?? '').trim(),
     nome,
@@ -455,6 +456,7 @@ export function normalizeCurriculum(curriculum) {
     projetos: curriculum.projetos ?? [],
     tecnologias: curriculum.tecnologias ?? [],
     search_text: String(curriculum.search_text ?? curriculum.texto_pesquisa ?? '').trim(),
+    search_text_all: String(curriculum.search_text_all ?? curriculum.texto_pesquisavel ?? '').trim(),
     data_nascimento: String(curriculum.data_nascimento ?? '').trim(),
     id_controle: idControle || id
   };

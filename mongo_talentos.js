@@ -68,12 +68,36 @@ function normalizeMongoId(value) {
   return String(value);
 }
 
+function searchableTextFromValue(value, seen = new WeakSet()) {
+  if (value === null || value === undefined) return '';
+  if (value instanceof Date) return value.toISOString();
+
+  if (Array.isArray(value)) {
+    return value.map((item) => searchableTextFromValue(item, seen)).filter(Boolean).join(' ');
+  }
+
+  if (typeof value === 'object') {
+    if (seen.has(value)) return '';
+    seen.add(value);
+
+    return Object.entries(value)
+      .filter(([key]) => key !== '_id')
+      .map(([, item]) => searchableTextFromValue(item, seen))
+      .filter(Boolean)
+      .join(' ');
+  }
+
+  return String(value);
+}
+
 export function mongoCandidateToCurriculum(doc = {}) {
   const mongoId = normalizeMongoId(doc._id);
   const idControle = String(doc.id_controle ?? doc.idControle ?? '').trim();
   const id = idControle || (mongoId ? `mongo_${mongoId}` : '');
+  const { _id, ...documentFields } = doc;
 
   return normalizeCurriculum({
+    ...documentFields,
     id,
     mongoId,
     id_controle: idControle || id,
@@ -106,6 +130,7 @@ export function mongoCandidateToCurriculum(doc = {}) {
     projetos: doc.projetos,
     tecnologias: doc.tecnologias,
     search_text: doc.search_text ?? doc.texto_pesquisa,
+    search_text_all: searchableTextFromValue(doc),
     data_nascimento: dateToString(doc.data_nascimento),
     cargo_alvo: doc.cargo_alvo,
     observacoes_entrevista: doc.observacoes_entrevista,
@@ -136,56 +161,8 @@ export async function getCurriculumsFromMongo() {
   const config = readMongoConfig();
   const collection = await getMongoTalentosCollection();
 
-  const projection = {
-    _id: 1,
-    id_controle: 1,
-    nome: 1,
-    email: 1,
-    telefone: 1,
-    endereco: 1,
-    nacionalidade: 1,
-    estado_civil: 1,
-    idade: 1,
-    linkedin: 1,
-    skills: 1,
-    Skil: 1,
-    formacao_academica: 1,
-    Formacao_Academica: 1,
-    nivel_ingles: 1,
-    Nivel_Idioma_Ingles: 1,
-    nivel_espanhol: 1,
-    Nivel_Idioma_Espanhol: 1,
-    cursos_certificacoes: 1,
-    Cursos_Certificacoes: 1,
-    conhecimento_tecnico: 1,
-    Conhecimento_Tecnico: 1,
-    experiencia_profissional: 1,
-    Experiencia_Profissional: 1,
-    hash_documento: 1,
-    fonte: 1,
-    data_criacao: 1,
-    data_atualizacao: 1,
-    data_origem: 1,
-    versoes: 1,
-    experiencias: 1,
-    experiences: 1,
-    atividades: 1,
-    atividades_exercidas: 1,
-    atividadesExercidas: 1,
-    empresas: 1,
-    projetos: 1,
-    tecnologias: 1,
-    search_text: 1,
-    texto_pesquisa: 1,
-    data_nascimento: 1,
-    cargo_alvo: 1,
-    observacoes_entrevista: 1,
-    feedback_entrevista_ingles: 1,
-    disponibilidade_viagem: 1
-  };
-
   const docs = await collection
-    .find({}, { projection })
+    .find({})
     .sort({ data_atualizacao: -1, data_criacao: -1, _id: -1 })
     .limit(config.limit)
     .toArray();

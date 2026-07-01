@@ -350,7 +350,7 @@ function searchableTextFromValue(value, seen = new WeakSet()) {
     seen.add(value);
 
     return Object.entries(value)
-      .filter(([key]) => !['_id', 'mongoId', 'hash_documento'].includes(key))
+      .filter(([key]) => key !== '_id')
       .map(([, item]) => searchableTextFromValue(item, seen))
       .filter(Boolean)
       .join(' ');
@@ -360,37 +360,7 @@ function searchableTextFromValue(value, seen = new WeakSet()) {
 }
 
 function curriculumTextForAlcateia(curriculum = {}) {
-  return [
-    curriculum.nome,
-    curriculum.email,
-    curriculum.telefone,
-    curriculum.endereco,
-    curriculum.nacionalidade,
-    curriculum.estado_civil,
-    curriculum.idade,
-    curriculum.linkedin,
-    curriculum.skills,
-    curriculum.formacao_academica,
-    curriculum.nivel_ingles,
-    curriculum.nivel_espanhol,
-    curriculum.cursos_certificacoes,
-    curriculum.conhecimento_tecnico,
-    curriculum.experiencia_profissional,
-    curriculum.cargo_alvo,
-    curriculum.observacoes_entrevista,
-    curriculum.feedback_entrevista_ingles,
-    curriculum.versoes,
-    curriculum.experiencias,
-    curriculum.experiences,
-    curriculum.atividades,
-    curriculum.atividades_exercidas,
-    curriculum.empresas,
-    curriculum.projetos,
-    curriculum.tecnologias,
-    curriculum.search_text,
-    curriculum.fonte,
-    curriculum.id_controle
-  ].map((value) => searchableTextFromValue(value)).filter(Boolean).join(' ');
+  return searchableTextFromValue(curriculum);
 }
 
 function shortSearchText(value = '', maxLength = 180) {
