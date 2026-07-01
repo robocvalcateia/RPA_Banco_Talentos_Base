@@ -648,7 +648,7 @@ function downloadDashboardAnalyticsCsv(analytics) {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
 function ensureDashboardAnalyticsModal() {
