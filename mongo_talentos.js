@@ -197,6 +197,131 @@ export async function getMongoTalentStats() {
   };
 }
 
+function buildLegacySyncQuery(doc = {}) {
+  const or = [];
+  const hash = String(doc.hash_documento || '').trim();
+  const email = String(doc.email || '').trim().toLowerCase();
+  const telefone = String(doc.telefone || '').trim();
+  const linkedin = String(doc.linkedin || '').trim();
+
+  if (hash) or.push({ hash_documento: hash });
+  if (email) or.push({ email });
+  if (telefone) or.push({ telefone });
+  if (linkedin) or.push({ linkedin });
+
+  return or.length ? { $or: or } : null;
+}
+
+function legacyCandidateDocumentToCurriculumDoc(doc = {}) {
+  const curriculum = mongoCandidateToCurriculum(doc);
+  const { _id, ...rawFields } = doc;
+  const legacyMongoId = normalizeMongoId(_id);
+
+  return {
+    ...rawFields,
+    ...curriculum,
+    mongoId: curriculum.mongoId || legacyMongoId,
+    legacy_candidato_id: legacyMongoId,
+    legacy_id_controle: String(doc.id_controle || doc.idControle || '').trim(),
+    fonte: curriculum.fonte || doc.fonte || 'email',
+    search_text_all: curriculum.search_text_all || searchableTextFromValue(doc)
+  };
+}
+
+export async function syncLegacyCandidatesIntoCurriculums() {
+  const config = readMongoConfig();
+
+  if (!config.legacyCollectionName || config.legacyCollectionName === config.collectionName) {
+    return {
+      changed: false,
+      sourceName: config.legacyCollectionName || config.collectionName,
+      targetName: config.collectionName,
+      sourceTotal: 0,
+      inserted: 0,
+      updated: 0,
+      skipped: 0,
+      message: 'Collection legada ja aponta para curriculums.'
+    };
+  }
+
+  const client = await getMongoClient(config);
+  const db = client.db(config.dbName);
+  const source = db.collection(config.legacyCollectionName);
+  const target = db.collection(config.collectionName);
+  const sourceTotal = await source.countDocuments({}).catch(() => 0);
+
+  if (!sourceTotal) {
+    return {
+      changed: false,
+      sourceName: config.legacyCollectionName,
+      targetName: config.collectionName,
+      sourceTotal,
+      inserted: 0,
+      updated: 0,
+      skipped: 0,
+      message: 'Nenhum candidato legado para sincronizar.'
+    };
+  }
+
+  let inserted = 0;
+  let updated = 0;
+  let skipped = 0;
+  const cursor = source.find({});
+
+  for await (const legacyDoc of cursor) {
+    const payload = legacyCandidateDocumentToCurriculumDoc(legacyDoc);
+    if (!payload.nome && !payload.email && !payload.telefone) {
+      skipped += 1;
+      continue;
+    }
+
+    const query = buildLegacySyncQuery(payload);
+    const existing = query ? await target.findOne(query) : null;
+    const now = new Date().toISOString();
+
+    if (existing) {
+      payload.id_controle = existing.id_controle || payload.id_controle || existing.id || '';
+      payload.id = existing.id || payload.id_controle || payload.id || '';
+      payload.data_criacao = existing.data_criacao || payload.data_criacao || now;
+      payload.data_atualizacao = payload.data_atualizacao || now;
+
+      await target.updateOne(
+        { _id: existing._id },
+        { $set: payload }
+      );
+      updated += 1;
+      continue;
+    }
+
+    payload.id_controle = String(await getNextIdControle(target));
+    payload.id = payload.id_controle;
+    payload.data_criacao = payload.data_criacao || now;
+    payload.data_atualizacao = payload.data_atualizacao || now;
+
+    try {
+      await target.insertOne(payload);
+      inserted += 1;
+    } catch (error) {
+      if (error?.code === 11000) {
+        skipped += 1;
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  return {
+    changed: inserted > 0 || updated > 0,
+    sourceName: config.legacyCollectionName,
+    targetName: config.collectionName,
+    sourceTotal,
+    inserted,
+    updated,
+    skipped,
+    message: `Sincronizacao legado -> curriculums: ${inserted} novo(s), ${updated} atualizado(s), ${skipped} ignorado(s).`
+  };
+}
+
 function buildCandidateIdentifierQuery(identifier) {
   const value = String(identifier || '').trim();
   if (!value) return null;
