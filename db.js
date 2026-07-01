@@ -447,6 +447,14 @@ export function normalizeCurriculum(curriculum) {
     data_atualizacao: String(curriculum.data_atualizacao ?? '').trim(),
     data_origem: String(curriculum.data_origem ?? '').trim(),
     versoes: Array.isArray(curriculum.versoes) ? curriculum.versoes : [],
+    experiencias: curriculum.experiencias ?? curriculum.experiences ?? [],
+    experiences: curriculum.experiences ?? [],
+    atividades: curriculum.atividades ?? '',
+    atividades_exercidas: curriculum.atividades_exercidas ?? curriculum.atividadesExercidas ?? '',
+    empresas: curriculum.empresas ?? [],
+    projetos: curriculum.projetos ?? [],
+    tecnologias: curriculum.tecnologias ?? [],
+    search_text: String(curriculum.search_text ?? curriculum.texto_pesquisa ?? '').trim(),
     data_nascimento: String(curriculum.data_nascimento ?? '').trim(),
     id_controle: idControle || id
   };

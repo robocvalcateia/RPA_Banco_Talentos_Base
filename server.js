@@ -337,6 +337,28 @@ function splitSearchTermsForCv(value = '') {
   ));
 }
 
+function searchableTextFromValue(value, seen = new WeakSet()) {
+  if (value === null || value === undefined) return '';
+  if (value instanceof Date) return value.toISOString();
+
+  if (Array.isArray(value)) {
+    return value.map((item) => searchableTextFromValue(item, seen)).filter(Boolean).join(' ');
+  }
+
+  if (typeof value === 'object') {
+    if (seen.has(value)) return '';
+    seen.add(value);
+
+    return Object.entries(value)
+      .filter(([key]) => !['_id', 'mongoId', 'hash_documento'].includes(key))
+      .map(([, item]) => searchableTextFromValue(item, seen))
+      .filter(Boolean)
+      .join(' ');
+  }
+
+  return String(value);
+}
+
 function curriculumTextForAlcateia(curriculum = {}) {
   return [
     curriculum.nome,
@@ -356,9 +378,19 @@ function curriculumTextForAlcateia(curriculum = {}) {
     curriculum.experiencia_profissional,
     curriculum.cargo_alvo,
     curriculum.observacoes_entrevista,
+    curriculum.feedback_entrevista_ingles,
+    curriculum.versoes,
+    curriculum.experiencias,
+    curriculum.experiences,
+    curriculum.atividades,
+    curriculum.atividades_exercidas,
+    curriculum.empresas,
+    curriculum.projetos,
+    curriculum.tecnologias,
+    curriculum.search_text,
     curriculum.fonte,
     curriculum.id_controle
-  ].filter(Boolean).join(' ');
+  ].map((value) => searchableTextFromValue(value)).filter(Boolean).join(' ');
 }
 
 function shortSearchText(value = '', maxLength = 180) {
