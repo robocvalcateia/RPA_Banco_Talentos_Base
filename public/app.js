@@ -475,6 +475,230 @@ function calculateWonContractValue(opportunities) {
   }, 0);
 }
 
+function clientNameById(clientId) {
+  return state.clients.find((client) => client.id === clientId)?.customerName || 'Cliente nao encontrado';
+}
+
+function opportunityById(opportunityId) {
+  return state.opportunities.find((opportunity) => opportunity.id === opportunityId);
+}
+
+function formatDateBR(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString('pt-BR');
+}
+
+function opportunityAnalyticsRow(opportunity, includeClosedValue = false) {
+  const closedValue = Number(opportunity.closedQuantity ?? 0) * Number(opportunity.contractValue ?? 0);
+  const row = {
+    'Código': opportunity.opportunityCode || '',
+    'Oportunidade': opportunity.opportunity || '',
+    'Cliente': clientNameById(opportunity.clientId),
+    'Status': opportunity.status || '',
+    'Modelo': opportunity.model || '',
+    'Responsável': opportunity.owner || '',
+    'Abertura': formatDateBR(opportunity.openingDate),
+    'Fechamento': formatDateBR(opportunity.closingDate),
+    'Qtde vagas': opportunity.quantity ?? 0,
+    'Qtde fechada': opportunity.closedQuantity ?? 0,
+    'Valor contrato': formatCurrency(opportunity.contractValue)
+  };
+
+  if (includeClosedValue) {
+    row['Valor fechado'] = formatCurrency(closedValue);
+  }
+
+  return row;
+}
+
+function candidateAnalyticsRow(candidate) {
+  const opportunity = opportunityById(candidate.opportunityId);
+  return {
+    'Candidato': candidate.name || '',
+    'Oportunidade': opportunity?.opportunity || candidate.opportunityName || '',
+    'Código oportunidade': opportunity?.opportunityCode || candidate.opportunityCode || '',
+    'Cliente': opportunity ? clientNameById(opportunity.clientId) : '',
+    'Etapa': candidate.stage || '',
+    'Status': candidate.status || '',
+    'Aderência': `${candidate.aderencia ?? 0}%`,
+    'Aprovado': candidate.approved ? 'Sim' : 'Não',
+    'Valor hora': formatCurrency(candidate.hourlyRate),
+    'Criado em': formatDateBR(candidate.createdAt),
+    'Observação': candidate.observation || ''
+  };
+}
+
+function clientAnalyticsRow(client) {
+  const clientOpportunities = state.opportunities.filter((opportunity) => opportunity.clientId === client.id);
+  const clientAllocateds = state.allocateds.filter((allocated) => allocated.clientId === client.id && allocated.active === true);
+
+  return {
+    'Cliente': client.customerName || '',
+    'Contato principal': client.primaryContactName || '',
+    'E-mail': client.primaryContactEmail || '',
+    'Telefone': client.primaryContactPhone || '',
+    'Oportunidades': clientOpportunities.length,
+    'Oportunidades abertas': clientOpportunities.filter((opportunity) => opportunity.status === 'Open').length,
+    'Alocados ativos': clientAllocateds.length,
+    'Observação': client.observation || ''
+  };
+}
+
+function buildDashboardAnalytics(metricId) {
+  const wonOpportunities = getSelectedWonOpportunities().slice().sort(byOpportunityCode);
+  const activeOpportunities = state.opportunities
+    .filter((opportunity) => !['Closed', 'LOST', 'WON'].includes(opportunity.status))
+    .sort(byOpportunityCode);
+  const openOpportunities = state.opportunities
+    .filter((opportunity) => opportunity.status === 'Open')
+    .sort(byOpportunityCode);
+  const selectedMonthLabel = state.dashboardMonth ? formatMonthLabel(state.dashboardMonth) : 'sem periodo';
+  const selectedModelLabel = state.dashboardModel || 'todos os modelos';
+
+  const configs = {
+    won: {
+      title: `WON em ${selectedMonthLabel} (${selectedModelLabel})`,
+      summary: `${wonOpportunities.length} oportunidade(s) WON no filtro selecionado.`,
+      rows: wonOpportunities.map((opportunity) => opportunityAnalyticsRow(opportunity, true)),
+      filename: `dashboard-won-${state.dashboardMonth || 'sem-periodo'}`
+    },
+    wonValue: {
+      title: `Valor fechado em ${selectedMonthLabel} (${selectedModelLabel})`,
+      summary: `Total fechado: ${formatCurrency(calculateWonContractValue(wonOpportunities))}.`,
+      rows: wonOpportunities.map((opportunity) => opportunityAnalyticsRow(opportunity, true)),
+      filename: `dashboard-valor-fechado-${state.dashboardMonth || 'sem-periodo'}`
+    },
+    activeValue: {
+      title: 'Oportunidades em aberto',
+      summary: `Valor total em aberto: ${formatCurrency(activeOpportunities.reduce((sum, opportunity) => sum + Number(opportunity.contractValue ?? 0), 0))}.`,
+      rows: activeOpportunities.map((opportunity) => opportunityAnalyticsRow(opportunity, false)),
+      filename: 'dashboard-oportunidades-em-aberto'
+    },
+    openOpportunities: {
+      title: 'Oportunidades abertas',
+      summary: `${openOpportunities.length} oportunidade(s) com status Open.`,
+      rows: openOpportunities.map((opportunity) => opportunityAnalyticsRow(opportunity, false)),
+      filename: 'dashboard-oportunidades-abertas'
+    },
+    candidates: {
+      title: 'Candidatos',
+      summary: `${state.candidates.length} candidato(s) entrevistado(s).`,
+      rows: state.candidates.slice().sort((first, second) => String(first.name).localeCompare(String(second.name), 'pt-BR', { sensitivity: 'base' })).map(candidateAnalyticsRow),
+      filename: 'dashboard-candidatos'
+    },
+    clients: {
+      title: 'Clientes',
+      summary: `${state.clients.length} cliente(s) cadastrado(s).`,
+      rows: state.clients.slice().sort((first, second) => String(first.customerName).localeCompare(String(second.customerName), 'pt-BR', { sensitivity: 'base' })).map(clientAnalyticsRow),
+      filename: 'dashboard-clientes'
+    },
+    averageAderencia: {
+      title: 'Aderência média',
+      summary: `Aderência média: ${state.indicators.totals.averageAderencia ?? 0}%.`,
+      rows: state.candidates.slice().sort((first, second) => Number(second.aderencia ?? 0) - Number(first.aderencia ?? 0)).map(candidateAnalyticsRow),
+      filename: 'dashboard-aderencia-media'
+    }
+  };
+
+  return configs[metricId] || null;
+}
+
+function renderAnalyticsTable(rows) {
+  if (!rows.length) {
+    return '<p class="empty-state">Nenhum registro encontrado para este indicador.</p>';
+  }
+
+  const columns = Object.keys(rows[0]);
+  return `
+    <div class="table-wrap dashboard-analytics-table-wrap">
+      <table class="dashboard-analytics-table">
+        <thead>
+          <tr>${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join('')}</tr>
+        </thead>
+        <tbody>
+          ${rows.map((row) => `
+            <tr>${columns.map((column) => `<td>${escapeHtml(row[column] ?? '')}</td>`).join('')}</tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function csvEscape(value) {
+  const text = String(value ?? '');
+  return `"${text.replaceAll('"', '""')}"`;
+}
+
+function downloadDashboardAnalyticsCsv(analytics) {
+  const rows = analytics.rows || [];
+  const columns = rows.length ? Object.keys(rows[0]) : ['Mensagem'];
+  const bodyRows = rows.length ? rows : [{ Mensagem: 'Nenhum registro encontrado para este indicador.' }];
+  const csv = [
+    columns.map(csvEscape).join(';'),
+    ...bodyRows.map((row) => columns.map((column) => csvEscape(row[column])).join(';'))
+  ].join('\r\n');
+  const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${analytics.filename || 'dashboard-analitico'}-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function ensureDashboardAnalyticsModal() {
+  let modal = $('#dashboardAnalyticsModal');
+  if (modal) return modal;
+
+  modal = document.createElement('section');
+  modal.id = 'dashboardAnalyticsModal';
+  modal.className = 'modal hidden';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-labelledby', 'dashboardAnalyticsTitle');
+  modal.innerHTML = `
+    <div class="modal-card dashboard-analytics-modal-card">
+      <div class="modal-heading">
+        <div>
+          <h2 id="dashboardAnalyticsTitle">Detalhamento analítico</h2>
+          <span id="dashboardAnalyticsSummary"></span>
+        </div>
+        <button class="ghost-action" type="button" data-close-dashboard-analytics aria-label="Fechar">×</button>
+      </div>
+      <div class="modal-actions">
+        <button class="primary-action" type="button" id="dashboardAnalyticsExportButton">Gerar CSV</button>
+      </div>
+      <div id="dashboardAnalyticsContent"></div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function closeDashboardAnalytics() {
+  const modal = $('#dashboardAnalyticsModal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function openDashboardAnalytics(metricId) {
+  const analytics = buildDashboardAnalytics(metricId);
+  if (!analytics) return;
+
+  const modal = ensureDashboardAnalyticsModal();
+  $('#dashboardAnalyticsTitle').textContent = analytics.title;
+  $('#dashboardAnalyticsSummary').textContent = analytics.summary;
+  $('#dashboardAnalyticsContent').innerHTML = renderAnalyticsTable(analytics.rows);
+  const exportButton = $('#dashboardAnalyticsExportButton');
+  exportButton.onclick = () => downloadDashboardAnalyticsCsv(analytics);
+  modal.classList.remove('hidden');
+  exportButton.focus();
+}
+
 function renderDashboardFilters() {
   const monthSelect = $('#dashboardMonthFilter');
   const modelSelect = $('#dashboardModelFilter');
@@ -644,15 +868,21 @@ function renderMetrics() {
   const selectedMonthLabel = state.dashboardMonth ? formatMonthLabel(state.dashboardMonth) : 'sem periodo';
   const selectedModelLabel = state.dashboardModel || 'todos os modelos';
   $('#metrics').innerHTML = [
-    [`WON em ${selectedMonthLabel} (${selectedModelLabel})`, wonOpportunities.length],
-    [`Valor fechado em ${selectedMonthLabel} (${selectedModelLabel})`, formatCurrencyK(wonContractValue)],
-    ['Oportunidades em aberto', formatCurrencyK(totals.activeContractValue ?? 0)],
-    ['Oportunidades abertas', totals.openOpportunities],
-    ['Candidatos', totals.candidates],
-    ['Clientes', totals.clients],
-    ['Aderência média', `${totals.averageAderencia ?? 0}%`]
+    ['won', `WON em ${selectedMonthLabel} (${selectedModelLabel})`, wonOpportunities.length],
+    ['wonValue', `Valor fechado em ${selectedMonthLabel} (${selectedModelLabel})`, formatCurrencyK(wonContractValue)],
+    ['activeValue', 'Oportunidades em aberto', formatCurrencyK(totals.activeContractValue ?? 0)],
+    ['openOpportunities', 'Oportunidades abertas', totals.openOpportunities],
+    ['candidates', 'Candidatos', totals.candidates],
+    ['clients', 'Clientes', totals.clients],
+    ['averageAderencia', 'Aderência média', `${totals.averageAderencia ?? 0}%`]
   ]
-    .map(([label, value]) => `<article class="metric-card"><span>${label}</span>${String(value).includes('mini-bars') ? value : `<strong>${value}</strong>`}</article>`)
+    .map(([id, label, value]) => `
+      <button class="metric-card metric-card-button" type="button" data-dashboard-analytics="${id}" aria-label="Abrir detalhe de ${escapeHtml(label)}">
+        <span>${escapeHtml(label)}</span>
+        ${String(value).includes('mini-bars') ? value : `<strong>${value}</strong>`}
+        <small>Clique para ver detalhes</small>
+      </button>
+    `)
     .join('');
 }
 
@@ -2550,6 +2780,29 @@ function bindHuntingFilters() {
 }
 
 function bindDashboardFilters() {
+  $('#metrics')?.addEventListener('click', (event) => {
+    const card = event.target.closest('[data-dashboard-analytics]');
+    if (!card) return;
+    openDashboardAnalytics(card.dataset.dashboardAnalytics);
+  });
+
+  document.addEventListener('click', (event) => {
+    if (event.target.closest('[data-close-dashboard-analytics]')) {
+      closeDashboardAnalytics();
+      return;
+    }
+
+    if (event.target.id === 'dashboardAnalyticsModal') {
+      closeDashboardAnalytics();
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      closeDashboardAnalytics();
+    }
+  });
+
   $('#dashboardMonthFilter')?.addEventListener('change', (event) => {
     state.dashboardMonth = event.currentTarget.value;
     renderDashboardFilters();
