@@ -42,6 +42,43 @@ class EmailReader:
         self.base_url = "https://graph.microsoft.com/v1.0"
         self.email = self.graph_config.get_email()
         self.dias_atras = int(os.getenv('DIAS_ATRAS', 730))
+        self.subject_filter = os.getenv('EMAIL_SUBJECT_FILTER', '').strip().lower()
+        self.folder_names = [
+            folder.strip()
+            for folder in os.getenv('EMAIL_FOLDERS', 'inbox').split(',')
+            if folder.strip()
+        ]
+
+    def _get_folder_id(self, folder_name):
+        """Resolve o ID de uma pasta pelo displayName."""
+        if folder_name.lower() == 'inbox':
+            return 'inbox'
+
+        headers = self.graph_config.get_headers()
+        folders_url = f"{self.base_url}/users/{self.email}/mailFolders"
+        response = requests.get(folders_url, headers=headers, params={'$top': 999})
+        response.raise_for_status()
+
+        folders = response.json().get("value", [])
+        destination_folder = next(
+            (f for f in folders if f.get("displayName", "").lower() == folder_name.lower()),
+            None
+        )
+
+        if not destination_folder:
+            logger.warning(f"Pasta nao encontrada para leitura: {folder_name}")
+            return None
+
+        return destination_folder.get("id")
+
+    def _matches_subject_filter(self, email_item):
+        if not self.subject_filter:
+            return True
+
+        subject = str(email_item.get('subject') or '').lower()
+        sender = email_item.get('from', {}).get('emailAddress', {})
+        sender_text = f"{sender.get('name', '')} {sender.get('address', '')}".lower()
+        return self.subject_filter in subject or self.subject_filter in sender_text
     
     def get_emails(self):
         """Obtm lista de e-mails dos ltimos 2 anos"""
@@ -52,21 +89,36 @@ class EmailReader:
             date_limit = datetime.now() - timedelta(days=self.dias_atras)
             date_filter = date_limit.strftime('%Y-%m-%dT%H:%M:%SZ')
             
-            # Construir URL com filtro de data
-            url = f"{self.base_url}/users/{self.email}/mailFolders/inbox/messages"
+            headers = self.graph_config.get_headers()
             params = {
                 '$filter': f"receivedDateTime ge {date_filter}",
-                '$select': 'id,subject,from,receivedDateTime,hasAttachments',
+                '$select': 'id,subject,from,receivedDateTime,hasAttachments,parentFolderId',
                 '$top': 999
             }
-            
-            headers = self.graph_config.get_headers()
-            
-            response = requests.get(url, headers=headers, params=params)
-            response.raise_for_status()
-            
-            emails = response.json().get('value', [])
-            logger.info(f" {len(emails)} e-mails encontrados")
+
+            emails = []
+
+            for folder_name in self.folder_names:
+                folder_id = self._get_folder_id(folder_name)
+                if not folder_id:
+                    continue
+
+                url = f"{self.base_url}/users/{self.email}/mailFolders/{folder_id}/messages"
+                response = requests.get(url, headers=headers, params=params)
+                response.raise_for_status()
+
+                folder_emails = response.json().get('value', [])
+                logger.info(f" {len(folder_emails)} e-mails encontrados em {folder_name}")
+                emails.extend(folder_emails)
+
+            if self.subject_filter:
+                before = len(emails)
+                emails = [item for item in emails if self._matches_subject_filter(item)]
+                logger.info(
+                    f" {len(emails)} de {before} e-mails mantidos pelo filtro: {self.subject_filter}"
+                )
+
+            logger.info(f" {len(emails)} e-mails encontrados no total")
             
             return emails
             
