@@ -74,10 +74,10 @@ Regras de evidência:
 - Use somente fatos presentes nos dados do currículo e nas observações da entrevista.
 - Não invente empresas, períodos, cargos, clientes, ferramentas, resultados, números, formação, certificações ou nível de idioma.
 - Você pode corrigir gramática, expandir abreviações inequívocas, separar responsabilidades que estejam aglutinadas e tornar a descrição mais clara.
-- Quando uma informação não existir, use lista vazia ou "Não informado", conforme o tipo do campo.
+- Quando uma informação não existir, use lista vazia ou string vazia. Nunca escreva "Não informado", "Nao informado" ou "Not informed" nos textos finais.
 - Preserve nomes próprios, marcas e tecnologias. Traduza cargos, períodos e descrições para o inglês, mas não traduza nomes de empresas.
 - O resumo da entrevista deve usar as observações registradas. Se não houver observações, informe explicitamente que não há entrevista registrada; não simule uma entrevista.
-- O feedback de inglês e a disponibilidade para viagem devem ser "Não informado" quando não estiverem registrados.
+- O feedback de inglês e a disponibilidade para viagem devem ficar vazios quando não estiverem registrados.
 - Cada responsabilidade profissional deve ocupar um item separado em details_pt/details_en.
 - Não inclua dados pessoais de contato nos textos de perfil.
 `.trim();
@@ -357,23 +357,65 @@ function safe(value, fallback = '') {
   return String(value ?? '').trim() || fallback;
 }
 
+function isUnavailableText(value) {
+  const normalized = String(value ?? '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  return [
+    'nao informado',
+    'nao informada',
+    'not informed',
+    'not specified',
+    'not provided'
+  ].includes(normalized);
+}
+
+function sanitizeDocumentValue(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => sanitizeDocumentValue(item))
+      .filter((item) => {
+        if (Array.isArray(item)) return item.length > 0;
+        if (item && typeof item === 'object') {
+          return Object.values(item).some((field) => {
+            if (Array.isArray(field)) return field.length > 0;
+            if (field && typeof field === 'object') return Object.keys(field).length > 0;
+            return String(field ?? '').trim() !== '';
+          });
+        }
+        return String(item ?? '').trim() !== '';
+      });
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, sanitizeDocumentValue(item)])
+    );
+  }
+
+  if (isUnavailableText(value)) return '';
+  return value;
+}
+
 export function prepareDocumentData(curriculum, generated) {
   const nationalityAge = [safe(curriculum.nacionalidade), curriculum.idade ? `${safe(curriculum.idade)} anos` : '']
     .filter(Boolean)
     .join(', ');
-  return {
+  return sanitizeDocumentValue({
     ...generated,
     languages_pt_text: (generated.languages_pt || []).join('\n\n'),
     languages_en_text: (generated.languages_en || []).join('\n\n'),
     candidate_name: safe(curriculum.nome, 'Candidato'),
     target_role_pt: safe(curriculum.cargo_alvo, safe(generated.target_role_pt, 'Profissional de Tecnologia')),
     target_role_en: safe(generated.target_role_en, 'Technology Professional'),
-    nationality_age: nationalityAge || 'Não informado',
-    address: safe(curriculum.endereco, 'Não informado'),
-    phone: safe(curriculum.telefone, 'Não informado'),
-    email: safe(curriculum.email, 'Não informado'),
-    linkedin: safe(curriculum.linkedin, 'Não informado')
-  };
+    nationality_age: nationalityAge,
+    address: safe(curriculum.endereco),
+    phone: safe(curriculum.telefone),
+    email: safe(curriculum.email),
+    linkedin: safe(curriculum.linkedin)
+  });
 }
 
 async function renderDocx(templatePath, data) {

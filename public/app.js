@@ -314,6 +314,13 @@ function splitSearchTerms(value) {
     .filter(Boolean);
 }
 
+function splitRawSearchTerms(value) {
+  return String(value ?? '')
+    .split(/[\s,;|/]+/)
+    .map((term) => term.trim())
+    .filter(Boolean);
+}
+
 function searchableTextFromValue(value, seen = new WeakSet()) {
   if (value === null || value === undefined) return '';
   if (value instanceof Date) return value.toISOString();
@@ -354,6 +361,30 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function highlightSearchTerms(value, query) {
+  const text = String(value ?? '');
+  const terms = [...new Set(splitRawSearchTerms(query))]
+    .filter((term) => term.length >= 2)
+    .sort((a, b) => b.length - a.length);
+
+  if (!text || !terms.length) return escapeHtml(text);
+
+  const expression = new RegExp(`(${terms.map(escapeRegExp).join('|')})`, 'gi');
+  let output = '';
+  let lastIndex = 0;
+  for (const match of text.matchAll(expression)) {
+    output += escapeHtml(text.slice(lastIndex, match.index));
+    output += `<mark class="search-highlight">${escapeHtml(match[0])}</mark>`;
+    lastIndex = match.index + match[0].length;
+  }
+  output += escapeHtml(text.slice(lastIndex));
+  return output;
 }
 
 function formatCurriculumDate(value) {
@@ -654,6 +685,7 @@ function renderAnalyticsTable(rows) {
         >
       </label>
       <button class="secondary-action compact-action" type="button" data-clear-dashboard-analytics-filters>Limpar filtros</button>
+      <button class="primary-action compact-action" type="button" data-apply-dashboard-analytics-filters>Aplicar filtros</button>
       <span id="dashboardAnalyticsFilterCount">${rows.length} registro(s)</span>
     </div>
     <div class="table-wrap dashboard-analytics-table-wrap">
@@ -1801,8 +1833,13 @@ async function saveCurriculumDetail() {
   }
 
   const saveButton = $('#saveCurriculumButton');
+  const originalText = saveButton?.textContent || 'Salvar dados';
   try {
-    if (saveButton) saveButton.disabled = true;
+    if (saveButton) {
+      saveButton.disabled = true;
+      saveButton.textContent = 'Salvando...';
+      saveButton.setAttribute('aria-busy', 'true');
+    }
     const updated = await api(`/api/curriculums/${encodeURIComponent(curriculumIdentifier(current))}`, {
       method: 'PATCH',
       body: JSON.stringify(payload)
@@ -1814,12 +1851,20 @@ async function saveCurriculumDetail() {
     }
     state.selectedCurriculumId = curriculumIdentifier(updated);
     setCurriculumDetailEditing(false);
-    render();
+    await refresh();
+    state.selectedCurriculumId = curriculumIdentifier(updated);
+    state.curriculumActiveTab = 'detail';
+    state.curriculumEditing = false;
+    renderCurriculums();
     toast('Dados do candidato salvos com sucesso.');
   } catch (error) {
     toast(error.message || 'Não foi possível salvar o candidato.');
   } finally {
-    if (saveButton) saveButton.disabled = !state.curriculumEditing;
+    if (saveButton) {
+      saveButton.disabled = !state.curriculumEditing;
+      saveButton.textContent = originalText;
+      saveButton.removeAttribute('aria-busy');
+    }
   }
 }
 
@@ -1882,9 +1927,69 @@ function obterUltimoEmpregoComDatas(curriculum) {
   return linhas[0];
 }
 
+function trimSearchSnippet(text, query, maxLength = 180) {
+  const rawText = String(text ?? '').replace(/\s+/g, ' ').trim();
+  if (rawText.length <= maxLength) return rawText;
+
+  const terms = splitRawSearchTerms(query);
+  const lowerText = rawText.toLowerCase();
+  const firstIndex = terms
+    .map((term) => lowerText.indexOf(term.toLowerCase()))
+    .filter((index) => index >= 0)
+    .sort((a, b) => a - b)[0] ?? 0;
+  const start = Math.max(0, firstIndex - 55);
+  const end = Math.min(rawText.length, start + maxLength);
+  return `${start > 0 ? '...' : ''}${rawText.slice(start, end)}${end < rawText.length ? '...' : ''}`;
+}
+
+function curriculumSearchSnippets(curriculum, query) {
+  const terms = splitSearchTerms(query);
+  if (!terms.length) return [];
+
+  const fields = [
+    ['Skill', curriculum.skills],
+    ['Conhecimento técnico', curriculum.conhecimento_tecnico],
+    ['Experiência profissional', curriculum.experiencia_profissional],
+    ['Cursos/certificações', curriculum.cursos_certificacoes],
+    ['Formação', curriculum.formacao_academica],
+    ['Cargo alvo', curriculum.cargo_alvo]
+  ];
+
+  const snippets = [];
+  for (const [label, value] of fields) {
+    const lines = String(value ?? '')
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const line = lines.find((item) => {
+      const normalizedLine = normalizeSearchValue(item);
+      return terms.some((term) => normalizedLine.includes(term));
+    });
+    if (line) {
+      snippets.push({ label, text: trimSearchSnippet(line, query) });
+    }
+    if (snippets.length >= 3) break;
+  }
+  return snippets;
+}
+
+function renderCurriculumSearchSnippets(curriculum, query) {
+  const snippets = curriculumSearchSnippets(curriculum, query);
+  if (!snippets.length) return '';
+
+  return `
+    <div class="talent-match-snippets">
+      ${snippets.map((snippet) => `
+        <div><span>${escapeHtml(snippet.label)}:</span> ${highlightSearchTerms(snippet.text, query)}</div>
+      `).join('')}
+    </div>
+  `;
+}
+
 function renderCurriculums() {
   renderEmailProcessingStatus();
   const curriculums = getFilteredCurriculums();
+  const highlightQuery = `${state.curriculumSearch.name || ''} ${state.curriculumSearch.skills || ''}`.trim();
   $('#curriculumCount').textContent = curriculums.length;
   const searchStatus = $('#curriculumSearchStatus');
 
@@ -1924,15 +2029,16 @@ const curriculumRows = curriculums
     return `
       <tr class="${isSelected ? 'selected-row' : ''}" data-select-curriculum="${escapeHtml(id)}">
         <td>
-          <strong>${escapeHtml(curriculum.nome || '-')}</strong>
+          <strong>${highlightSearchTerms(curriculum.nome || '-', highlightQuery)}</strong>
         </td>
 
         <td class="talent-long-text">
-          ${escapeHtml(skillCompleto)}
+          ${highlightSearchTerms(skillCompleto, highlightQuery)}
+          ${renderCurriculumSearchSnippets(curriculum, highlightQuery)}
         </td>
 
         <td class="talent-long-text">
-          ${escapeHtml(ultimoEmprego)}
+          ${highlightSearchTerms(ultimoEmprego, highlightQuery)}
         </td>
       </tr>
     `;
@@ -2990,6 +3096,11 @@ function bindDashboardFilters() {
 
     if (event.target.closest('[data-clear-dashboard-analytics-filters]')) {
       clearDashboardAnalyticsFilters();
+      return;
+    }
+
+    if (event.target.closest('[data-apply-dashboard-analytics-filters]')) {
+      applyDashboardAnalyticsFilters();
       return;
     }
 

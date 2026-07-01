@@ -256,3 +256,36 @@ test('templates geram os quatro DOCX e o pacote DTT com três arquivos', async (
     'Marina-Teste-DTT-Resumo-Entrevista-PT.docx'
   ]);
 });
+
+test('campos nao informados nao aparecem nos dados dos documentos', () => {
+  const data = prepareDocumentData(
+    {
+      ...curriculum,
+      endereco: 'Não informado',
+      telefone: '',
+      email: 'Nao informado',
+      linkedin: 'Not informed',
+      nacionalidade: '',
+      idade: ''
+    },
+    {
+      ...generated,
+      technical_skills_pt: ['Java', 'Não informado', 'SQL'],
+      languages_pt: ['Nao informado'],
+      languages_en: ['Not informed'],
+      english_interview_feedback_pt: 'Não informado',
+      travel_availability_pt: 'Nao informado'
+    }
+  );
+
+  assert.equal(data.address, '');
+  assert.equal(data.phone, '');
+  assert.equal(data.email, '');
+  assert.equal(data.linkedin, '');
+  assert.equal(data.nationality_age, '');
+  assert.deepEqual(data.technical_skills_pt, ['Java', 'SQL']);
+  assert.deepEqual(data.languages_pt, []);
+  assert.deepEqual(data.languages_en, []);
+  assert.equal(data.english_interview_feedback_pt, '');
+  assert.equal(data.travel_availability_pt, '');
+});
