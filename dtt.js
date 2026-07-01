@@ -178,35 +178,124 @@ export function extractGeminiText(payload) {
   return text;
 }
 
-export async function generateCurriculumContent(curriculum, options = {}) {
-  const openAIKey = options.openAIKey || options.apiKey || process.env.OPENAI_API_KEY || '';
-  const geminiKey = options.geminiKey || process.env.GEMINI_API_KEY || '';
-  const fetchImpl = options.fetchImpl || fetch;
-  if (!openAIKey && !geminiKey) {
-    throw new Error('Configure OPENAI_API_KEY ou GEMINI_API_KEY para gerar os documentos com IA.');
+export class AIProviderError extends Error {
+  constructor(message, options = {}) {
+    super(message);
+    this.name = 'AIProviderError';
+    this.provider = options.provider || 'IA';
+    this.status = options.status;
+    this.transient = Boolean(options.transient);
+    this.statusCode = options.statusCode || (this.transient ? 503 : 500);
+    if (options.cause) this.cause = options.cause;
   }
+}
 
-  if (openAIKey) {
-    const response = await fetchImpl('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${openAIKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(buildOpenAIRequest(curriculum, options.model)),
-      signal: options.signal || AbortSignal.timeout(180000)
-    });
+function isTemporaryAIError(status, message = '') {
+  const text = String(message || '').toLowerCase();
+  return status === 408
+    || status === 409
+    || status === 429
+    || status >= 500
+    || /high demand|spikes in demand|try again later|temporar|overload|overloaded|unavailable|timeout|timed out|rate limit|capacity|busy|quota/.test(text);
+}
 
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const message = payload?.error?.message || `Falha na IA (HTTP ${response.status}).`;
-      throw new Error(message);
+function publicAIError(error) {
+  if (error instanceof AIProviderError && error.transient) {
+    return new AIProviderError(
+      'A IA está temporariamente sobrecarregada. Tente gerar o CV novamente em alguns minutos.',
+      {
+        provider: error.provider,
+        status: error.status,
+        transient: true,
+        statusCode: 503,
+        cause: error
+      }
+    );
+  }
+  return error;
+}
+
+function aiProviderError(provider, status, payload) {
+  const message = payload?.error?.message || `Falha na IA (${provider}, HTTP ${status}).`;
+  return new AIProviderError(message, {
+    provider,
+    status,
+    transient: isTemporaryAIError(status, message)
+  });
+}
+
+function normalizeAIError(error, provider) {
+  if (error instanceof AIProviderError) return error;
+
+  const message = error?.message || `Falha na IA (${provider}).`;
+  return new AIProviderError(message, {
+    provider,
+    transient: isTemporaryAIError(0, message),
+    cause: error
+  });
+}
+
+function retryDelay(attempt, baseDelayMs) {
+  return Math.max(0, baseDelayMs) * (attempt + 1);
+}
+
+async function waitBeforeRetry(delayMs, signal) {
+  if (!delayMs) return;
+  if (signal?.aborted) throw signal.reason || new Error('Operação cancelada.');
+  await new Promise((resolve, reject) => {
+    const timeout = setTimeout(resolve, delayMs);
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        clearTimeout(timeout);
+        reject(signal.reason || new Error('Operação cancelada.'));
+      }, { once: true });
     }
+  });
+}
 
-    return JSON.parse(extractOpenAIText(payload));
+async function withRetry(action, options = {}) {
+  const maxRetries = Number.isInteger(options.maxRetries) ? options.maxRetries : 2;
+  const retryDelayMs = Number.isFinite(options.retryDelayMs) ? options.retryDelayMs : 1500;
+  let lastError;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    try {
+      return await action();
+    } catch (error) {
+      lastError = normalizeAIError(error, options.provider || 'IA');
+      if (!lastError.transient || attempt >= maxRetries) break;
+      await waitBeforeRetry(retryDelay(attempt, retryDelayMs), options.signal);
+    }
   }
 
-  const model = options.model || process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
+  throw lastError;
+}
+
+async function generateWithOpenAI(curriculum, options) {
+  const fetchImpl = options.fetchImpl || fetch;
+  const openAIKey = options.openAIKey || options.apiKey || process.env.OPENAI_API_KEY || '';
+  const response = await fetchImpl('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${openAIKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(buildOpenAIRequest(curriculum, options.model)),
+    signal: options.signal || AbortSignal.timeout(180000)
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw aiProviderError('OpenAI', response.status, payload);
+  }
+
+  return JSON.parse(extractOpenAIText(payload));
+}
+
+async function generateWithGemini(curriculum, options) {
+  const fetchImpl = options.fetchImpl || fetch;
+  const geminiKey = options.geminiKey || process.env.GEMINI_API_KEY || '';
+  const model = options.geminiModel || options.model || process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiKey)}`;
   const response = await fetchImpl(url, {
     method: 'POST',
@@ -219,11 +308,49 @@ export async function generateCurriculumContent(curriculum, options = {}) {
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const message = payload?.error?.message || `Falha na IA (HTTP ${response.status}).`;
-    throw new Error(message);
+    throw aiProviderError('Gemini', response.status, payload);
   }
 
   return JSON.parse(extractGeminiText(payload));
+}
+
+export async function generateCurriculumContent(curriculum, options = {}) {
+  const openAIKey = options.openAIKey || options.apiKey || process.env.OPENAI_API_KEY || '';
+  const geminiKey = options.geminiKey || process.env.GEMINI_API_KEY || '';
+  if (!openAIKey && !geminiKey) {
+    throw new Error('Configure OPENAI_API_KEY ou GEMINI_API_KEY para gerar os documentos com IA.');
+  }
+
+  if (openAIKey) {
+    try {
+      return await withRetry(() => generateWithOpenAI(curriculum, options), {
+        ...options,
+        provider: 'OpenAI'
+      });
+    } catch (error) {
+      const openAIError = normalizeAIError(error, 'OpenAI');
+      if (geminiKey && openAIError.transient) {
+        try {
+          return await withRetry(() => generateWithGemini(curriculum, options), {
+            ...options,
+            provider: 'Gemini'
+          });
+        } catch (fallbackError) {
+          throw publicAIError(normalizeAIError(fallbackError, 'Gemini'));
+        }
+      }
+      throw publicAIError(openAIError);
+    }
+  }
+
+  try {
+    return await withRetry(() => generateWithGemini(curriculum, options), {
+      ...options,
+      provider: 'Gemini'
+    });
+  } catch (error) {
+    throw publicAIError(normalizeAIError(error, 'Gemini'));
+  }
 }
 
 function safe(value, fallback = '') {

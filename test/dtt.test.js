@@ -120,6 +120,94 @@ test('geração de conteúdo aceita uma resposta mockada da Responses API', asyn
   assert.equal(result.experiences.length, 2);
 });
 
+test('geracao de conteudo tenta novamente quando a IA esta sobrecarregada', async () => {
+  let calls = 0;
+  const result = await generateCurriculumContent(curriculum, {
+    apiKey: 'teste',
+    maxRetries: 1,
+    retryDelayMs: 0,
+    fetchImpl: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          ok: false,
+          status: 503,
+          json: async () => ({
+            error: {
+              message: 'This model is currently experiencing high demand. Please try again later.'
+            }
+          })
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({ output: [{ content: [{ type: 'output_text', text: JSON.stringify(generated) }] }] })
+      };
+    }
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(result.experiences.length, 2);
+});
+
+test('geracao usa Gemini como fallback quando OpenAI esta temporariamente indisponivel', async () => {
+  const urls = [];
+  const result = await generateCurriculumContent(curriculum, {
+    apiKey: 'teste-openai',
+    geminiKey: 'teste-gemini',
+    maxRetries: 0,
+    retryDelayMs: 0,
+    fetchImpl: async (url) => {
+      urls.push(url);
+      if (url.includes('api.openai.com')) {
+        return {
+          ok: false,
+          status: 503,
+          json: async () => ({
+            error: {
+              message: 'The model is overloaded. Try again later.'
+            }
+          })
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(generated) }] } }] })
+      };
+    }
+  });
+
+  assert.equal(urls.length, 2);
+  assert.match(urls[0], /api\.openai\.com/);
+  assert.match(urls[1], /generativelanguage\.googleapis\.com/);
+  assert.equal(result.experiences.length, 2);
+});
+
+test('erro temporario de IA e apresentado com mensagem amigavel', async () => {
+  await assert.rejects(
+    generateCurriculumContent(curriculum, {
+      apiKey: 'teste',
+      maxRetries: 0,
+      retryDelayMs: 0,
+      fetchImpl: async () => ({
+        ok: false,
+        status: 503,
+        json: async () => ({
+          error: {
+            message: 'This model is currently experiencing high demand. Spikes in demand are usually temporary.'
+          }
+        })
+      })
+    }),
+    (error) => {
+      assert.equal(error.statusCode, 503);
+      assert.match(error.message, /temporariamente sobrecarregada/);
+      assert.doesNotMatch(error.message, /Spikes in demand/);
+      return true;
+    }
+  );
+});
+
 test('geração de conteúdo usa Gemini quando essa é a integração configurada', async () => {
   const request = buildGeminiRequest(curriculum);
   assert.equal(request.generationConfig.responseMimeType, 'application/json');

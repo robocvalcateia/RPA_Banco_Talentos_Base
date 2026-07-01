@@ -2403,7 +2403,8 @@ async function handleApi(request, response) {
   } catch (error) {
     const message = error.message || 'Erro interno.';
     const isValidationError = /invalida|invalido/.test(message);
-    sendError(response, isValidationError ? 422 : 500, message);
+    const statusCode = Number.isInteger(error.statusCode) ? error.statusCode : (isValidationError ? 422 : 500);
+    sendError(response, statusCode, message);
   }
 }
 
