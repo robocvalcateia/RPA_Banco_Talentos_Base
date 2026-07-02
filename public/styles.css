@@ -1340,6 +1340,11 @@ th {
   text-transform: uppercase;
 }
 
+.blackflag-name {
+  color: #b71c1c;
+  font-weight: 800;
+}
+
 .curriculum-opportunity-modal-card {
   width: min(720px, 100%);
 }

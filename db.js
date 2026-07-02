@@ -558,8 +558,24 @@ export function normalizeCurriculum(curriculum) {
     search_text: String(curriculum.search_text ?? curriculum.texto_pesquisa ?? '').trim(),
     search_text_all: String(curriculum.search_text_all ?? curriculum.texto_pesquisavel ?? '').trim(),
     data_nascimento: String(curriculum.data_nascimento ?? '').trim(),
-    blacklist: normalizeBoolean(curriculum.blacklist ?? curriculum.blackList ?? curriculum.black_list ?? false),
-    blacklistObservation: String(curriculum.blacklistObservation ?? curriculum.blackListObservation ?? curriculum.blacklist_observation ?? '').trim(),
+    blackflag: normalizeBoolean(
+      curriculum.blackflag
+      ?? curriculum.blackFlag
+      ?? curriculum.black_flag
+      ?? curriculum.blacklist
+      ?? curriculum.blackList
+      ?? curriculum.black_list
+      ?? false
+    ),
+    blackflagObservation: String(
+      curriculum.blackflagObservation
+      ?? curriculum.blackFlagObservation
+      ?? curriculum.blackflag_observation
+      ?? curriculum.blacklistObservation
+      ?? curriculum.blackListObservation
+      ?? curriculum.blacklist_observation
+      ?? ''
+    ).trim(),
     id_controle: idControle || id
   };
 }
@@ -780,11 +796,14 @@ function normalizeStageHistory(history, currentStage, enteredAt) {
 export function enrichCandidate(candidate, db) {
   const opportunity = db.opportunities.find((item) => item.id === candidate.opportunityId);
   const curriculum = db.curriculums.find((item) => item.id === candidate.curriculumId || item.id_controle === candidate.curriculumId);
+  const blackflag = normalizeBoolean(curriculum?.blackflag ?? curriculum?.blacklist ?? false);
 
   return {
     ...candidate,
     curriculumName: curriculum?.nome ?? '',
     curriculumControlId: curriculum?.id_controle ?? candidate.curriculumId,
+    blackflag,
+    blackflagObservation: curriculum?.blackflagObservation ?? curriculum?.blacklistObservation ?? '',
     opportunityName: opportunity?.opportunity ?? '',
     opportunityCode: opportunity?.opportunityCode ?? '',
     opportunityStatus: opportunity?.status ?? ''
@@ -849,10 +868,13 @@ export function enrichSelectedCandidate(candidate, db) {
   const opportunity = db.opportunities.find((item) => item.id === candidate.opportunityId);
   const filter = db.cvFilters.find((item) => item.id === candidate.cvFilterId);
   const curriculum = findCurriculumForSelectedCandidate(candidate, db);
+  const blackflag = normalizeBoolean(curriculum?.blackflag ?? curriculum?.blacklist ?? false);
 
   return {
     ...candidate,
     curriculumId: candidate.curriculumId || curriculum?.id_controle || curriculum?.id || curriculum?.mongoId || '',
+    blackflag,
+    blackflagObservation: curriculum?.blackflagObservation ?? curriculum?.blacklistObservation ?? '',
     opportunityName: opportunity?.opportunity ?? '',
     opportunityCode: opportunity?.opportunityCode ?? '',
     cvFilterName: filter?.jobDescription ?? ''

@@ -275,9 +275,19 @@ test('curriculum normaliza estrutura importada', () => {
   assert.equal(normalized.mongoId, "ObjectId('69d810e8ea6b2af3cebdfb48')");
   assert.equal(normalized.nome, 'Antonio Miguel Costa Junior');
   assert.equal(normalized.email, 'antoniomiguel2332@gmail.com');
-  assert.equal(normalized.blacklist, true);
-  assert.equal(normalized.blacklistObservation, 'Nao contratar novamente');
+  assert.equal(normalized.blackflag, true);
+  assert.equal(normalized.blackflagObservation, 'Nao contratar novamente');
   assert.deepEqual(normalized.versoes, [{ numero: 1 }]);
+});
+
+test('curriculum cria blackflag false por padrao', () => {
+  const normalized = normalizeCurriculum({
+    id: 'curr_sem_flag',
+    nome: 'Candidato Sem Flag'
+  });
+
+  assert.equal(normalized.blackflag, false);
+  assert.equal(normalized.blackflagObservation, '');
 });
 
 test('aderencia aceita apenas valores predefinidos', () => {

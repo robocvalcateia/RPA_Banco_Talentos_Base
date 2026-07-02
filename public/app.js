@@ -1619,7 +1619,7 @@ function renderHuntings() {
       const client = state.clients.find((item) => item.id === opportunity.clientId);
       return `
         <tr class="clickable-row" data-edit-hunting="${opportunity.id}" data-edit-hunting-candidate="${candidate?.id || ''}" data-client-id="${opportunity.clientId || ''}">
-          <td><strong>${candidate?.name || '-'}</strong></td>
+          <td><strong>${renderBlackflagName(candidate?.name, candidate)}</strong></td>
           <td>${opportunity.opportunity || '-'}</td>
           <td>${opportunity.openingDate || '-'}</td>
           <td>${client?.customerName || 'Cliente sem FK'}</td>
@@ -1718,16 +1718,19 @@ function renderCvResultRows(results, emptyMessage, group) {
   }
 
   return results
-    .map((result) => `
+    .map((result) => {
+      const curriculum = findCurriculumForCandidate(result);
+      return `
       <tr>
         <td><input type="checkbox" data-select-cv-result="${result.id}" data-result-group="${group}" aria-label="Selecionar ${result.name || 'candidato'}" /></td>
-        <td><strong>${result.name || '-'}</strong></td>
+        <td><strong>${renderBlackflagName(result.name, curriculum || result)}</strong></td>
         <td>${result.source || 'APINFO'}</td>
         <td>${candidateLinkHtml(result)}</td>
         <td>${result.score ?? 0}</td>
         <td>${result.observation || '-'}</td>
       </tr>
-    `)
+    `;
+    })
     .join('');
 }
 
@@ -1866,16 +1869,34 @@ function isFlagEnabled(value) {
 }
 
 function isCurriculumBlacklisted(curriculum) {
-  return isFlagEnabled(curriculum?.blacklist ?? curriculum?.blackList ?? curriculum?.black_list ?? false);
+  return isFlagEnabled(
+    curriculum?.blackflag
+    ?? curriculum?.blackFlag
+    ?? curriculum?.black_flag
+    ?? curriculum?.blacklist
+    ?? curriculum?.blackList
+    ?? curriculum?.black_list
+    ?? false
+  );
 }
 
 function curriculumBlacklistObservation(curriculum) {
   return String(
-    curriculum?.blacklistObservation
+    curriculum?.blackflagObservation
+    ?? curriculum?.blackFlagObservation
+    ?? curriculum?.blackflag_observation
+    ?? curriculum?.blacklistObservation
     ?? curriculum?.blackListObservation
     ?? curriculum?.blacklist_observation
     ?? ''
   ).trim();
+}
+
+function renderBlackflagName(name, source) {
+  const label = escapeHtml(name || '-');
+  return isCurriculumBlacklisted(source)
+    ? `<span class="blackflag-name">${label}</span>`
+    : label;
 }
 
 function setCurriculumDetailEditing(isEditing) {
@@ -1922,12 +1943,12 @@ function fillCurriculumDetailForm(curriculum) {
     'disponibilidade_viagem',
     'feedback_entrevista_ingles',
     'observacoes_entrevista',
-    'blacklist',
-    'blacklistObservation'
+    'blackflag',
+    'blackflagObservation'
   ].forEach((fieldName) => setFieldValue(form, fieldName, curriculum[fieldName] || ''));
 
-  setFieldValue(form, 'blacklist', isCurriculumBlacklisted(curriculum) ? 'true' : 'false');
-  setFieldValue(form, 'blacklistObservation', curriculumBlacklistObservation(curriculum));
+  setFieldValue(form, 'blackflag', isCurriculumBlacklisted(curriculum) ? 'true' : 'false');
+  setFieldValue(form, 'blackflagObservation', curriculumBlacklistObservation(curriculum));
 }
 
 function readCurriculumDetailForm() {
@@ -1938,8 +1959,8 @@ function readCurriculumDetailForm() {
     ...payload,
     id: current?.id || '',
     mongoId: current?.mongoId || '',
-    blacklist: isFlagEnabled(payload.blacklist),
-    blacklistObservation: payload.blacklistObservation || current?.blacklistObservation || '',
+    blackflag: isFlagEnabled(payload.blackflag),
+    blackflagObservation: payload.blackflagObservation || curriculumBlacklistObservation(current) || '',
     data_criação: current?.data_criação || '',
     data_origem: current?.data_origem || ''
   };
@@ -2024,13 +2045,17 @@ if (!shouldShowDetail) {
 }
 
 panel.classList.remove('hidden');
-  $('#selectedCurriculumName').textContent = curriculum.nome || 'Candidato sem nome';
+  const selectedNameElement = $('#selectedCurriculumName');
+  if (selectedNameElement) {
+    selectedNameElement.textContent = curriculum.nome || 'Candidato sem nome';
+    selectedNameElement.classList.toggle('blackflag-name', isCurriculumBlacklisted(curriculum));
+  }
   $('#selectedCurriculumId').textContent = curriculum.id_controle || curriculum.id || curriculum.mongoId || '';
   const blacklisted = isCurriculumBlacklisted(curriculum);
   const banner = $('#curriculumBlacklistBanner');
   if (banner) {
-    const observation = curriculumBlacklistObservation(curriculum) || curriculum.observacoes_entrevista || 'Candidato marcado em Black List.';
-    banner.textContent = blacklisted ? `BLACK LIST: ${observation}` : '';
+    const observation = curriculumBlacklistObservation(curriculum) || curriculum.observacoes_entrevista || 'Candidato marcado em Black Flag.';
+    banner.textContent = blacklisted ? `BLACK FLAG: ${observation}` : '';
     banner.classList.toggle('hidden', !blacklisted);
   }
 
@@ -2038,8 +2063,8 @@ panel.classList.remove('hidden');
   if (blacklistButton) {
     blacklistButton.classList.remove('primary-action', 'danger-action', 'secondary-action');
     blacklistButton.classList.add(blacklisted ? 'danger-action' : 'primary-action');
-    blacklistButton.textContent = blacklisted ? 'Remover Black List' : 'Black List';
-    blacklistButton.setAttribute('aria-label', blacklisted ? 'Remover candidato da Black List' : 'Marcar candidato como Black List');
+    blacklistButton.textContent = 'Black Flag';
+    blacklistButton.setAttribute('aria-label', blacklisted ? 'Remover Black Flag do candidato' : 'Marcar candidato com Black Flag');
   }
   fillCurriculumDetailForm(curriculum);
   setCurriculumDetailEditing(state.curriculumEditing);
@@ -2270,16 +2295,16 @@ function ensureCurriculumBlacklistModal() {
     <div class="modal-card curriculum-opportunity-modal-card">
       <div class="modal-heading">
         <div>
-          <h2 id="curriculumBlacklistTitle">Black List</h2>
+          <h2 id="curriculumBlacklistTitle">Black Flag</h2>
           <span id="curriculumBlacklistSummary"></span>
         </div>
         <button class="ghost-action" type="button" data-close-curriculum-blacklist aria-label="Fechar">×</button>
       </div>
       <form id="curriculumBlacklistForm" class="form-grid">
         <label class="full">Observação obrigatória
-          <textarea name="blacklistObservation" rows="4" required></textarea>
+          <textarea name="blackflagObservation" rows="4" required></textarea>
         </label>
-        <button class="danger-action" type="submit">Salvar Black List</button>
+        <button class="danger-action" type="submit">Salvar Black Flag</button>
       </form>
     </div>
   `;
@@ -2296,7 +2321,7 @@ function closeCurriculumBlacklistModal() {
 function openCurriculumBlacklistModal() {
   const current = selectedCurriculum();
   if (!current) {
-    toast('Selecione um candidato antes de marcar Black List.');
+    toast('Selecione um candidato antes de marcar Black Flag.');
     return;
   }
 
@@ -2304,47 +2329,47 @@ function openCurriculumBlacklistModal() {
   const blacklisted = isCurriculumBlacklisted(current);
   const nextBlacklisted = !blacklisted;
   modal.dataset.nextBlacklist = nextBlacklisted ? 'true' : 'false';
-  $('#curriculumBlacklistTitle', modal).textContent = blacklisted ? 'Remover Black List' : 'Black List';
+  $('#curriculumBlacklistTitle', modal).textContent = blacklisted ? 'Remover Black Flag' : 'Black Flag';
   $('#curriculumBlacklistSummary', modal).textContent = blacklisted
-    ? `${current.nome || 'Candidato selecionado'} está em Black List. Salve para remover a flag.`
-    : `${current.nome || 'Candidato selecionado'} será marcado em Black List.`;
-  $('#curriculumBlacklistForm textarea[name="blacklistObservation"]', modal).value = curriculumBlacklistObservation(current);
+    ? `${current.nome || 'Candidato selecionado'} está com Black Flag. Salve para remover a flag.`
+    : `${current.nome || 'Candidato selecionado'} será marcado com Black Flag.`;
+  $('#curriculumBlacklistForm textarea[name="blackflagObservation"]', modal).value = curriculumBlacklistObservation(current);
   const submitButton = $('#curriculumBlacklistForm button[type="submit"]', modal);
   if (submitButton) {
     submitButton.classList.remove('primary-action', 'danger-action', 'secondary-action');
     submitButton.classList.add(nextBlacklisted ? 'danger-action' : 'primary-action');
-    submitButton.textContent = nextBlacklisted ? 'Salvar Black List' : 'Salvar e remover Black List';
+    submitButton.textContent = nextBlacklisted ? 'Salvar Black Flag' : 'Salvar e remover Black Flag';
   }
   modal.classList.remove('hidden');
-  $('#curriculumBlacklistForm textarea[name="blacklistObservation"]', modal).focus();
+  $('#curriculumBlacklistForm textarea[name="blackflagObservation"]', modal).focus();
 }
 
 async function saveCurriculumBlacklist(event) {
   event.preventDefault();
   const current = selectedCurriculum();
   if (!current) {
-    toast('Selecione um candidato antes de marcar Black List.');
+    toast('Selecione um candidato antes de marcar Black Flag.');
     return;
   }
 
   const form = event.currentTarget;
-  const observation = String(form.elements.blacklistObservation?.value || '').trim();
+  const observation = String(form.elements.blackflagObservation?.value || '').trim();
   if (!observation) {
-    toast('A observação é obrigatória para Black List.');
+    toast('A observação é obrigatória para Black Flag.');
     return;
   }
 
   const existingObservation = String(current.observacoes_entrevista || '').trim();
   const nextBlacklisted = $('#curriculumBlacklistModal')?.dataset.nextBlacklist === 'true';
-  const blacklistLine = `Black List: ${observation}`;
-  const removalLine = `Black List removida: ${observation}`;
+  const blacklistLine = `Black Flag: ${observation}`;
+  const removalLine = `Black Flag removida: ${observation}`;
   const auditLine = nextBlacklisted ? blacklistLine : removalLine;
   const nextObservation = existingObservation.includes(auditLine)
     ? existingObservation
     : [existingObservation, auditLine].filter(Boolean).join('\n');
 
   const button = $('button[type="submit"]', form);
-  const originalText = button?.textContent || (nextBlacklisted ? 'Salvar Black List' : 'Salvar e remover Black List');
+  const originalText = button?.textContent || (nextBlacklisted ? 'Salvar Black Flag' : 'Salvar e remover Black Flag');
   try {
     if (button) {
       button.disabled = true;
@@ -2355,8 +2380,8 @@ async function saveCurriculumBlacklist(event) {
       method: 'PATCH',
       body: JSON.stringify({
         ...current,
-        blacklist: nextBlacklisted,
-        blacklistObservation: observation,
+        blackflag: nextBlacklisted,
+        blackflagObservation: observation,
         observacoes_entrevista: nextObservation
       })
     });
@@ -2367,9 +2392,9 @@ async function saveCurriculumBlacklist(event) {
     state.curriculumActiveTab = 'detail';
     closeCurriculumBlacklistModal();
     renderCurriculums();
-    toast(nextBlacklisted ? 'Candidato marcado como Black List.' : 'Candidato removido da Black List.');
+    toast(nextBlacklisted ? 'Candidato marcado com Black Flag.' : 'Candidato removido da Black Flag.');
   } catch (error) {
-    toast(error.message || 'Não foi possível atualizar Black List.');
+    toast(error.message || 'Não foi possível atualizar Black Flag.');
   } finally {
     if (button) {
       button.disabled = false;
@@ -2509,7 +2534,7 @@ const curriculumRows = curriculums
     return `
       <tr class="${isSelected ? 'selected-row' : ''}" data-select-curriculum="${escapeHtml(id)}">
         <td>
-          <strong>${highlightSearchTerms(curriculum.nome || '-', highlightQuery)}</strong>
+          <strong class="${isCurriculumBlacklisted(curriculum) ? 'blackflag-name' : ''}">${highlightSearchTerms(curriculum.nome || '-', highlightQuery)}</strong>
         </td>
 
         <td class="talent-long-text">
@@ -2792,7 +2817,7 @@ function renderCandidates() {
         const opportunity = state.opportunities.find((item) => item.id === candidate.opportunityId);
         return `
         <tr class="clickable-row" data-edit-candidate="${candidate.id}">
-          <td><strong>${candidate.name}</strong></td>
+          <td><strong>${renderBlackflagName(candidate.name, candidate)}</strong></td>
           <td>${candidate.curriculumControlId || candidate.curriculumId || '-'}</td>
           <td>${candidate.opportunityName || opportunity?.opportunity || '-'}</td>
           <td>${candidate.opportunityCode || opportunity?.opportunityCode || '-'}</td>
@@ -2888,7 +2913,7 @@ function renderSelectedCandidates() {
     .map((candidate) => `
       <tr>
         <td><input type="checkbox" data-send-selected-candidate="${candidate.id}" aria-label="Selecionar para envio" /></td>
-        <td><strong>${candidate.name || '-'}</strong></td>
+        <td><strong>${renderBlackflagName(candidate.name, candidate)}</strong></td>
         <td>${candidate.source || 'APINFO'}</td>
         <td>${candidateLinkHtml(candidate)}</td>
         <td>${candidate.score ?? 0}</td>
