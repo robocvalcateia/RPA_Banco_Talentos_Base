@@ -545,8 +545,23 @@ textarea {
   font-size: 0.9rem;
 }
 
+.surface-heading-actions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  margin-left: auto;
+}
+
 .panel-maximize-button {
   flex: 0 0 auto;
+  min-width: 104px;
+  padding: 0 12px;
+}
+
+.surface-close-button {
+  flex: 0 0 auto;
+  min-width: 84px;
   padding: 0 12px;
 }
 

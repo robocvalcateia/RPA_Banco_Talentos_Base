@@ -893,8 +893,7 @@ function ensureDashboardAnalyticsModal() {
 }
 
 function closeDashboardAnalytics() {
-  const modal = $('#dashboardAnalyticsModal');
-  if (modal) modal.classList.add('hidden');
+  closeSurfaceDialog('#dashboardAnalyticsModal');
   revokeDashboardAnalyticsCsvUrl(5000);
 }
 
@@ -2164,7 +2163,7 @@ function ensureCurriculumOpportunityModal() {
 }
 
 function closeCurriculumOpportunityModal() {
-  $('#curriculumOpportunityModal')?.classList.add('hidden');
+  closeSurfaceDialog('#curriculumOpportunityModal');
 }
 
 function openCurriculumOpportunityModal() {
@@ -2287,7 +2286,7 @@ function ensureCurriculumBlacklistModal() {
 }
 
 function closeCurriculumBlacklistModal() {
-  $('#curriculumBlacklistModal')?.classList.add('hidden');
+  closeSurfaceDialog('#curriculumBlacklistModal');
 }
 
 function openCurriculumBlacklistModal() {
@@ -3081,7 +3080,7 @@ function closeCandidateSelectModal() {
   const modal = $('#candidateSelectModal');
   const form = $('#candidateSelectForm');
   state.editing.selectingCandidateId = '';
-  modal?.classList.add('hidden');
+  if (modal) closeSurfaceDialog(modal);
   form?.reset();
 }
 
@@ -3154,7 +3153,7 @@ function ensureCandidateStageMoveModal() {
 
 function closeCandidateStageMoveModal() {
   state.editing.movingCandidateId = '';
-  $('#candidateStageMoveModal')?.classList.add('hidden');
+  closeSurfaceDialog('#candidateStageMoveModal');
 }
 
 function openCandidateStageMoveModal(candidate) {
@@ -3206,28 +3205,89 @@ function loadUserForEdit(user) {
   toast('Usuário carregado para atualização.');
 }
 
-function initPanelMaximizeControls() {
-  $$('.panel, .modal-panel, .modal-card')
-    .filter((panel) => !panel.querySelector('[data-panel-maximize]'))
-    .forEach((panel) => {
-      const heading = $('.panel-heading, .modal-heading', panel);
-      if (!heading) return;
+function getSurfaceMaximizeButton(surface) {
+  return $('[data-panel-maximize]', surface);
+}
 
-      const button = document.createElement('button');
+function updateSurfaceMaximizeButton(surface, isMaximized) {
+  const button = getSurfaceMaximizeButton(surface);
+  if (!button) return;
+  button.textContent = isMaximized ? 'Restaurar' : 'Maximizar';
+  button.setAttribute('aria-label', isMaximized ? 'Restaurar painel' : 'Maximizar painel');
+}
+
+function setSurfaceMaximized(surface, isMaximized) {
+  if (!surface) return;
+  surface.classList.toggle('panel-maximized', isMaximized);
+  updateSurfaceMaximizeButton(surface, isMaximized);
+  document.body.classList.toggle('panel-is-maximized', Boolean($('.panel-maximized')));
+}
+
+function closeSurfaceDialog(dialogOrSelector) {
+  const dialog = typeof dialogOrSelector === 'string' ? $(dialogOrSelector) : dialogOrSelector;
+  if (!dialog) return;
+  $$('.panel-maximized', dialog).forEach((surface) => setSurfaceMaximized(surface, false));
+  dialog.classList.add('hidden');
+  document.body.classList.toggle('panel-is-maximized', Boolean($('.panel-maximized')));
+}
+
+function isSurfaceCloseControl(element) {
+  if (!element || element.tagName !== 'BUTTON') return false;
+  const attributes = Array.from(element.attributes || []);
+  return element.id === 'closeCandidateSelectModal'
+    || element.getAttribute('aria-label') === 'Fechar'
+    || attributes.some((attribute) => attribute.name.startsWith('data-close-'));
+}
+
+function surfaceHeadingActions(heading) {
+  let actions = Array.from(heading.children)
+    .find((child) => child.classList?.contains('surface-heading-actions'));
+  if (actions) return actions;
+
+  actions = document.createElement('div');
+  actions.className = 'surface-heading-actions';
+  heading.append(actions);
+  return actions;
+}
+
+function standardizeSurfaceCloseButton(surface, heading, actions) {
+  const isModalSurface = surface.classList.contains('modal-panel') || surface.classList.contains('modal-card');
+  if (!isModalSurface) return;
+
+  const closeButton = Array.from(heading.querySelectorAll('button')).find(isSurfaceCloseControl);
+  if (!closeButton) return;
+
+  closeButton.classList.add('surface-close-button');
+  closeButton.textContent = 'Fechar';
+  closeButton.setAttribute('aria-label', 'Fechar painel');
+  actions.append(closeButton);
+}
+
+function initPanelMaximizeControls() {
+  $$('.panel, .modal-panel, .modal-card').forEach((surface) => {
+    const heading = $('.panel-heading, .modal-heading', surface);
+    if (!heading) return;
+
+    const actions = surfaceHeadingActions(heading);
+    let button = getSurfaceMaximizeButton(surface);
+    if (!button) {
+      button = document.createElement('button');
       button.className = 'ghost-action panel-maximize-button';
       button.type = 'button';
       button.dataset.panelMaximize = 'true';
-      button.textContent = 'Maximizar';
-      button.setAttribute('aria-label', 'Maximizar painel');
       button.addEventListener('click', () => {
-        const isMaximized = panel.classList.toggle('panel-maximized');
-        document.body.classList.toggle('panel-is-maximized', isMaximized);
-        button.textContent = isMaximized ? 'Restaurar' : 'Maximizar';
-        button.setAttribute('aria-label', isMaximized ? 'Restaurar painel' : 'Maximizar painel');
+        const shouldMaximize = !surface.classList.contains('panel-maximized');
+        $$('.panel-maximized')
+          .filter((item) => item !== surface)
+          .forEach((item) => setSurfaceMaximized(item, false));
+        setSurfaceMaximized(surface, shouldMaximize);
       });
+    }
 
-      heading.append(button);
-    });
+    actions.prepend(button);
+    updateSurfaceMaximizeButton(surface, surface.classList.contains('panel-maximized'));
+    standardizeSurfaceCloseButton(surface, heading, actions);
+  });
 }
 
 function bindNavigation() {
