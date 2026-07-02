@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=20260702-blackflag" />
+    <link rel="stylesheet" href="/styles.css?v=20260702-candidate-pool" />
   </head>
   <body class="auth-locked">
     <section class="auth-screen" id="authScreen">
@@ -57,6 +57,7 @@
           </button>
           <div class="nav-submenu" data-nav-submenu="deals" hidden>
             <button class="nav-item nav-subitem" data-view="opportunities" data-parent-group="deals">Oportunidades</button>
+            <button class="nav-item nav-subitem" data-view="candidatePool" data-parent-group="deals">Bolsão de Candidatos</button>
             <button class="nav-item nav-subitem" data-view="cvFilters" data-parent-group="deals">Filtro de CVs</button>
             <button class="nav-item nav-subitem" data-view="selectedCandidates" data-parent-group="deals">Candidatos Selecionados</button>
             <button class="nav-item nav-subitem" data-view="candidates" data-parent-group="deals">Candidatos Entrevistados</button>
@@ -321,6 +322,84 @@
                 </tr>
               </thead>
               <tbody id="opportunityTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" id="candidatePool">
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Cadastrar Bolsão de Candidatos</h2>
+            <span>Manutenção</span>
+          </div>
+          <form id="candidatePoolForm" class="form-grid">
+            <label>Cliente<select name="clientId" required></select></label>
+            <label>Nome<input name="candidateName" list="candidatePoolNameOptions" required /></label>
+            <datalist id="candidatePoolNameOptions"></datalist>
+            <label>Perfil<select name="profile" required>
+              <option value="">Selecione</option>
+              <option value="Técnico">Técnico</option>
+              <option value="Funcional">Funcional</option>
+            </select></label>
+            <label>Valor Hora<input name="hourlyRate" type="number" min="0" step="0.01" /></label>
+            <label>Data Acordo<input name="agreementDate" type="date" /></label>
+            <label class="checkbox-field"><input name="active" type="checkbox" checked /> Ativo</label>
+            <fieldset class="full checkbox-group candidate-pool-skills">
+              <legend>Skills TOTVS</legend>
+              <label class="checkbox-field"><input name="protheusFinanceiro" type="checkbox" /> Protheus Financeiro</label>
+              <label class="checkbox-field"><input name="protheusFiscal" type="checkbox" /> Protheus Fiscal</label>
+              <label class="checkbox-field"><input name="protheusContabil" type="checkbox" /> Protheus Contábil</label>
+              <label class="checkbox-field"><input name="protheusCompras" type="checkbox" /> Protheus Compras</label>
+              <label class="checkbox-field"><input name="protheusEstoque" type="checkbox" /> Protheus Estoque</label>
+              <label class="checkbox-field"><input name="protheusFaturamento" type="checkbox" /> Protheus Faturamento</label>
+              <label class="checkbox-field"><input name="protheusPcp" type="checkbox" /> Protheus PCP</label>
+              <label class="checkbox-field"><input name="protheusRh" type="checkbox" /> Protheus RH</label>
+              <label class="checkbox-field"><input name="rmFolha" type="checkbox" /> RM Folha</label>
+              <label class="checkbox-field"><input name="rmPonto" type="checkbox" /> RM Ponto</label>
+              <label class="checkbox-field"><input name="rmContabil" type="checkbox" /> RM Contábil</label>
+              <label class="checkbox-field"><input name="rmFiscal" type="checkbox" /> RM Fiscal</label>
+              <label class="checkbox-field"><input name="rmFinanceiro" type="checkbox" /> RM Financeiro</label>
+              <label class="checkbox-field"><input name="rmEducacional" type="checkbox" /> RM Educacional</label>
+              <label class="checkbox-field"><input name="datasulManufatura" type="checkbox" /> Datasul Manufatura</label>
+              <label class="checkbox-field"><input name="datasulPcp" type="checkbox" /> Datasul PCP</label>
+              <label class="checkbox-field"><input name="datasulWms" type="checkbox" /> Datasul WMS</label>
+              <label class="checkbox-field"><input name="datasulCq" type="checkbox" /> Datasul CQ</label>
+              <label class="checkbox-field"><input name="fluigBpm" type="checkbox" /> Fluig BPM</label>
+              <label class="checkbox-field"><input name="fluigEcm" type="checkbox" /> Fluig ECM</label>
+              <label class="checkbox-field"><input name="fluigFormularios" type="checkbox" /> Fluig Formulários</label>
+              <label class="checkbox-field"><input name="fluigIntegracoes" type="checkbox" /> Fluig Integrações</label>
+              <label class="checkbox-field"><input name="tecnicoAdvpl" type="checkbox" /> Técnico ADVPL</label>
+            </fieldset>
+            <button class="primary-action" type="submit">Salvar candidato</button>
+          </form>
+        </section>
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Bolsão de Candidatos</h2>
+            <span id="candidatePoolCount">0</span>
+          </div>
+          <div class="filter-bar">
+            <label>Cliente
+              <select id="candidatePoolClientFilter">
+                <option value="">Todos</option>
+              </select>
+            </label>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cliente</th>
+                  <th>Nome</th>
+                  <th>Perfil</th>
+                  <th>Valor Hora</th>
+                  <th>Data Acordo</th>
+                  <th>Ativo</th>
+                  <th>Skills</th>
+                </tr>
+              </thead>
+              <tbody id="candidatePoolTable"></tbody>
             </table>
           </div>
         </section>
@@ -962,7 +1041,7 @@
         }
       });
     </script>
-    <script src="/app.js?v=20260702-blackflag"></script>
+    <script src="/app.js?v=20260702-candidate-pool"></script>
   </body>
 </html>
 

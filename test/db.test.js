@@ -6,6 +6,7 @@ import {
   CANDIDATE_STAGES,
   enrichAllocated,
   enrichCandidate,
+  enrichCandidatePool,
   enrichCvFilter,
   enrichRateCard,
   enrichSelectedCandidate,
@@ -14,6 +15,7 @@ import {
   normalizeDatabase,
   normalizeAllocated,
   normalizeCandidate,
+  normalizeCandidatePool,
   normalizeCurriculum,
   normalizeCvFilter,
   normalizeCvSearchResult,
@@ -361,6 +363,53 @@ test('base normalizada cria rate cards TOTVS iniciais sem duplicar', () => {
   assert.equal(normalized.clients.some((client) => client.id === 'client_totvs'), true);
   assert.equal(totvsCards.length, 19);
   assert.equal(totvsCards.find((rateCard) => rateCard.skill === 'SIGAEIC')?.maximum, 129.5);
+});
+
+test('bolsao de candidatos normaliza campos da planilha TOTVS', () => {
+  const db = sampleDb();
+  const normalized = normalizeCandidatePool({
+    id: 'pool_1',
+    clientId: 'client_1',
+    'Nome (FK nome Curriculum)': 'Roberto Teixeira',
+    'Perfil (Select: Técnico, Funcional)': 'Técnico',
+    'Valor Hora (Currency)': 85,
+    'Data Acordo (Date)': '2026-05-22T00:00:00',
+    'Ativo (Checkbox)': 'true',
+    'Técnico ADVPL (Checkbox)': 'true'
+  });
+  const enriched = enrichCandidatePool(normalized, db);
+
+  assert.equal(normalized.candidateName, 'Roberto Teixeira');
+  assert.equal(normalized.profile, 'Técnico');
+  assert.equal(normalized.hourlyRate, 85);
+  assert.equal(normalized.agreementDate, '2026-05-22');
+  assert.equal(normalized.active, true);
+  assert.equal(normalized.tecnicoAdvpl, true);
+  assert.equal(enriched.clientName, 'Cliente Teste');
+  assert.deepEqual(enriched.activeSkills, ['Técnico ADVPL']);
+});
+
+test('base normalizada cria bolsao TOTVS inicial sem duplicar', () => {
+  const normalized = normalizeDatabase({
+    clients: [],
+    users: [],
+    opportunities: [],
+    faturamento: [],
+    curriculums: [],
+    candidates: [],
+    allocateds: [],
+    cvFilters: [],
+    selectedCandidates: [],
+    rateCards: [],
+    candidatePool: []
+  });
+  const repeated = normalizeDatabase(normalized);
+  const totvsClient = repeated.clients.find((client) => client.id === 'client_totvs');
+  const totvsPool = repeated.candidatePool.filter((item) => item.clientId === 'client_totvs');
+
+  assert.ok(totvsClient);
+  assert.equal(totvsPool.length, 5);
+  assert.equal(totvsPool.find((item) => item.candidateName === 'Roberto Teixeira')?.tecnicoAdvpl, true);
 });
 
 test('filtro de CV normaliza campos e valida UF e percentual', () => {

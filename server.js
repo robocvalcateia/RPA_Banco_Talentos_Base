@@ -12,6 +12,7 @@ import {
   createId,
   enrichAllocated,
   enrichCandidate,
+  enrichCandidatePool,
   enrichCvFilter,
   enrichRateCard,
   enrichSelectedCandidate,
@@ -27,9 +28,12 @@ import {
   normalizeOpportunityStatus,
   normalizeAderencia,
   normalizeAllocated,
+  normalizeCandidatePool,
   normalizeFaturamento,
   normalizeRateCard,
   normalizeStage,
+  CANDIDATE_POOL_PROFILES,
+  CANDIDATE_POOL_SKILL_FIELDS,
   OPPORTUNITY_MODELS,
   OPPORTUNITY_STATUSES,
   MONGO_APP_COLLECTIONS,
@@ -1493,10 +1497,13 @@ async function handleApi(request, response) {
         candidates: responseDb.candidates.map((candidate) => enrichCandidate(candidate, responseDb)),
         allocateds: responseDb.allocateds.map((allocated) => enrichAllocated(allocated, responseDb)),
         rateCards: responseDb.rateCards.map((rateCard) => enrichRateCard(rateCard, responseDb)),
+        candidatePool: responseDb.candidatePool.map((item) => enrichCandidatePool(item, responseDb)),
         users: responseDb.users.map(sanitizeUser),
         currentUser: sanitizeUser(auth.user),
         stages: CANDIDATE_STAGES,
         aderenciaOptions: CANDIDATE_ADERENCIA_OPTIONS,
+        candidatePoolProfiles: CANDIDATE_POOL_PROFILES,
+        candidatePoolSkillFields: CANDIDATE_POOL_SKILL_FIELDS,
         opportunityModels: OPPORTUNITY_MODELS,
         opportunityStatuses: OPPORTUNITY_STATUSES,
         brazilUfs: BRAZIL_UFS,
@@ -2243,6 +2250,87 @@ async function handleApi(request, response) {
 
       await writeDatabase(db);
       sendJson(response, 200, { ok: true });
+      return;
+    }
+
+    if (request.method === 'POST' && pathname === '/api/candidate-pool') {
+      const payload = await readJsonBody(request);
+      const db = await readDatabase();
+      const item = normalizeCandidatePool({
+        id: createId('pool', payload.candidateName || payload.clientId),
+        ...payload,
+        createdAt: toISODate()
+      });
+
+      if (!item.clientId || !db.clients.some((client) => client.id === item.clientId)) {
+        sendError(response, 422, 'Selecione um cliente valido.');
+        return;
+      }
+      if (!item.candidateName) {
+        sendError(response, 422, 'Informe o nome do candidato.');
+        return;
+      }
+      if (!CANDIDATE_POOL_PROFILES.includes(item.profile)) {
+        sendError(response, 422, 'Selecione um perfil valido.');
+        return;
+      }
+      if (db.candidatePool.some((existing) => (
+        existing.clientId === item.clientId
+        && existing.candidateName.toLowerCase() === item.candidateName.toLowerCase()
+      ))) {
+        sendError(response, 422, 'Ja existe candidato no bolsao para este cliente.');
+        return;
+      }
+
+      db.candidatePool.push(item);
+      await writeDatabase(db);
+      sendJson(response, 201, enrichCandidatePool(item, db));
+      return;
+    }
+
+    if (request.method === 'PATCH' && pathname.startsWith('/api/candidate-pool/')) {
+      const itemId = pathname.split('/').at(-1);
+      const payload = await readJsonBody(request);
+      const db = await readDatabase();
+      const item = db.candidatePool.find((candidatePoolItem) => candidatePoolItem.id === itemId);
+
+      if (!item) {
+        sendError(response, 404, 'Candidato do bolsao nao encontrado.');
+        return;
+      }
+
+      const updated = normalizeCandidatePool({
+        ...item,
+        ...payload,
+        id: item.id,
+        createdAt: item.createdAt,
+        updatedAt: toISODate()
+      });
+
+      if (!updated.clientId || !db.clients.some((client) => client.id === updated.clientId)) {
+        sendError(response, 422, 'Selecione um cliente valido.');
+        return;
+      }
+      if (!updated.candidateName) {
+        sendError(response, 422, 'Informe o nome do candidato.');
+        return;
+      }
+      if (!CANDIDATE_POOL_PROFILES.includes(updated.profile)) {
+        sendError(response, 422, 'Selecione um perfil valido.');
+        return;
+      }
+      if (db.candidatePool.some((existing) => (
+        existing.id !== item.id
+        && existing.clientId === updated.clientId
+        && existing.candidateName.toLowerCase() === updated.candidateName.toLowerCase()
+      ))) {
+        sendError(response, 422, 'Ja existe candidato no bolsao para este cliente.');
+        return;
+      }
+
+      Object.assign(item, updated);
+      await writeDatabase(db);
+      sendJson(response, 200, enrichCandidatePool(item, db));
       return;
     }
 

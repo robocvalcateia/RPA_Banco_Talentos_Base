@@ -695,6 +695,11 @@ label.full,
   padding: 12px;
 }
 
+.candidate-pool-skills {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
 .checkbox-group legend {
   color: var(--muted);
   font-size: 0.88rem;

@@ -76,6 +76,7 @@ const REQUIRED_COLLECTIONS = [
   'candidates',
   'allocateds',
   'rateCards',
+  'candidatePool',
   'cvFilters',
   'selectedCandidates'
 ];
@@ -103,6 +104,95 @@ const DEFAULT_RATE_CARDS = [
   ['DEV.NET CORE N2', 102],
   ['SUPORTE N2', 47.5],
   ['SUPORTE N3', 60]
+];
+
+export const CANDIDATE_POOL_PROFILES = ['Técnico', 'Funcional'];
+export const CANDIDATE_POOL_SKILL_FIELDS = [
+  ['protheusFinanceiro', 'Protheus Financeiro'],
+  ['protheusFiscal', 'Protheus Fiscal'],
+  ['protheusContabil', 'Protheus Contábil'],
+  ['protheusCompras', 'Protheus Compras'],
+  ['protheusEstoque', 'Protheus Estoque'],
+  ['protheusFaturamento', 'Protheus Faturamento'],
+  ['protheusPcp', 'Protheus PCP'],
+  ['protheusRh', 'Protheus RH'],
+  ['rmFolha', 'RM Folha'],
+  ['rmPonto', 'RM Ponto'],
+  ['rmContabil', 'RM Contábil'],
+  ['rmFiscal', 'RM Fiscal'],
+  ['rmFinanceiro', 'RM Financeiro'],
+  ['rmEducacional', 'RM Educacional'],
+  ['datasulManufatura', 'Datasul Manufatura'],
+  ['datasulPcp', 'Datasul PCP'],
+  ['datasulWms', 'Datasul WMS'],
+  ['datasulCq', 'Datasul CQ'],
+  ['fluigBpm', 'Fluig BPM'],
+  ['fluigEcm', 'Fluig ECM'],
+  ['fluigFormularios', 'Fluig Formulários'],
+  ['fluigIntegracoes', 'Fluig Integrações'],
+  ['tecnicoAdvpl', 'Técnico ADVPL']
+];
+
+const DEFAULT_CANDIDATE_POOL_CLIENT_NAME = 'TOTVS';
+const DEFAULT_CANDIDATE_POOL = [
+  {
+    candidateName: 'Alexandre Takeo',
+    profile: 'Funcional',
+    hourlyRate: 79,
+    agreementDate: '2026-05-15',
+    active: true,
+    protheusFinanceiro: true,
+    protheusFiscal: true,
+    protheusContabil: true,
+    protheusCompras: true,
+    protheusEstoque: true,
+    protheusFaturamento: true,
+    protheusPcp: true,
+    protheusRh: true
+  },
+  {
+    candidateName: 'Jean Valóes',
+    profile: 'Funcional',
+    hourlyRate: 79,
+    agreementDate: '2026-05-22',
+    active: true,
+    protheusFinanceiro: true,
+    protheusFiscal: true,
+    protheusContabil: true,
+    protheusCompras: true,
+    protheusEstoque: true,
+    protheusFaturamento: true,
+    protheusPcp: true
+  },
+  {
+    candidateName: 'Roberto Teixeira',
+    profile: 'Técnico',
+    hourlyRate: 85,
+    agreementDate: '2026-05-22',
+    active: true,
+    tecnicoAdvpl: true
+  },
+  {
+    candidateName: 'Fábio Ricardo Costa',
+    profile: 'Funcional',
+    hourlyRate: 79,
+    agreementDate: '2026-05-27',
+    active: true,
+    protheusFinanceiro: true,
+    protheusFiscal: true,
+    protheusContabil: true,
+    protheusCompras: true,
+    protheusEstoque: true,
+    protheusFaturamento: true,
+    protheusPcp: true
+  },
+  {
+    candidateName: 'Jefferson Ribeiro dos Reis',
+    profile: 'Funcional',
+    hourlyRate: 80,
+    agreementDate: '2026-05-27',
+    active: true
+  }
 ];
 
 let mongoAppClient = null;
@@ -183,6 +273,10 @@ function deterministicRateCardId(clientId, skill) {
   return `ratecard_${idSlug(clientId)}_${idSlug(skill)}`;
 }
 
+function deterministicCandidatePoolId(clientId, candidateName) {
+  return `pool_${idSlug(clientId)}_${idSlug(candidateName)}`;
+}
+
 function rateCardMaximum(rate) {
   const value = Number(rate || 0) * 0.7;
   return Number(value.toFixed(2));
@@ -228,6 +322,41 @@ function ensureDefaultRateCards(data) {
       active: true,
       clientId: client.id,
       createdAt: toISODate()
+    }));
+    existingKeys.add(key);
+  }
+}
+
+function ensureDefaultCandidatePool(data) {
+  const targetClientName = comparableClientName(DEFAULT_CANDIDATE_POOL_CLIENT_NAME);
+  let client = data.clients.find((item) => comparableClientName(item.customerName ?? item.name) === targetClientName);
+
+  if (!client) {
+    client = {
+      id: 'client_totvs',
+      customerName: 'Totvs',
+      primaryContactName: '',
+      primaryContactEmail: '',
+      primaryContactPhone: '',
+      observation: 'Cliente criado automaticamente para Bolsão de Candidatos.',
+      createdAt: toISODate()
+    };
+    data.clients.push(client);
+  }
+
+  const existingKeys = new Set(
+    data.candidatePool.map((item) => `${String(item.clientId || '').trim()}::${idSlug(item.candidateName)}`)
+  );
+
+  for (const row of DEFAULT_CANDIDATE_POOL) {
+    const key = `${client.id}::${idSlug(row.candidateName)}`;
+    if (existingKeys.has(key)) continue;
+
+    data.candidatePool.push(normalizeCandidatePool({
+      id: deterministicCandidatePoolId(client.id, row.candidateName),
+      clientId: client.id,
+      createdAt: toISODate(),
+      ...row
     }));
     existingKeys.add(key);
   }
@@ -307,6 +436,8 @@ export function normalizeDatabase(data = {}) {
   data.allocateds = data.allocateds.map((allocated) => normalizeAllocated(allocated));
   data.rateCards = data.rateCards.map((rateCard) => normalizeRateCard(rateCard));
   ensureDefaultRateCards(data);
+  data.candidatePool = data.candidatePool.map((item) => normalizeCandidatePool(item));
+  ensureDefaultCandidatePool(data);
   data.cvFilters = data.cvFilters.map((filter) => normalizeCvFilter(filter));
   data.selectedCandidates = data.selectedCandidates.map((candidate) => normalizeSelectedCandidate(candidate));
   delete data.applications;
@@ -668,6 +799,62 @@ export function normalizeRateCard(rateCard) {
   };
 }
 
+export function normalizeCandidatePool(item) {
+  const profile = String(item.profile ?? item.perfil ?? item['Perfil (Select: Técnico, Funcional)'] ?? '').trim();
+  const normalizedProfile = CANDIDATE_POOL_PROFILES.includes(profile) ? profile : 'Funcional';
+  const candidateName = String(item.candidateName ?? item.name ?? item.nome ?? item['Nome (FK nome Curriculum)'] ?? '').trim();
+  const clientId = String(item.clientId ?? item.clienteId ?? item['Cliente(FK Clients)'] ?? '').trim();
+  const hourlyRate = Number(item.hourlyRate ?? item.valorHora ?? item['Valor Hora (Currency)'] ?? 0);
+  const rawDate = String(item.agreementDate ?? item.dataAcordo ?? item['Data Acordo (Date)'] ?? '').trim();
+  const agreementDate = rawDate.includes('T') ? rawDate.slice(0, 10) : rawDate.slice(0, 10);
+
+  const normalized = {
+    ...item,
+    id: String(item.id ?? deterministicCandidatePoolId(clientId || 'cliente', candidateName || 'candidato')).trim(),
+    clientId,
+    candidateName,
+    profile: normalizedProfile,
+    hourlyRate: Number.isFinite(hourlyRate) ? hourlyRate : 0,
+    agreementDate,
+    active: normalizeBoolean(item.active ?? item.ativo ?? item['Ativo (Checkbox)'] ?? true),
+    createdAt: String(item.createdAt ?? toISODate()).trim(),
+    updatedAt: String(item.updatedAt ?? '').trim()
+  };
+
+  const aliases = {
+    protheusFinanceiro: ['Protheus_Financeiro (Checkbox)', 'protheus_financeiro'],
+    protheusFiscal: ['Protheus_Fiscal (Checkbox)', 'protheus_fiscal'],
+    protheusContabil: ['Protheus_Contábil (Checkbox)', 'Protheus_Contabil (Checkbox)', 'protheus_contabil'],
+    protheusCompras: ['Protheus_Compras (Checkbox)', 'protheus_compras'],
+    protheusEstoque: ['Protheus_Estoque (Checkbox)', 'protheus_estoque'],
+    protheusFaturamento: ['Protheus_Faturamento (Checkbox)', 'protheus_faturamento'],
+    protheusPcp: ['Protheus_PCP (Checkbox)', 'protheus_pcp'],
+    protheusRh: ['Protheus_RH (Checkbox)', 'protheus_rh'],
+    rmFolha: ['RM_Folha (Checkbox)', 'rm_folha'],
+    rmPonto: ['RM_Ponto (Checkbox)', 'rm_ponto'],
+    rmContabil: ['RM_Contábil (Checkbox)', 'RM_Contabil (Checkbox)', 'rm_contabil'],
+    rmFiscal: ['RM_Fiscal (Checkbox)', 'rm_fiscal'],
+    rmFinanceiro: ['RM_Financeiro (Checkbox)', 'rm_financeiro'],
+    rmEducacional: ['RM_Educacional (Checkbox)', 'rm_educacional'],
+    datasulManufatura: ['Datasul_Manufatura (Checkbox)', 'datasul_manufatura'],
+    datasulPcp: ['Datasul_PCP (Checkbox)', 'datasul_pcp'],
+    datasulWms: ['Datasul_WMS (Checkbox)', 'datasul_wms'],
+    datasulCq: ['Datasul_CQ (Checkbox)', 'datasul_cq'],
+    fluigBpm: ['Fluig_BPM (Checkbox)', 'fluig_bpm'],
+    fluigEcm: ['Fluig_ECM (Checkbox)', 'fluig_ecm'],
+    fluigFormularios: ['Fluig_Formulários (Checkbox)', 'Fluig_Formularios (Checkbox)', 'fluig_formularios'],
+    fluigIntegracoes: ['Fluig_Integrações (Checkbox)', 'Fluig_Integracoes (Checkbox)', 'fluig_integracoes'],
+    tecnicoAdvpl: ['Técnico ADVPL (Checkbox)', 'Tecnico ADVPL (Checkbox)', 'tecnico_advpl']
+  };
+
+  for (const [field] of CANDIDATE_POOL_SKILL_FIELDS) {
+    const aliasValue = (aliases[field] ?? []).map((alias) => item[alias]).find((value) => value !== undefined);
+    normalized[field] = normalizeBoolean(item[field] ?? aliasValue ?? false);
+  }
+
+  return normalized;
+}
+
 export function normalizeCvFilter(filter) {
   const state = String(filter.state ?? filter.estado ?? '').trim().toUpperCase();
   const matchPercent = Number(filter.matchPercent ?? filter.percentualAcerto ?? filter.percentual_acerto ?? 0);
@@ -845,6 +1032,29 @@ function comparableName(value) {
     .replace(/[^a-zA-Z0-9]+/g, ' ')
     .toLowerCase()
     .trim();
+}
+
+function findCurriculumByName(db, name) {
+  const candidateName = comparableName(name);
+  if (!candidateName) return null;
+  return db.curriculums.find((item) => comparableName(item.nome) === candidateName) ?? null;
+}
+
+export function enrichCandidatePool(item, db) {
+  const client = db.clients.find((clientItem) => clientItem.id === item.clientId);
+  const curriculum = findCurriculumByName(db, item.candidateName);
+  const activeSkills = CANDIDATE_POOL_SKILL_FIELDS
+    .filter(([field]) => item[field])
+    .map(([, label]) => label);
+
+  return {
+    ...item,
+    clientName: client?.customerName ?? '',
+    curriculumId: curriculum?.id_controle || curriculum?.id || curriculum?.mongoId || '',
+    curriculumMongoId: curriculum?.mongoId || '',
+    blackflag: normalizeBoolean(curriculum?.blackflag ?? curriculum?.blacklist ?? false),
+    activeSkills
+  };
 }
 
 function findCurriculumForSelectedCandidate(candidate, db) {

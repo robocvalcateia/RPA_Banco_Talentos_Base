@@ -9,6 +9,7 @@
   candidates: [],
   allocateds: [],
   rateCards: [],
+  candidatePool: [],
   users: [],
   currentUser: null,
   talentSource: 'local_json',
@@ -30,6 +31,9 @@
   allocatedFilter: { type: '', value: '' },
   huntingFilter: { type: '', value: '' },
   rateCardFilter: { clientId: '' },
+  candidatePoolFilter: { clientId: '' },
+  candidatePoolProfiles: ['Técnico', 'Funcional'],
+  candidatePoolSkillFields: [],
   curriculumSearch: { name: '', skills: '', hasSearched: false },
   selectedCurriculumId: '',
   curriculumEditing: false,
@@ -42,6 +46,7 @@
     candidateId: '',
     allocatedId: '',
     rateCardId: '',
+    candidatePoolId: '',
     huntingId: '',
     userId: '',
     selectingCandidateId: '',
@@ -113,6 +118,7 @@ const viewTitles = {
   clients: 'Clientes',
   faturamento: 'Contratos/Faturamento',
   opportunities: 'Deals/Oportunidades',
+  candidatePool: 'Deals/Bolsão de Candidatos',
   huntings: 'Contratos/Huntings',
   rateCards: 'Contratos/Rate Cards',
   cvFilters: 'Deals/Filtro de CVs',
@@ -122,6 +128,32 @@ const viewTitles = {
   allocateds: 'Contratos/Alocados',
   users: 'Usuários',
 };
+
+const defaultCandidatePoolSkillFields = [
+  ['protheusFinanceiro', 'Protheus Financeiro'],
+  ['protheusFiscal', 'Protheus Fiscal'],
+  ['protheusContabil', 'Protheus Contábil'],
+  ['protheusCompras', 'Protheus Compras'],
+  ['protheusEstoque', 'Protheus Estoque'],
+  ['protheusFaturamento', 'Protheus Faturamento'],
+  ['protheusPcp', 'Protheus PCP'],
+  ['protheusRh', 'Protheus RH'],
+  ['rmFolha', 'RM Folha'],
+  ['rmPonto', 'RM Ponto'],
+  ['rmContabil', 'RM Contábil'],
+  ['rmFiscal', 'RM Fiscal'],
+  ['rmFinanceiro', 'RM Financeiro'],
+  ['rmEducacional', 'RM Educacional'],
+  ['datasulManufatura', 'Datasul Manufatura'],
+  ['datasulPcp', 'Datasul PCP'],
+  ['datasulWms', 'Datasul WMS'],
+  ['datasulCq', 'Datasul CQ'],
+  ['fluigBpm', 'Fluig BPM'],
+  ['fluigEcm', 'Fluig ECM'],
+  ['fluigFormularios', 'Fluig Formulários'],
+  ['fluigIntegracoes', 'Fluig Integrações'],
+  ['tecnicoAdvpl', 'Técnico ADVPL']
+];
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -421,6 +453,11 @@ function renderOptions() {
     .sort(byCurriculumControl)
     .map((curriculum) => `<option value="${curriculum.id}">${curriculumLabel(curriculum)}</option>`)
     .join('');
+  const curriculumNameOptions = state.curriculums
+    .slice()
+    .sort((first, second) => String(first.nome || '').localeCompare(String(second.nome || ''), 'pt-BR', { sensitivity: 'base' }))
+    .map((curriculum) => `<option value="${escapeHtml(curriculum.nome || '')}"></option>`)
+    .join('');
 
   $$('select[name="clientId"]').forEach((select) => {
     const currentValue = select.value;
@@ -439,6 +476,10 @@ function renderOptions() {
   $$('select[name="curriculumId"]').forEach((select) => {
     select.innerHTML = curriculumOptions;
   });
+  const candidatePoolNameOptions = $('#candidatePoolNameOptions');
+  if (candidatePoolNameOptions) {
+    candidatePoolNameOptions.innerHTML = curriculumNameOptions;
+  }
   $$('select[name="status"]').forEach((select) => {
     select.innerHTML = statusOptions;
   });
@@ -2743,6 +2784,78 @@ function renderRateCards() {
     : '<tr><td colspan="5">Nenhum Rate Card encontrado para o filtro informado.</td></tr>';
 }
 
+function candidatePoolSkillFields() {
+  return Array.isArray(state.candidatePoolSkillFields) && state.candidatePoolSkillFields.length
+    ? state.candidatePoolSkillFields
+    : defaultCandidatePoolSkillFields;
+}
+
+function candidatePoolSkills(item) {
+  if (Array.isArray(item.activeSkills) && item.activeSkills.length) return item.activeSkills;
+  return candidatePoolSkillFields()
+    .filter(([field]) => item[field])
+    .map(([, label]) => label);
+}
+
+function renderCandidatePoolFilters() {
+  const select = $('#candidatePoolClientFilter');
+  if (!select) return;
+
+  const selected = state.candidatePoolFilter.clientId || select.value;
+  const clientIds = new Set(state.candidatePool.map((item) => item.clientId).filter(Boolean));
+  const options = [
+    { value: '', label: 'Todos' },
+    ...state.clients
+      .filter((client) => clientIds.has(client.id))
+      .sort((first, second) => first.customerName.localeCompare(second.customerName, 'pt-BR', { sensitivity: 'base' }))
+      .map((client) => ({ value: client.id, label: client.customerName }))
+  ];
+
+  select.innerHTML = options.map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`).join('');
+  select.value = options.some((option) => option.value === selected) ? selected : '';
+  state.candidatePoolFilter.clientId = select.value;
+}
+
+function getFilteredCandidatePool() {
+  const clientId = state.candidatePoolFilter.clientId || '';
+  if (!clientId) return state.candidatePool;
+  return state.candidatePool.filter((item) => item.clientId === clientId);
+}
+
+function renderCandidatePool() {
+  const countElement = $('#candidatePoolCount');
+  const table = $('#candidatePoolTable');
+  if (!countElement || !table) return;
+
+  const rows = getFilteredCandidatePool()
+    .slice()
+    .sort((first, second) => {
+      const firstClient = first.clientName || state.clients.find((client) => client.id === first.clientId)?.customerName || '';
+      const secondClient = second.clientName || state.clients.find((client) => client.id === second.clientId)?.customerName || '';
+      return firstClient.localeCompare(secondClient, 'pt-BR', { sensitivity: 'base' })
+        || first.candidateName.localeCompare(second.candidateName, 'pt-BR', { sensitivity: 'base' });
+    });
+
+  countElement.textContent = rows.length;
+  table.innerHTML = rows.length
+    ? rows.map((item) => {
+      const client = state.clients.find((clientItem) => clientItem.id === item.clientId);
+      const skills = candidatePoolSkills(item);
+      return `
+        <tr class="clickable-row" data-edit-candidate-pool="${escapeHtml(item.id)}">
+          <td>${escapeHtml(item.clientName || client?.customerName || '-')}</td>
+          <td><strong>${renderBlackflagName(item.candidateName, item)}</strong></td>
+          <td>${escapeHtml(item.profile || '-')}</td>
+          <td>${formatCurrency(item.hourlyRate)}</td>
+          <td>${item.agreementDate ? new Date(`${item.agreementDate}T00:00:00`).toLocaleDateString('pt-BR') : '-'}</td>
+          <td>${item.active ? 'Sim' : 'Não'}</td>
+          <td>${skills.length ? escapeHtml(skills.join(', ')) : '-'}</td>
+        </tr>
+      `;
+    }).join('')
+    : '<tr><td colspan="7">Nenhum candidato encontrado para o filtro informado.</td></tr>';
+}
+
 function renderCandidateFilters() {
   const typeSelect = $('#candidateFilterType');
   const valueSelect = $('#candidateFilterValue');
@@ -2991,6 +3104,8 @@ function render() {
   renderAllocateds();
   renderRateCardFilters();
   renderRateCards();
+  renderCandidatePoolFilters();
+  renderCandidatePool();
   renderUsers();
 }
 
@@ -3175,6 +3290,23 @@ function loadRateCardForEdit(rateCard) {
   }, 'Atualizar Rate Card');
   syncRateCardMaximum();
   toast('Rate Card carregado para atualização.');
+}
+
+function loadCandidatePoolForEdit(item) {
+  state.editing.candidatePoolId = item.id;
+  const values = {
+    clientId: item.clientId,
+    candidateName: item.candidateName,
+    profile: item.profile,
+    hourlyRate: item.hourlyRate,
+    agreementDate: item.agreementDate,
+    active: item.active
+  };
+  for (const [field] of candidatePoolSkillFields()) {
+    values[field] = Boolean(item[field]);
+  }
+  fillForm('#candidatePoolForm', values, 'Atualizar candidato');
+  toast('Candidato do bolsão carregado para atualização.');
 }
 
 function loadHuntingForEdit(opportunity, candidate = null) {
@@ -3613,6 +3745,26 @@ function bindForms() {
     await refresh();
   });
 
+  $('#candidatePoolForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const payload = formPayload(form);
+    payload.active = form.elements.active.checked;
+    for (const [field] of candidatePoolSkillFields()) {
+      payload[field] = Boolean(form.elements[field]?.checked);
+    }
+    const editingId = state.editing.candidatePoolId;
+
+    await api(editingId ? `/api/candidate-pool/${editingId}` : '/api/candidate-pool', {
+      method: editingId ? 'PATCH' : 'POST',
+      body: JSON.stringify(payload)
+    });
+    clearEditing(form, 'candidatePoolId', 'Salvar candidato');
+    if (form.elements.active) form.elements.active.checked = true;
+    toast(editingId ? 'Candidato do bolsão atualizado.' : 'Candidato cadastrado no bolsão.');
+    await refresh();
+  });
+
   $('#huntingForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const editingId = state.editing.huntingId;
@@ -3909,6 +4061,13 @@ function bindRateCardFilters() {
 
   $('#rateCardForm input[name="rate"]')?.addEventListener('input', (event) => {
     syncRateCardMaximum(event.currentTarget.form);
+  });
+}
+
+function bindCandidatePoolFilters() {
+  $('#candidatePoolClientFilter')?.addEventListener('change', (event) => {
+    state.candidatePoolFilter.clientId = event.currentTarget.value;
+    renderCandidatePool();
   });
 }
 
@@ -4389,6 +4548,13 @@ function bindEditableRows() {
     if (rateCard) loadRateCardForEdit(rateCard);
   });
 
+  $('#candidatePoolTable')?.addEventListener('click', (event) => {
+    if (event.target.closest('button, a, input, select, textarea')) return;
+    const row = event.target.closest('[data-edit-candidate-pool]');
+    const item = state.candidatePool.find((candidatePoolItem) => candidatePoolItem.id === row?.dataset.editCandidatePool);
+    if (item) loadCandidatePoolForEdit(item);
+  });
+
   $('#userTable').addEventListener('click', (event) => {
     if (event.target.closest('button, a, input, select, textarea')) return;
     const row = event.target.closest('[data-edit-user]');
@@ -4594,6 +4760,7 @@ bindFaturamentoFilters();
 bindOpportunityFilters();
 bindAllocatedFilters();
 bindRateCardFilters();
+bindCandidatePoolFilters();
 bindHuntingFilters();
 bindDashboardFilters();
 bindCvFilterLocation();
