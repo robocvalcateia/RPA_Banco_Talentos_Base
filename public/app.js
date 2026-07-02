@@ -41,7 +41,8 @@
     allocatedId: '',
     huntingId: '',
     userId: '',
-    selectingCandidateId: ''
+    selectingCandidateId: '',
+    movingCandidateId: ''
   },
   indicators: null
 };
@@ -2395,10 +2396,11 @@ function renderCandidateStageActions(candidate) {
   const current = stageIndex(candidate.stage);
   const previous = state.stages[current - 1];
   const next = state.stages[current + 1];
+  if (!previous && !next) return '';
+
   return `
     <div class="stage-actions">
-      ${previous ? `<button class="ghost-action" data-move-candidate="${candidate.id}" data-stage="${previous}">Voltar</button>` : ''}
-      ${next ? `<button class="ghost-action" data-move-candidate="${candidate.id}" data-stage="${next}">Mover</button>` : ''}
+      <button class="ghost-action" type="button" data-open-candidate-stage-move="${candidate.id}">Mover</button>
     </div>
   `;
 }
@@ -2649,6 +2651,88 @@ function openCandidateSelectModal(candidate) {
     managerPhone: ''
   }, 'Criar alocado');
   modal.classList.remove('hidden');
+}
+
+function candidateStageMoveOptions(candidate) {
+  const current = stageIndex(candidate.stage);
+  return {
+    previous: state.stages[current - 1] || '',
+    next: state.stages[current + 1] || ''
+  };
+}
+
+function ensureCandidateStageMoveModal() {
+  let modal = $('#candidateStageMoveModal');
+  if (modal) return modal;
+
+  modal = document.createElement('section');
+  modal.id = 'candidateStageMoveModal';
+  modal.className = 'modal hidden';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-labelledby', 'candidateStageMoveTitle');
+  modal.innerHTML = `
+    <div class="modal-card candidate-stage-move-card">
+      <div class="modal-heading">
+        <div>
+          <h2 id="candidateStageMoveTitle">Mover candidato</h2>
+          <span id="candidateStageMoveSummary"></span>
+        </div>
+        <button class="ghost-action" type="button" data-close-candidate-stage-move aria-label="Fechar">×</button>
+      </div>
+      <div class="candidate-stage-move-actions">
+        <button class="ghost-action" type="button" data-candidate-stage-direction="previous"></button>
+        <button class="primary-action compact-action" type="button" data-candidate-stage-direction="next"></button>
+        <button class="ghost-action" type="button" data-close-candidate-stage-move>Cancelar</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function closeCandidateStageMoveModal() {
+  state.editing.movingCandidateId = '';
+  $('#candidateStageMoveModal')?.classList.add('hidden');
+}
+
+function openCandidateStageMoveModal(candidate) {
+  const modal = ensureCandidateStageMoveModal();
+  const summary = $('#candidateStageMoveSummary', modal);
+  const previousButton = $('[data-candidate-stage-direction="previous"]', modal);
+  const nextButton = $('[data-candidate-stage-direction="next"]', modal);
+  const { previous, next } = candidateStageMoveOptions(candidate);
+
+  state.editing.movingCandidateId = candidate.id;
+  if (summary) {
+    summary.textContent = `${candidate.name || 'Candidato'} está em ${candidate.stage || '-'}.`;
+  }
+
+  if (previousButton) {
+    previousButton.hidden = !previous;
+    previousButton.textContent = previous ? `Voltar para ${previous}` : '';
+    previousButton.dataset.stage = previous;
+  }
+
+  if (nextButton) {
+    nextButton.hidden = !next;
+    nextButton.textContent = next ? `Avançar para ${next}` : '';
+    nextButton.dataset.stage = next;
+  }
+
+  modal.classList.remove('hidden');
+}
+
+async function moveCandidateToStage(candidateId, stage) {
+  if (!candidateId || !stage) return;
+
+  await api(`/api/candidates/${candidateId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ stage })
+  });
+  closeCandidateStageMoveModal();
+  toast(`Candidato movido para ${stage}.`);
+  await refresh();
 }
 
 function loadUserForEdit(user) {
@@ -3028,21 +3112,37 @@ function bindCandidateStageActions() {
       return;
     }
 
-    const button = event.target.closest('[data-move-candidate]');
-    if (!button) return;
+    const moveButton = event.target.closest('[data-open-candidate-stage-move]');
+    if (!moveButton) return;
 
-    await api(`/api/candidates/${button.dataset.moveCandidate}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ stage: button.dataset.stage })
-    });
-    toast(`Candidato movido para ${button.dataset.stage}.`);
-    await refresh();
+    const candidate = state.candidates.find((item) => item.id === moveButton.dataset.openCandidateStageMove);
+    if (candidate) openCandidateStageMoveModal(candidate);
   });
 
   $('#closeCandidateSelectModal')?.addEventListener('click', closeCandidateSelectModal);
   $('#candidateSelectModal')?.addEventListener('click', (event) => {
     if (event.target.id === 'candidateSelectModal') {
       closeCandidateSelectModal();
+    }
+  });
+
+  document.addEventListener('click', async (event) => {
+    const closeButton = event.target.closest('[data-close-candidate-stage-move]');
+    if (closeButton || event.target.id === 'candidateStageMoveModal') {
+      closeCandidateStageMoveModal();
+      return;
+    }
+
+    const directionButton = event.target.closest('[data-candidate-stage-direction]');
+    if (!directionButton) return;
+
+    directionButton.disabled = true;
+    try {
+      await moveCandidateToStage(state.editing.movingCandidateId, directionButton.dataset.stage);
+    } catch (error) {
+      toast(error.message || 'Não foi possível mover o candidato.');
+    } finally {
+      directionButton.disabled = false;
     }
   });
 }

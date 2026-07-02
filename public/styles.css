@@ -982,6 +982,22 @@ th {
   width: min(1180px, 100%);
 }
 
+.candidate-stage-move-card {
+  width: min(560px, 100%);
+}
+
+.candidate-stage-move-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.candidate-stage-move-actions .primary-action {
+  grid-column: auto;
+  padding: 0 16px;
+}
+
 .dashboard-analytics-table-wrap {
   border: 1px solid var(--line);
   border-radius: 10px;
