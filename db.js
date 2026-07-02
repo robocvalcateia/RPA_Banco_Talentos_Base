@@ -685,12 +685,40 @@ export function enrichCvFilter(filter, db) {
   };
 }
 
+function comparableName(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, ' ')
+    .toLowerCase()
+    .trim();
+}
+
+function findCurriculumForSelectedCandidate(candidate, db) {
+  const curriculumId = String(candidate.curriculumId ?? '').trim();
+  if (curriculumId) {
+    const byId = db.curriculums.find((item) => (
+      item.id === curriculumId
+      || item.id_controle === curriculumId
+      || item.mongoId === curriculumId
+    ));
+    if (byId) return byId;
+  }
+
+  const candidateName = comparableName(candidate.name);
+  if (!candidateName) return null;
+
+  return db.curriculums.find((item) => comparableName(item.nome) === candidateName) ?? null;
+}
+
 export function enrichSelectedCandidate(candidate, db) {
   const opportunity = db.opportunities.find((item) => item.id === candidate.opportunityId);
   const filter = db.cvFilters.find((item) => item.id === candidate.cvFilterId);
+  const curriculum = findCurriculumForSelectedCandidate(candidate, db);
 
   return {
     ...candidate,
+    curriculumId: candidate.curriculumId || curriculum?.id_controle || curriculum?.id || curriculum?.mongoId || '',
     opportunityName: opportunity?.opportunity ?? '',
     opportunityCode: opportunity?.opportunityCode ?? '',
     cvFilterName: filter?.jobDescription ?? ''
@@ -723,13 +751,18 @@ export function calculateIndicators(db, now = new Date()) {
     .filter((opportunity) => !['Closed', 'LOST', 'WON'].includes(opportunity.status))
     .reduce((sum, opportunity) => sum + Number(opportunity.contractValue ?? 0), 0);
 
+  const activeOpportunityIds = new Set(
+    db.opportunities
+      .filter((opportunity) => !['Closed', 'LOST', 'WON'].includes(opportunity.status))
+      .map((opportunity) => opportunity.id)
+  );
   const candidatesByStage = Object.fromEntries(CANDIDATE_STAGES.map((stage) => [stage, 0]));
-  for (const candidate of db.candidates) {
+  for (const candidate of db.candidates.filter((item) => activeOpportunityIds.has(item.opportunityId))) {
     candidatesByStage[candidate.stage] = (candidatesByStage[candidate.stage] ?? 0) + 1;
   }
 
   const opportunitiesByStatus = Object.fromEntries(OPPORTUNITY_STATUSES.map((status) => [status, 0]));
-  for (const opportunity of db.opportunities) {
+  for (const opportunity of db.opportunities.filter((item) => activeOpportunityIds.has(item.id))) {
     opportunitiesByStatus[opportunity.status] = (opportunitiesByStatus[opportunity.status] ?? 0) + 1;
   }
 

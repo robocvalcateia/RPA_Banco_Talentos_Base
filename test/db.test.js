@@ -167,10 +167,10 @@ test('calcula indicadores basicos do MVP', () => {
   assert.equal(indicators.totals.openOpportunities, 1);
   assert.equal(indicators.totals.candidates, 2);
   assert.equal(indicators.candidatesByStage.Triagem, 1);
-  assert.equal(indicators.candidatesByStage.Aprovado, 1);
+  assert.equal(indicators.candidatesByStage.Aprovado, 0);
   assert.equal(indicators.opportunitiesByStatus.Open, 1);
-  assert.equal(indicators.opportunitiesByStatus.Closed, 1);
-  assert.equal(indicators.opportunitiesByStatus.WON, 2);
+  assert.equal(indicators.opportunitiesByStatus.Closed, 0);
+  assert.equal(indicators.opportunitiesByStatus.WON, 0);
   assert.equal(indicators.totals.wonCurrentMonth, 1);
   assert.equal(indicators.wonByModelCurrentMonth.Hunting, 1);
   assert.equal(indicators.totals.wonContractValueCurrentMonth, 6000);
@@ -385,6 +385,21 @@ test('candidato selecionado normaliza e vincula oportunidade', () => {
   assert.equal(normalized.candidateMessage, 'Mensagem de contato');
   assert.equal(enriched.opportunityName, 'Dev Backend');
   assert.equal(enriched.opportunityCode, 'OPP-001');
+});
+
+test('candidato selecionado encontra curriculum pelo nome quando link externo existe', () => {
+  const db = sampleDb();
+  const normalized = normalizeSelectedCandidate({
+    opportunityId: 'opp_1',
+    cvFilterId: 'cvf_1',
+    name: 'Ana',
+    source: 'LinkedIn/Google',
+    link: 'https://linkedin.com/in/ana',
+    score: 100
+  });
+  const enriched = enrichSelectedCandidate(normalized, db);
+
+  assert.equal(enriched.curriculumId, 'curr_ana');
 });
 
 test('resultado de busca de CV normaliza link e limita score', () => {

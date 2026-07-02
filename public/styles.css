@@ -753,10 +753,31 @@ th {
 }
 
 .bar-row {
+  background: transparent;
+  border: 0;
+  color: inherit;
   display: grid;
+  font: inherit;
   grid-template-columns: 170px 1fr 42px;
   gap: 12px;
   align-items: center;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+
+.bar-row-button {
+  cursor: pointer;
+}
+
+.bar-row-button:hover .bar-track,
+.bar-row-button:focus-visible .bar-track {
+  box-shadow: 0 0 0 2px rgb(0 184 148 / 22%);
+}
+
+.bar-row-button:focus-visible {
+  outline: 2px solid var(--alcateia-green);
+  outline-offset: 4px;
 }
 
 .bar-track {

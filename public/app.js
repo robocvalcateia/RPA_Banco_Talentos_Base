@@ -523,6 +523,22 @@ function getDashboardOpenCandidates() {
     .sort((first, second) => String(first.name).localeCompare(String(second.name), 'pt-BR', { sensitivity: 'base' }));
 }
 
+function getDashboardCandidatesByStage() {
+  const values = Object.fromEntries(state.stages.map((stage) => [stage, 0]));
+  for (const candidate of getDashboardOpenCandidates()) {
+    values[candidate.stage] = (values[candidate.stage] ?? 0) + 1;
+  }
+  return values;
+}
+
+function getDashboardOpportunitiesByStatus() {
+  const values = Object.fromEntries(state.opportunityStatuses.map((status) => [status, 0]));
+  for (const opportunity of state.opportunities.filter(isDashboardOpenOpportunity)) {
+    values[opportunity.status] = (values[opportunity.status] ?? 0) + 1;
+  }
+  return values;
+}
+
 function calculateWonContractValue(opportunities) {
   return opportunities.reduce((sum, opportunity) => {
     return sum + Number(opportunity.closedQuantity ?? 0) * Number(opportunity.contractValue ?? 0);
@@ -614,6 +630,33 @@ function buildDashboardAnalytics(metricId) {
   const openCandidates = getDashboardOpenCandidates();
   const selectedMonthLabel = state.dashboardMonth ? formatMonthLabel(state.dashboardMonth) : 'todos os meses/anos';
   const selectedModelLabel = state.dashboardModel || 'todos os modelos';
+
+  if (metricId?.startsWith('candidateStage:')) {
+    const stage = metricId.slice('candidateStage:'.length);
+    const rows = openCandidates
+      .filter((candidate) => candidate.stage === stage)
+      .map(candidateAnalyticsRow);
+    return {
+      title: `Candidatos em ${stage}`,
+      summary: `${rows.length} candidato(s) em vagas em aberto nesta etapa.`,
+      rows,
+      filename: `dashboard-candidatos-${stage}`
+    };
+  }
+
+  if (metricId?.startsWith('opportunityStatus:')) {
+    const status = metricId.slice('opportunityStatus:'.length);
+    const rows = activeOpportunities
+      .filter((opportunity) => opportunity.status === status)
+      .sort(byOpportunityCode)
+      .map((opportunity) => opportunityAnalyticsRow(opportunity, status === 'WON'));
+    return {
+      title: `Oportunidades ${status}`,
+      summary: `${rows.length} oportunidade(s) com status ${status}.`,
+      rows,
+      filename: `dashboard-oportunidades-${status}`
+    };
+  }
 
   const configs = {
     won: {
@@ -901,7 +944,7 @@ function openDashboardAnalytics(metricId) {
   prepareDashboardAnalyticsCsvLink(analytics);
   modal.classList.remove('hidden');
   applyDashboardAnalyticsFilters();
-  exportButton.focus();
+  exportButton?.focus();
 }
 
 function renderDashboardFilters() {
@@ -1163,17 +1206,20 @@ function renderValueMiniBars(values) {
   `;
 }
 
-function renderBars(containerId, values) {
+function renderBars(containerId, values, analyticsPrefix = '') {
   const max = Math.max(1, ...Object.values(values));
   $(`#${containerId}`).innerHTML = Object.entries(values)
     .map(([label, value]) => {
       const width = Math.max(4, (value / max) * 100);
+      const analyticsId = analyticsPrefix ? `${analyticsPrefix}:${label}` : '';
+      const tag = analyticsId ? 'button' : 'div';
+      const analyticsAttribute = analyticsId ? ` type="button" data-dashboard-analytics="${escapeHtml(analyticsId)}"` : '';
       return `
-        <div class="bar-row">
-          <span>${label}</span>
-          <div class="bar-track"><div class="bar-fill" style="width: ${width}%"></div></div>
+        <${tag} class="bar-row ${analyticsId ? 'bar-row-button' : ''}"${analyticsAttribute}>
+          <span>${escapeHtml(label)}</span>
+          <span class="bar-track"><span class="bar-fill" style="width: ${width}%"></span></span>
           <strong>${value}</strong>
-        </div>
+        </${tag}>
       `;
     })
     .join('');
@@ -1559,7 +1605,13 @@ function selectedCvFilter() {
 }
 
 function candidateLinkHtml(candidate) {
-  const curriculumId = String(candidate.curriculumId || candidate.curriculumControlId || '').trim();
+  const curriculum = findCurriculumForCandidate(candidate);
+  const curriculumId = String(
+    curriculumIdentifier(curriculum)
+    || candidate.curriculumId
+    || candidate.curriculumControlId
+    || ''
+  ).trim();
   const externalLink = String(candidate.link || '').trim();
 
   if (curriculumId) {
@@ -1571,6 +1623,24 @@ function candidateLinkHtml(candidate) {
   }
 
   return '-';
+}
+
+function findCurriculumForCandidate(candidate) {
+  const candidateCurriculumId = String(candidate?.curriculumId || candidate?.curriculumControlId || '').trim();
+  if (candidateCurriculumId) {
+    const byId = state.curriculums.find((curriculum) => (
+      curriculumIdentifier(curriculum) === candidateCurriculumId
+      || curriculum.id === candidateCurriculumId
+      || curriculum.id_controle === candidateCurriculumId
+      || curriculum.mongoId === candidateCurriculumId
+    ));
+    if (byId) return byId;
+  }
+
+  const candidateName = normalizeText(candidate?.name || candidate?.nome);
+  if (!candidateName) return null;
+
+  return state.curriculums.find((curriculum) => normalizeText(curriculum.nome) === candidateName) || null;
 }
 
 function renderCvResultRows(results, emptyMessage, group) {
@@ -2293,6 +2363,10 @@ function getFilteredSelectedCandidates() {
     const opportunity = state.opportunities.find((item) => item.id === candidate.opportunityId);
     const client = state.clients.find((item) => item.id === opportunity?.clientId);
 
+    if (type === 'name') {
+      return normalizeText(candidate.name).includes(normalizedValue);
+    }
+
     if (type === 'client') {
       return normalizeText(client?.customerName).includes(normalizedValue);
     }
@@ -2410,8 +2484,8 @@ function render() {
   renderDashboardFilters();
   renderFaturamentoChart();
   renderMetrics();
-  renderBars('stageBars', state.indicators.candidatesByStage);
-  renderBars('statusBars', state.indicators.opportunitiesByStatus);
+  renderBars('stageBars', getDashboardCandidatesByStage(), 'candidateStage');
+  renderBars('statusBars', getDashboardOpportunitiesByStatus(), 'opportunityStatus');
   renderAllocatedPie();
   renderAverageTable();
   renderClients();
@@ -3262,7 +3336,22 @@ function bindDashboardFilters() {
   $('#metrics')?.addEventListener('click', (event) => {
     const card = event.target.closest('[data-dashboard-analytics]');
     if (!card) return;
+    event.stopPropagation();
     openDashboardAnalytics(card.dataset.dashboardAnalytics);
+  });
+
+  $('#stageBars')?.addEventListener('click', (event) => {
+    const bar = event.target.closest('[data-dashboard-analytics]');
+    if (!bar) return;
+    event.stopPropagation();
+    openDashboardAnalytics(bar.dataset.dashboardAnalytics);
+  });
+
+  $('#statusBars')?.addEventListener('click', (event) => {
+    const bar = event.target.closest('[data-dashboard-analytics]');
+    if (!bar) return;
+    event.stopPropagation();
+    openDashboardAnalytics(bar.dataset.dashboardAnalytics);
   });
 
   document.addEventListener('click', (event) => {
