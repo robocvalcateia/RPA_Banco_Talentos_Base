@@ -266,7 +266,7 @@
             <label>Abertura<input name="openingDate" type="date" /></label>
             <label>Fechamento<input name="closingDate" type="date" /></label>
             <label>Modelo<select name="model"></select></label>
-            <label>Responsável<input name="owner" /></label>
+            <label>Nome Responsável<select name="owner"></select></label>
             <label>Quantidade<input name="quantity" type="number" min="0" /></label>
             <label>Qtde Fechada<input name="closedQuantity" type="number" min="0" /></label>
             <label>Valor Contrato<input name="contractValue" type="number" min="0" step="0.01" /></label>
@@ -311,7 +311,7 @@
                   <th>Abertura</th>
                   <th>Fechamento</th>
                   <th>Modelo</th>
-                  <th>Responsável</th>
+                  <th>Nome Responsável</th>
                   <th>Quantidade</th>
                   <th>Qtde Fechada</th>
                   <th>Valor Contrato</th>
@@ -543,7 +543,7 @@
             <label>Nome<input id="curriculumSearchName" type="text" /></label>
             <label>Informações no Skill<input id="curriculumSearchSkills" type="text" placeholder="Ex.: Python, SQL, UiPath, SAP" /></label>
             <button class="primary-action" id="curriculumSearchButton" type="button">Pesquisar</button>
-            <button class="secondary-action" id="processEmailsButton" type="button">Processar Leitura de E-mails</button>
+            <button class="primary-action" id="processEmailsButton" type="button">Processar Leitura de E-mails</button>
           </div>
 
           <p class="helper-text" id="curriculumSearchStatus" role="status" aria-live="polite"></p>
@@ -571,7 +571,7 @@
               <tr>
                 <th>Nome</th>
                 <th>Skill completo</th>
-                <th>Último emprego com datas</th>
+                <th>Último emprego</th>
               </tr>
             </thead>
               <tbody id="curriculumTable"></tbody>
