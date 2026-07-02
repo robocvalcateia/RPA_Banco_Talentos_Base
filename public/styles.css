@@ -100,6 +100,9 @@ textarea {
   position: fixed;
   inset: 0 auto 0 0;
   width: 272px;
+  max-height: 100vh;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   background: var(--alcateia-black);
   color: var(--alcateia-white);
   display: flex;
@@ -540,6 +543,38 @@ textarea {
 .panel-heading span {
   color: var(--muted);
   font-size: 0.9rem;
+}
+
+.panel-maximize-button {
+  flex: 0 0 auto;
+  padding: 0 12px;
+}
+
+body.panel-is-maximized {
+  overflow: hidden;
+}
+
+.panel.panel-maximized,
+.modal-panel.panel-maximized {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 70px rgb(18 18 18 / 24%);
+  inset: 16px;
+  max-height: none;
+  overflow: auto;
+  position: fixed;
+  width: auto;
+  z-index: 80;
+}
+
+.panel.panel-maximized {
+  padding: 22px;
+}
+
+.panel.panel-maximized .table-wrap,
+.modal-panel.panel-maximized .table-wrap {
+  max-height: none;
 }
 
 .pie-wrap {
@@ -1166,6 +1201,10 @@ th {
 
 #curriculums .panel {
   overflow: hidden;
+}
+
+#curriculums .panel.panel-maximized {
+  overflow: auto;
 }
 
 #curriculums .table-wrap {
