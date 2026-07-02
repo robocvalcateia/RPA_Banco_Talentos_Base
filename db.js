@@ -75,11 +75,35 @@ const REQUIRED_COLLECTIONS = [
   'curriculums',
   'candidates',
   'allocateds',
+  'rateCards',
   'cvFilters',
   'selectedCandidates'
 ];
 
 export const MONGO_APP_COLLECTIONS = REQUIRED_COLLECTIONS.filter((collection) => collection !== 'curriculums');
+
+const DEFAULT_RATE_CARD_CLIENT_NAME = 'Totvs';
+const DEFAULT_RATE_CARDS = [
+  ['PROTHEUS', 113],
+  ['RM', 113],
+  ['FLUIG', 118.5],
+  ['DATASUL', 113],
+  ['SIGAEIC', 185],
+  ['ADVPL', 122.5],
+  ['DBA', 128],
+  ['SAUDE', 135],
+  ['HOSPITALIDADE', 124],
+  ['PO', 172.5],
+  ['SCRUM MASTER', 155.5],
+  ['FRONT BACK LIVE', 164.5],
+  ['FULLSTACK LIVE', 172.5],
+  ['QA', 149],
+  ['UX', 133],
+  ['DEV.NET CORE N1', 85],
+  ['DEV.NET CORE N2', 102],
+  ['SUPORTE N2', 47.5],
+  ['SUPORTE N3', 60]
+];
 
 let mongoAppClient = null;
 let mongoAppClientUrl = '';
@@ -145,6 +169,70 @@ function stripMongoInternalFields(doc = {}) {
   return cleanDoc;
 }
 
+function idSlug(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 48) || 'item';
+}
+
+function deterministicRateCardId(clientId, skill) {
+  return `ratecard_${idSlug(clientId)}_${idSlug(skill)}`;
+}
+
+function rateCardMaximum(rate) {
+  const value = Number(rate || 0) * 0.7;
+  return Number(value.toFixed(2));
+}
+
+function comparableClientName(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function ensureDefaultRateCards(data) {
+  const targetClientName = comparableClientName(DEFAULT_RATE_CARD_CLIENT_NAME);
+  let client = data.clients.find((item) => comparableClientName(item.customerName ?? item.name) === targetClientName);
+
+  if (!client) {
+    client = {
+      id: 'client_totvs',
+      customerName: DEFAULT_RATE_CARD_CLIENT_NAME,
+      primaryContactName: '',
+      primaryContactEmail: '',
+      primaryContactPhone: '',
+      observation: 'Cliente criado automaticamente para Rate Cards.',
+      createdAt: toISODate()
+    };
+    data.clients.push(client);
+  }
+
+  const existingKeys = new Set(
+    data.rateCards.map((item) => `${String(item.clientId || '').trim()}::${idSlug(item.skill)}`)
+  );
+
+  for (const [skill, rate] of DEFAULT_RATE_CARDS) {
+    const key = `${client.id}::${idSlug(skill)}`;
+    if (existingKeys.has(key)) continue;
+
+    data.rateCards.push(normalizeRateCard({
+      id: deterministicRateCardId(client.id, skill),
+      skill,
+      rate,
+      active: true,
+      clientId: client.id,
+      createdAt: toISODate()
+    }));
+    existingKeys.add(key);
+  }
+}
+
 export function normalizeDatabase(data = {}) {
   if (!data || typeof data !== 'object') {
     data = {};
@@ -190,6 +278,16 @@ export function normalizeDatabase(data = {}) {
   }
   delete data[legacyFaturamentoCollection];
 
+  if (!Array.isArray(data.rateCards)) {
+    data.rateCards = Array.isArray(data.ratecard)
+      ? data.ratecard
+      : Array.isArray(data.ratecards)
+        ? data.ratecards
+        : [];
+  }
+  delete data.ratecard;
+  delete data.ratecards;
+
   for (const collection of REQUIRED_COLLECTIONS) {
     if (!Array.isArray(data[collection])) {
       data[collection] = [];
@@ -207,6 +305,8 @@ export function normalizeDatabase(data = {}) {
   data.candidates = data.candidates.map((candidate) => normalizeCandidate(candidate));
   syncCandidatesWithOpportunityClosures(data);
   data.allocateds = data.allocateds.map((allocated) => normalizeAllocated(allocated));
+  data.rateCards = data.rateCards.map((rateCard) => normalizeRateCard(rateCard));
+  ensureDefaultRateCards(data);
   data.cvFilters = data.cvFilters.map((filter) => normalizeCvFilter(filter));
   data.selectedCandidates = data.selectedCandidates.map((candidate) => normalizeSelectedCandidate(candidate));
   delete data.applications;
@@ -529,6 +629,29 @@ export function normalizeFaturamento(item) {
   };
 }
 
+export function normalizeRateCard(rateCard) {
+  const rate = Number(rateCard.rate ?? rateCard.taxa ?? 0);
+  const maximumSource = rateCard.maximum ?? rateCard.maximo ?? rateCard['máximo'];
+  const maximum = maximumSource === undefined || maximumSource === ''
+    ? rateCardMaximum(rate)
+    : Number(maximumSource);
+  const active = rateCard.active ?? rateCard.ativo ?? true;
+  const skill = String(rateCard.skill ?? rateCard.Skill ?? '').trim();
+  const clientId = String(rateCard.clientId ?? rateCard.clienteId ?? rateCard.cliente ?? '').trim();
+
+  return {
+    ...rateCard,
+    id: String(rateCard.id ?? deterministicRateCardId(clientId || 'cliente', skill || 'skill')).trim(),
+    skill,
+    rate: Number.isFinite(rate) ? rate : 0,
+    maximum: Number.isFinite(maximum) ? maximum : rateCardMaximum(rate),
+    active: normalizeBoolean(active),
+    clientId,
+    createdAt: String(rateCard.createdAt ?? toISODate()).trim(),
+    updatedAt: String(rateCard.updatedAt ?? '').trim()
+  };
+}
+
 export function normalizeCvFilter(filter) {
   const state = String(filter.state ?? filter.estado ?? '').trim().toUpperCase();
   const matchPercent = Number(filter.matchPercent ?? filter.percentualAcerto ?? filter.percentual_acerto ?? 0);
@@ -673,6 +796,15 @@ export function enrichAllocated(allocated, db) {
 
   return {
     ...allocated,
+    clientName: client?.customerName ?? ''
+  };
+}
+
+export function enrichRateCard(rateCard, db) {
+  const client = db.clients.find((item) => item.id === rateCard.clientId);
+
+  return {
+    ...rateCard,
     clientName: client?.customerName ?? ''
   };
 }

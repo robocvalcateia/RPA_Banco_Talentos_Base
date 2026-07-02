@@ -7,14 +7,17 @@ import {
   enrichAllocated,
   enrichCandidate,
   enrichCvFilter,
+  enrichRateCard,
   enrichSelectedCandidate,
   hashPassword,
   moveCandidateStage,
+  normalizeDatabase,
   normalizeAllocated,
   normalizeCandidate,
   normalizeCurriculum,
   normalizeCvFilter,
   normalizeCvSearchResult,
+  normalizeRateCard,
   normalizeSelectedCandidate,
   normalizeOpportunityModel,
   OPPORTUNITY_MODELS,
@@ -309,6 +312,45 @@ test('alocado normaliza estrutura e vincula cliente', () => {
   assert.equal(normalized.hourlyRate, 145.5);
   assert.equal(normalized.active, true);
   assert.equal(enriched.clientName, 'Cliente Teste');
+});
+
+test('rate card calcula maximo e vincula cliente', () => {
+  const db = sampleDb();
+  const normalized = normalizeRateCard({
+    id: 'rate_1',
+    Skill: ' PROTHEUS ',
+    taxa: '113',
+    ativo: 'Sim',
+    clientId: 'client_1'
+  });
+  const enriched = enrichRateCard(normalized, db);
+
+  assert.equal(normalized.skill, 'PROTHEUS');
+  assert.equal(normalized.rate, 113);
+  assert.equal(normalized.maximum, 79.1);
+  assert.equal(normalized.active, true);
+  assert.equal(enriched.clientName, 'Cliente Teste');
+});
+
+test('base normalizada cria rate cards TOTVS iniciais sem duplicar', () => {
+  const normalized = normalizeDatabase({
+    clients: [],
+    users: [],
+    opportunities: [],
+    faturamento: [],
+    curriculums: [],
+    candidates: [],
+    allocateds: [],
+    cvFilters: [],
+    selectedCandidates: [],
+    rateCards: []
+  });
+  const repeated = normalizeDatabase(normalized);
+  const totvsCards = repeated.rateCards.filter((rateCard) => rateCard.clientId === 'client_totvs');
+
+  assert.equal(normalized.clients.some((client) => client.id === 'client_totvs'), true);
+  assert.equal(totvsCards.length, 19);
+  assert.equal(totvsCards.find((rateCard) => rateCard.skill === 'SIGAEIC')?.maximum, 129.5);
 });
 
 test('filtro de CV normaliza campos e valida UF e percentual', () => {

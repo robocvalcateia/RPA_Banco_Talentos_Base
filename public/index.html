@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=20260702-window-controls" />
+    <link rel="stylesheet" href="/styles.css?v=20260702-rate-cards" />
   </head>
   <body class="auth-locked">
     <section class="auth-screen" id="authScreen">
@@ -71,6 +71,7 @@
             <button class="nav-item nav-subitem" data-view="faturamento" data-parent-group="contracts">Faturamento</button>
             <button class="nav-item nav-subitem" data-view="allocateds" data-parent-group="contracts">Alocados</button>
             <button class="nav-item nav-subitem" data-view="huntings" data-parent-group="contracts">Huntings</button>
+            <button class="nav-item nav-subitem" data-view="rateCards" data-parent-group="contracts">Rate Cards</button>
           </div>
         </div>
         <button class="nav-item" data-view="curriculums">Banco de Talentos</button>
@@ -384,6 +385,50 @@
                 </tr>
               </thead>
               <tbody id="huntingTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" id="rateCards">
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Cadastrar Rate Card</h2>
+            <span>Manutenção</span>
+          </div>
+          <form id="rateCardForm" class="form-grid">
+            <label>Skill<input name="skill" required /></label>
+            <label>Taxa<input name="rate" type="number" min="0" step="0.01" required /></label>
+            <label>Máximo<input name="maximum" type="number" min="0" step="0.01" readonly /></label>
+            <label>Cliente<select name="clientId" required></select></label>
+            <label class="checkbox-field"><input name="active" type="checkbox" checked /> Ativo</label>
+            <button class="primary-action" type="submit">Salvar Rate Card</button>
+          </form>
+        </section>
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Rate Cards</h2>
+            <span id="rateCardCount">0</span>
+          </div>
+          <div class="filter-bar">
+            <label>Cliente
+              <select id="rateCardClientFilter">
+                <option value="">Todos</option>
+              </select>
+            </label>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Skill</th>
+                  <th>Taxa</th>
+                  <th>Máximo</th>
+                  <th>Ativo</th>
+                  <th>Cliente</th>
+                </tr>
+              </thead>
+              <tbody id="rateCardTable"></tbody>
             </table>
           </div>
         </section>
@@ -917,7 +962,7 @@
         }
       });
     </script>
-    <script src="/app.js?v=20260702-window-controls"></script>
+    <script src="/app.js?v=20260702-rate-cards"></script>
   </body>
 </html>
 

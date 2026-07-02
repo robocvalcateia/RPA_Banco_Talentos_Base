@@ -8,6 +8,7 @@
   curriculumTemplates: [],
   candidates: [],
   allocateds: [],
+  rateCards: [],
   users: [],
   currentUser: null,
   talentSource: 'local_json',
@@ -28,6 +29,7 @@
   selectedCandidateFilter: { type: '', value: '' },
   allocatedFilter: { type: '', value: '' },
   huntingFilter: { type: '', value: '' },
+  rateCardFilter: { clientId: '' },
   curriculumSearch: { name: '', skills: '', hasSearched: false },
   selectedCurriculumId: '',
   curriculumEditing: false,
@@ -39,6 +41,7 @@
     cvFilterId: '',
     candidateId: '',
     allocatedId: '',
+    rateCardId: '',
     huntingId: '',
     userId: '',
     selectingCandidateId: '',
@@ -111,6 +114,7 @@ const viewTitles = {
   faturamento: 'Contratos/Faturamento',
   opportunities: 'Deals/Oportunidades',
   huntings: 'Contratos/Huntings',
+  rateCards: 'Contratos/Rate Cards',
   cvFilters: 'Deals/Filtro de CVs',
   selectedCandidates: 'Deals/Candidatos Selecionados',
   curriculums: 'Banco de Talentos',
@@ -2641,6 +2645,79 @@ function renderAllocateds() {
     .join('');
 }
 
+function rateCardMaximum(rate) {
+  return Number((Number(rate || 0) * 0.7).toFixed(2));
+}
+
+function formatRateValue(value) {
+  return Number(value || 0).toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+
+function renderRateCardFilters() {
+  const select = $('#rateCardClientFilter');
+  if (!select) return;
+
+  const selected = state.rateCardFilter.clientId || select.value;
+  const clientIds = new Set(state.rateCards.map((rateCard) => rateCard.clientId).filter(Boolean));
+  const options = [
+    { value: '', label: 'Todos' },
+    ...state.clients
+      .filter((client) => clientIds.has(client.id))
+      .sort((first, second) => first.customerName.localeCompare(second.customerName, 'pt-BR', { sensitivity: 'base' }))
+      .map((client) => ({ value: client.id, label: client.customerName }))
+  ];
+
+  select.innerHTML = options.map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`).join('');
+  select.value = options.some((option) => option.value === selected) ? selected : '';
+  state.rateCardFilter.clientId = select.value;
+}
+
+function getFilteredRateCards() {
+  const clientId = state.rateCardFilter.clientId || '';
+  if (!clientId) return state.rateCards;
+  return state.rateCards.filter((rateCard) => rateCard.clientId === clientId);
+}
+
+function syncRateCardMaximum(form = $('#rateCardForm')) {
+  if (!form) return;
+  const rate = Number(form.elements.rate?.value || 0);
+  const maximumField = form.elements.maximum;
+  if (maximumField) maximumField.value = rate ? rateCardMaximum(rate).toFixed(2) : '';
+}
+
+function renderRateCards() {
+  const rateCards = getFilteredRateCards()
+    .slice()
+    .sort((first, second) => {
+      const firstClient = first.clientName || state.clients.find((client) => client.id === first.clientId)?.customerName || '';
+      const secondClient = second.clientName || state.clients.find((client) => client.id === second.clientId)?.customerName || '';
+      return firstClient.localeCompare(secondClient, 'pt-BR', { sensitivity: 'base' })
+        || first.skill.localeCompare(second.skill, 'pt-BR', { sensitivity: 'base' });
+    });
+  const countElement = $('#rateCardCount');
+  const table = $('#rateCardTable');
+  if (!countElement || !table) return;
+
+  countElement.textContent = rateCards.length;
+  table.innerHTML = rateCards.length
+    ? rateCards.map((rateCard) => {
+      const client = state.clients.find((item) => item.id === rateCard.clientId);
+      return `
+        <tr class="clickable-row" data-edit-rate-card="${escapeHtml(rateCard.id)}">
+          <td><strong>${escapeHtml(rateCard.skill || '-')}</strong></td>
+          <td>${formatRateValue(rateCard.rate)}</td>
+          <td>${formatRateValue(rateCard.maximum)}</td>
+          <td>${rateCard.active ? 'Sim' : 'Não'}</td>
+          <td>${escapeHtml(rateCard.clientName || client?.customerName || '-')}</td>
+        </tr>
+      `;
+    }).join('')
+    : '<tr><td colspan="5">Nenhum Rate Card encontrado para o filtro informado.</td></tr>';
+}
+
 function renderCandidateFilters() {
   const typeSelect = $('#candidateFilterType');
   const valueSelect = $('#candidateFilterValue');
@@ -2887,6 +2964,8 @@ function render() {
   renderSelectedCandidates();
   renderAllocatedFilters();
   renderAllocateds();
+  renderRateCardFilters();
+  renderRateCards();
   renderUsers();
 }
 
@@ -3058,6 +3137,19 @@ function loadAllocatedForEdit(allocated) {
     managerPhone: allocated.managerPhone
   }, 'Atualizar alocado');
   toast('Alocado carregado para atualização.');
+}
+
+function loadRateCardForEdit(rateCard) {
+  state.editing.rateCardId = rateCard.id;
+  fillForm('#rateCardForm', {
+    skill: rateCard.skill,
+    rate: rateCard.rate,
+    maximum: rateCard.maximum,
+    active: rateCard.active,
+    clientId: rateCard.clientId
+  }, 'Atualizar Rate Card');
+  syncRateCardMaximum();
+  toast('Rate Card carregado para atualização.');
 }
 
 function loadHuntingForEdit(opportunity, candidate = null) {
@@ -3477,6 +3569,25 @@ function bindForms() {
     await refresh();
   });
 
+  $('#rateCardForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    syncRateCardMaximum(form);
+    const payload = formPayload(form);
+    payload.active = form.elements.active.checked;
+    payload.maximum = rateCardMaximum(payload.rate);
+    const editingId = state.editing.rateCardId;
+
+    await api(editingId ? `/api/rate-cards/${editingId}` : '/api/rate-cards', {
+      method: editingId ? 'PATCH' : 'POST',
+      body: JSON.stringify(payload)
+    });
+    clearEditing(form, 'rateCardId', 'Salvar Rate Card');
+    syncRateCardMaximum(form);
+    toast(editingId ? 'Rate Card atualizado.' : 'Rate Card cadastrado.');
+    await refresh();
+  });
+
   $('#huntingForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const editingId = state.editing.huntingId;
@@ -3763,6 +3874,17 @@ function bindAllocatedFilters() {
   });
 
   $('#allocatedCsvButton')?.addEventListener('click', exportAllocatedCsv);
+}
+
+function bindRateCardFilters() {
+  $('#rateCardClientFilter')?.addEventListener('change', (event) => {
+    state.rateCardFilter.clientId = event.currentTarget.value;
+    renderRateCards();
+  });
+
+  $('#rateCardForm input[name="rate"]')?.addEventListener('input', (event) => {
+    syncRateCardMaximum(event.currentTarget.form);
+  });
 }
 
 function bindHuntingFilters() {
@@ -4235,6 +4357,13 @@ function bindEditableRows() {
     if (allocated) loadAllocatedForEdit(allocated);
   });
 
+  $('#rateCardTable')?.addEventListener('click', (event) => {
+    if (event.target.closest('button, a, input, select, textarea')) return;
+    const row = event.target.closest('[data-edit-rate-card]');
+    const rateCard = state.rateCards.find((item) => item.id === row?.dataset.editRateCard);
+    if (rateCard) loadRateCardForEdit(rateCard);
+  });
+
   $('#userTable').addEventListener('click', (event) => {
     if (event.target.closest('button, a, input, select, textarea')) return;
     const row = event.target.closest('[data-edit-user]');
@@ -4439,6 +4568,7 @@ bindSelectedCandidateFilters();
 bindFaturamentoFilters();
 bindOpportunityFilters();
 bindAllocatedFilters();
+bindRateCardFilters();
 bindHuntingFilters();
 bindDashboardFilters();
 bindCvFilterLocation();

@@ -13,6 +13,7 @@ import {
   enrichAllocated,
   enrichCandidate,
   enrichCvFilter,
+  enrichRateCard,
   enrichSelectedCandidate,
   monthYearFromDate,
   moveCandidateStage,
@@ -27,6 +28,7 @@ import {
   normalizeAderencia,
   normalizeAllocated,
   normalizeFaturamento,
+  normalizeRateCard,
   normalizeStage,
   OPPORTUNITY_MODELS,
   OPPORTUNITY_STATUSES,
@@ -1490,6 +1492,7 @@ async function handleApi(request, response) {
         emailProcessing: { ...emailProcessing },
         candidates: responseDb.candidates.map((candidate) => enrichCandidate(candidate, responseDb)),
         allocateds: responseDb.allocateds.map((allocated) => enrichAllocated(allocated, responseDb)),
+        rateCards: responseDb.rateCards.map((rateCard) => enrichRateCard(rateCard, responseDb)),
         users: responseDb.users.map(sanitizeUser),
         currentUser: sanitizeUser(auth.user),
         stages: CANDIDATE_STAGES,
@@ -2593,6 +2596,84 @@ async function handleApi(request, response) {
       Object.assign(allocated, updated);
       await writeDatabase(db);
       sendJson(response, 200, enrichAllocated(allocated, db));
+      return;
+    }
+
+    if (request.method === 'POST' && pathname === '/api/rate-cards') {
+      const payload = await readJsonBody(request);
+      const db = await readDatabase();
+      const rateCard = normalizeRateCard({
+        id: createId('ratecard', payload.skill || payload.clientId),
+        ...payload,
+        createdAt: toISODate()
+      });
+
+      if (!rateCard.skill) {
+        sendError(response, 422, 'Informe a skill do Rate Card.');
+        return;
+      }
+      if (!Number.isFinite(rateCard.rate) || rateCard.rate <= 0) {
+        sendError(response, 422, 'Informe uma taxa valida.');
+        return;
+      }
+      if (!rateCard.clientId || !db.clients.some((client) => client.id === rateCard.clientId)) {
+        sendError(response, 422, 'Selecione um cliente valido.');
+        return;
+      }
+      if (db.rateCards.some((item) => item.clientId === rateCard.clientId && item.skill.toLowerCase() === rateCard.skill.toLowerCase())) {
+        sendError(response, 422, 'Ja existe Rate Card para esta skill e cliente.');
+        return;
+      }
+
+      db.rateCards.push(rateCard);
+      await writeDatabase(db);
+      sendJson(response, 201, enrichRateCard(rateCard, db));
+      return;
+    }
+
+    if (request.method === 'PATCH' && pathname.startsWith('/api/rate-cards/')) {
+      const rateCardId = pathname.split('/').at(-1);
+      const payload = await readJsonBody(request);
+      const db = await readDatabase();
+      const rateCard = db.rateCards.find((item) => item.id === rateCardId);
+
+      if (!rateCard) {
+        sendError(response, 404, 'Rate Card nao encontrado.');
+        return;
+      }
+
+      const updated = normalizeRateCard({
+        ...rateCard,
+        ...payload,
+        id: rateCard.id,
+        createdAt: rateCard.createdAt,
+        updatedAt: toISODate()
+      });
+
+      if (!updated.skill) {
+        sendError(response, 422, 'Informe a skill do Rate Card.');
+        return;
+      }
+      if (!Number.isFinite(updated.rate) || updated.rate <= 0) {
+        sendError(response, 422, 'Informe uma taxa valida.');
+        return;
+      }
+      if (!updated.clientId || !db.clients.some((client) => client.id === updated.clientId)) {
+        sendError(response, 422, 'Selecione um cliente valido.');
+        return;
+      }
+      if (db.rateCards.some((item) => (
+        item.id !== rateCard.id
+        && item.clientId === updated.clientId
+        && item.skill.toLowerCase() === updated.skill.toLowerCase()
+      ))) {
+        sendError(response, 422, 'Ja existe Rate Card para esta skill e cliente.');
+        return;
+      }
+
+      Object.assign(rateCard, updated);
+      await writeDatabase(db);
+      sendJson(response, 200, enrichRateCard(rateCard, db));
       return;
     }
 
