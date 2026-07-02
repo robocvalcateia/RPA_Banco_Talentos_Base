@@ -1857,6 +1857,24 @@ function selectedCurriculum() {
   return state.curriculums.find((curriculum) => curriculumIdentifier(curriculum) === state.selectedCurriculumId) || null;
 }
 
+function isFlagEnabled(value) {
+  if (value === true || value === 1) return true;
+  return ['true', '1', 'sim', 'yes', 'on'].includes(normalizeText(value));
+}
+
+function isCurriculumBlacklisted(curriculum) {
+  return isFlagEnabled(curriculum?.blacklist ?? curriculum?.blackList ?? curriculum?.black_list ?? false);
+}
+
+function curriculumBlacklistObservation(curriculum) {
+  return String(
+    curriculum?.blacklistObservation
+    ?? curriculum?.blackListObservation
+    ?? curriculum?.blacklist_observation
+    ?? ''
+  ).trim();
+}
+
 function setCurriculumDetailEditing(isEditing) {
   state.curriculumEditing = Boolean(isEditing);
   const form = $('#curriculumDetailForm');
@@ -1904,6 +1922,9 @@ function fillCurriculumDetailForm(curriculum) {
     'blacklist',
     'blacklistObservation'
   ].forEach((fieldName) => setFieldValue(form, fieldName, curriculum[fieldName] || ''));
+
+  setFieldValue(form, 'blacklist', isCurriculumBlacklisted(curriculum) ? 'true' : 'false');
+  setFieldValue(form, 'blacklistObservation', curriculumBlacklistObservation(curriculum));
 }
 
 function readCurriculumDetailForm() {
@@ -1914,7 +1935,7 @@ function readCurriculumDetailForm() {
     ...payload,
     id: current?.id || '',
     mongoId: current?.mongoId || '',
-    blacklist: payload.blacklist === 'true' || payload.blacklist === true || current?.blacklist === true,
+    blacklist: isFlagEnabled(payload.blacklist),
     blacklistObservation: payload.blacklistObservation || current?.blacklistObservation || '',
     data_criação: current?.data_criação || '',
     data_origem: current?.data_origem || ''
@@ -2002,11 +2023,20 @@ if (!shouldShowDetail) {
 panel.classList.remove('hidden');
   $('#selectedCurriculumName').textContent = curriculum.nome || 'Candidato sem nome';
   $('#selectedCurriculumId').textContent = curriculum.id_controle || curriculum.id || curriculum.mongoId || '';
+  const blacklisted = isCurriculumBlacklisted(curriculum);
   const banner = $('#curriculumBlacklistBanner');
   if (banner) {
-    const observation = curriculum.blacklistObservation || curriculum.observacoes_entrevista || 'Candidato marcado em Black List.';
-    banner.textContent = curriculum.blacklist ? `BLACK LIST: ${observation}` : '';
-    banner.classList.toggle('hidden', !curriculum.blacklist);
+    const observation = curriculumBlacklistObservation(curriculum) || curriculum.observacoes_entrevista || 'Candidato marcado em Black List.';
+    banner.textContent = blacklisted ? `BLACK LIST: ${observation}` : '';
+    banner.classList.toggle('hidden', !blacklisted);
+  }
+
+  const blacklistButton = $('#blacklistCurriculumButton');
+  if (blacklistButton) {
+    blacklistButton.classList.remove('primary-action', 'danger-action', 'secondary-action');
+    blacklistButton.classList.add(blacklisted ? 'danger-action' : 'primary-action');
+    blacklistButton.textContent = blacklisted ? 'Remover Black List' : 'Black List';
+    blacklistButton.setAttribute('aria-label', blacklisted ? 'Remover candidato da Black List' : 'Marcar candidato como Black List');
   }
   fillCurriculumDetailForm(curriculum);
   setCurriculumDetailEditing(state.curriculumEditing);
@@ -2268,8 +2298,20 @@ function openCurriculumBlacklistModal() {
   }
 
   const modal = ensureCurriculumBlacklistModal();
-  $('#curriculumBlacklistSummary', modal).textContent = current.nome || 'Candidato selecionado';
-  $('#curriculumBlacklistForm textarea[name="blacklistObservation"]', modal).value = current.blacklistObservation || '';
+  const blacklisted = isCurriculumBlacklisted(current);
+  const nextBlacklisted = !blacklisted;
+  modal.dataset.nextBlacklist = nextBlacklisted ? 'true' : 'false';
+  $('#curriculumBlacklistTitle', modal).textContent = blacklisted ? 'Remover Black List' : 'Black List';
+  $('#curriculumBlacklistSummary', modal).textContent = blacklisted
+    ? `${current.nome || 'Candidato selecionado'} está em Black List. Salve para remover a flag.`
+    : `${current.nome || 'Candidato selecionado'} será marcado em Black List.`;
+  $('#curriculumBlacklistForm textarea[name="blacklistObservation"]', modal).value = curriculumBlacklistObservation(current);
+  const submitButton = $('#curriculumBlacklistForm button[type="submit"]', modal);
+  if (submitButton) {
+    submitButton.classList.remove('primary-action', 'danger-action', 'secondary-action');
+    submitButton.classList.add(nextBlacklisted ? 'danger-action' : 'primary-action');
+    submitButton.textContent = nextBlacklisted ? 'Salvar Black List' : 'Salvar e remover Black List';
+  }
   modal.classList.remove('hidden');
   $('#curriculumBlacklistForm textarea[name="blacklistObservation"]', modal).focus();
 }
@@ -2290,13 +2332,16 @@ async function saveCurriculumBlacklist(event) {
   }
 
   const existingObservation = String(current.observacoes_entrevista || '').trim();
+  const nextBlacklisted = $('#curriculumBlacklistModal')?.dataset.nextBlacklist === 'true';
   const blacklistLine = `Black List: ${observation}`;
-  const nextObservation = existingObservation.includes(blacklistLine)
+  const removalLine = `Black List removida: ${observation}`;
+  const auditLine = nextBlacklisted ? blacklistLine : removalLine;
+  const nextObservation = existingObservation.includes(auditLine)
     ? existingObservation
-    : [existingObservation, blacklistLine].filter(Boolean).join('\n');
+    : [existingObservation, auditLine].filter(Boolean).join('\n');
 
   const button = $('button[type="submit"]', form);
-  const originalText = button?.textContent || 'Salvar Black List';
+  const originalText = button?.textContent || (nextBlacklisted ? 'Salvar Black List' : 'Salvar e remover Black List');
   try {
     if (button) {
       button.disabled = true;
@@ -2307,7 +2352,7 @@ async function saveCurriculumBlacklist(event) {
       method: 'PATCH',
       body: JSON.stringify({
         ...current,
-        blacklist: true,
+        blacklist: nextBlacklisted,
         blacklistObservation: observation,
         observacoes_entrevista: nextObservation
       })
@@ -2319,9 +2364,9 @@ async function saveCurriculumBlacklist(event) {
     state.curriculumActiveTab = 'detail';
     closeCurriculumBlacklistModal();
     renderCurriculums();
-    toast('Candidato marcado como Black List.');
+    toast(nextBlacklisted ? 'Candidato marcado como Black List.' : 'Candidato removido da Black List.');
   } catch (error) {
-    toast(error.message || 'Não foi possível marcar Black List.');
+    toast(error.message || 'Não foi possível atualizar Black List.');
   } finally {
     if (button) {
       button.disabled = false;
