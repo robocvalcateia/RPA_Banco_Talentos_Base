@@ -899,6 +899,102 @@ function findHuntingCandidate(db, opportunityId, candidateId = '') {
   )) ?? db.candidates.find((candidate) => candidate.opportunityId === opportunityId);
 }
 
+export function isApprovedValue(value) {
+  return value === true || value === 'true' || value === 'on' || value === 1 || value === '1' || value === 'Sim';
+}
+
+export function findUserByName(db, name) {
+  const normalized = String(name ?? '').trim().toLowerCase();
+  if (!normalized) return null;
+  return db.users.find((user) => String(user.name ?? '').trim().toLowerCase() === normalized) ?? null;
+}
+
+export function placementCodeFromCandidate(candidate, opportunity) {
+  const source = candidate.curriculumId || opportunity?.opportunityCode || candidate.id || candidate.name || 'alocado';
+  return String(source)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 24)
+    .toUpperCase();
+}
+
+export function buildAllocatedFromApprovedCandidate(candidate, db, existing = null) {
+  const curriculum = db.curriculums.find((item) => item.id === candidate.curriculumId || item.id_controle === candidate.curriculumId);
+  const opportunity = db.opportunities.find((item) => item.id === candidate.opportunityId);
+  const responsible = findUserByName(db, opportunity?.owner);
+  const today = new Date().toISOString().slice(0, 10);
+
+  return normalizeAllocated({
+    ...(existing ?? {}),
+    id: existing?.id ?? createId('alloc', candidate.name),
+    externalId: existing?.externalId || candidate.curriculumId || candidate.id,
+    code: existing?.code || placementCodeFromCandidate(candidate, opportunity),
+    consultant: candidate.name,
+    skill: curriculum?.skills || existing?.skill || candidate.observation,
+    clientId: opportunity?.clientId || existing?.clientId || '',
+    hourlyRate: candidate.hourlyRate,
+    phone: curriculum?.telefone || existing?.phone || '',
+    consultantEmail: curriculum?.email || existing?.consultantEmail || '',
+    startDate: existing?.startDate || opportunity?.closingDate || today,
+    active: existing?.active ?? true,
+    endDate: existing?.endDate || '',
+    manager: opportunity?.owner || existing?.manager || '',
+    managerEmail: responsible?.email || existing?.managerEmail || '',
+    managerPhone: existing?.managerPhone || '',
+    candidateId: candidate.id,
+    curriculumId: candidate.curriculumId,
+    opportunityId: candidate.opportunityId,
+    createdAt: existing?.createdAt ?? toISODate(),
+    updatedAt: toISODate()
+  });
+}
+
+export function syncApprovedCandidatePlacement(candidate, db) {
+  if (!candidate.approved) return null;
+
+  if (candidate.stage !== 'Aprovado') {
+    moveCandidateStage(candidate, 'Aprovado');
+  }
+  candidate.status = 'Aprovado';
+  candidate.approved = true;
+  candidate.updatedAt = toISODate();
+
+  const opportunity = db.opportunities.find((item) => item.id === candidate.opportunityId);
+  if (!opportunity) {
+    return { type: 'none', action: 'skipped', reason: 'Oportunidade nao encontrada.' };
+  }
+
+  if (opportunity.model === 'Hunting') {
+    const closingDate = opportunity.closingDate || new Date().toISOString().slice(0, 10);
+    opportunity.status = 'WON';
+    opportunity.closingDate = closingDate;
+    opportunity.monthYear = opportunity.monthYear || monthYearFromDate(closingDate);
+    opportunity.closedQuantity = Math.max(1, Number(opportunity.closedQuantity ?? 0));
+    opportunity.updatedAt = toISODate();
+    return { type: 'hunting', action: 'updated', opportunityId: opportunity.id };
+  }
+
+  if (!opportunity.clientId || !db.clients.some((client) => client.id === opportunity.clientId)) {
+    return { type: 'allocated', action: 'skipped', reason: 'Cliente da oportunidade nao encontrado.' };
+  }
+
+  const allocated = db.allocateds.find((item) => (
+    item.candidateId === candidate.id
+    || (candidate.curriculumId && item.curriculumId === candidate.curriculumId && item.opportunityId === candidate.opportunityId)
+  ));
+  const synced = buildAllocatedFromApprovedCandidate(candidate, db, allocated);
+
+  if (allocated) {
+    Object.assign(allocated, synced);
+    return { type: 'allocated', action: 'updated', allocatedId: allocated.id };
+  }
+
+  db.allocateds.push(synced);
+  return { type: 'allocated', action: 'created', allocatedId: synced.id };
+}
+
 async function serveStatic(request, response) {
   const { pathname } = getRoute(request);
   const requestedPath = pathname === '/' ? '/index.html' : pathname;
@@ -1540,6 +1636,10 @@ async function handleApi(request, response) {
         sendError(response, 422, 'Informe a oportunidade.');
         return;
       }
+      if (opportunity.owner && !findUserByName(db, opportunity.owner)) {
+        sendError(response, 422, 'Selecione um responsavel cadastrado em usuarios.');
+        return;
+      }
 
       db.opportunities.push(opportunity);
       syncCandidatesWithOpportunityClosures(db);
@@ -1565,6 +1665,10 @@ async function handleApi(request, response) {
       }
       if (!String(payload.opportunity ?? '').trim()) {
         sendError(response, 422, 'Informe a oportunidade.');
+        return;
+      }
+      if (String(payload.owner ?? '').trim() && !findUserByName(db, payload.owner)) {
+        sendError(response, 422, 'Selecione um responsavel cadastrado em usuarios.');
         return;
       }
 
@@ -2190,7 +2294,7 @@ async function handleApi(request, response) {
         opportunityId: String(payload.opportunityId ?? '').trim(),
         hourlyRate: Number(payload.hourlyRate ?? 0),
         observation: String(payload.observation ?? '').trim(),
-        approved: payload.approved === true || payload.approved === 'true' || payload.approved === 'on' || stage === 'Aprovado',
+        approved: isApprovedValue(payload.approved) || stage === 'Aprovado',
         stage,
         aderencia: normalizeAderencia(payload.aderencia ?? 50),
         source: String(payload.source ?? '').trim(),
@@ -2221,8 +2325,12 @@ async function handleApi(request, response) {
       }
 
       db.candidates.push(candidate);
+      const placement = syncApprovedCandidatePlacement(candidate, db);
       await writeDatabase(db);
-      sendJson(response, 201, enrichCandidate(candidate, db));
+      sendJson(response, 201, {
+        ...enrichCandidate(candidate, db),
+        placement
+      });
       return;
     }
 
@@ -2392,7 +2500,7 @@ async function handleApi(request, response) {
         candidate.observation = String(payload.observation ?? '').trim();
       }
       if (payload.approved !== undefined) {
-        candidate.approved = payload.approved === true || payload.approved === 'true' || payload.approved === 'on';
+        candidate.approved = isApprovedValue(payload.approved);
       }
       if (payload.stage && payload.stage !== candidate.stage) {
         moveCandidateStage(candidate, payload.stage);
@@ -2411,9 +2519,13 @@ async function handleApi(request, response) {
         candidate.approved = true;
       }
       candidate.updatedAt = toISODate();
+      const placement = syncApprovedCandidatePlacement(candidate, db);
 
       await writeDatabase(db);
-      sendJson(response, 200, enrichCandidate(candidate, db));
+      sendJson(response, 200, {
+        ...enrichCandidate(candidate, db),
+        placement
+      });
       return;
     }
 
@@ -2459,6 +2571,8 @@ const server = http.createServer((request, response) => {
   serveStatic(request, response);
 });
 
-server.listen(PORT, () => {
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  server.listen(PORT, () => {
   console.log(`Gestão do Negócio Alcateia MVP em http://localhost:${PORT}`);
-});
+  });
+}
