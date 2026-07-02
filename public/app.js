@@ -405,6 +405,11 @@ function renderOptions() {
   const modelOptions = emptyOption + state.opportunityModels.map((model) => `<option>${model}</option>`).join('');
   const stageOptions = emptyOption + state.stages.map((stage) => `<option>${stage}</option>`).join('');
   const aderenciaOptions = emptyOption + state.aderenciaOptions.map((value) => `<option value="${value}">${value}</option>`).join('');
+  const userOptions = emptyOption + state.users
+    .slice()
+    .sort((first, second) => first.name.localeCompare(second.name, 'pt-BR', { sensitivity: 'base' }))
+    .map((user) => `<option value="${escapeHtml(user.name)}">${escapeHtml(user.name)}</option>`)
+    .join('');
   const ufOptions = emptyOption + (state.brazilUfs?.length ? state.brazilUfs : Object.keys(fallbackCitiesByUf)).map((uf) => `<option value="${uf}">${uf}</option>`).join('');
   const curriculumOptions = emptyOption + state.curriculums
     .slice()
@@ -434,6 +439,13 @@ function renderOptions() {
   });
   $$('select[name="model"]').forEach((select) => {
     select.innerHTML = modelOptions;
+  });
+  $$('select[name="owner"]').forEach((select) => {
+    const currentValue = select.value;
+    select.innerHTML = userOptions;
+    if (currentValue && [...select.options].some((option) => option.value === currentValue)) {
+      select.value = currentValue;
+    }
   });
   $$('select[name="stage"]').forEach((select) => {
     select.innerHTML = stageOptions;
@@ -1526,7 +1538,7 @@ function renderCvFilters() {
           <td>${filter.matchPercent ?? 0}%</td>
           <td>${filter.resultLimit ?? 10}</td>
           <td>${enabledSourceLabels(filter).join(', ') || '-'}</td>
-          <td><button class="ghost-action" type="button" data-delete-cv-filter="${filter.id}" aria-label="Excluir filtro">ðŸ—‘</button></td>
+          <td><button class="ghost-action" type="button" data-delete-cv-filter="${filter.id}" aria-label="Excluir filtro">Excluir</button></td>
         </tr>
       `;
     })
@@ -2314,7 +2326,7 @@ function renderSelectedCandidates() {
         <td>${candidate.candidateMessage || '-'}</td>
         <td>${candidate.observation || '-'}</td>
         <td>${candidate.createdAt ? new Date(candidate.createdAt).toLocaleDateString('pt-BR') : '-'}</td>
-        <td><button class="ghost-action" type="button" data-delete-selected-candidate="${candidate.id}" aria-label="Excluir candidato selecionado">ðŸ—‘</button></td>
+        <td><button class="ghost-action" type="button" data-delete-selected-candidate="${candidate.id}" aria-label="Excluir candidato selecionado">Excluir</button></td>
       </tr>
     `)
     .join('');
@@ -2610,6 +2622,30 @@ function loadUserForEdit(user) {
   toast('Usuário carregado para atualização.');
 }
 
+function initPanelMaximizeControls() {
+  $$('.panel, .modal-panel')
+    .filter((panel) => $('form', panel) && !panel.querySelector('[data-panel-maximize]'))
+    .forEach((panel) => {
+      const heading = $('.panel-heading', panel);
+      if (!heading) return;
+
+      const button = document.createElement('button');
+      button.className = 'ghost-action panel-maximize-button';
+      button.type = 'button';
+      button.dataset.panelMaximize = 'true';
+      button.textContent = 'Maximizar';
+      button.setAttribute('aria-label', 'Maximizar formulario');
+      button.addEventListener('click', () => {
+        const isMaximized = panel.classList.toggle('panel-maximized');
+        document.body.classList.toggle('panel-is-maximized', isMaximized);
+        button.textContent = isMaximized ? 'Restaurar' : 'Maximizar';
+        button.setAttribute('aria-label', isMaximized ? 'Restaurar formulario' : 'Maximizar formulario');
+      });
+
+      heading.append(button);
+    });
+}
+
 function bindNavigation() {
   $$('[data-nav-toggle]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -2763,12 +2799,18 @@ function bindForms() {
 
     try {
       if (submitButton) submitButton.disabled = true;
-      await api(editingId ? `/api/candidates/${editingId}` : '/api/candidates', {
+      const savedCandidate = await api(editingId ? `/api/candidates/${editingId}` : '/api/candidates', {
         method: editingId ? 'PATCH' : 'POST',
         body: JSON.stringify(payload)
       });
       clearEditing(form, 'candidateId', 'Salvar candidato');
-      toast(editingId ? 'Candidato atualizado.' : 'Candidato cadastrado.');
+      if (savedCandidate.placement?.type === 'allocated') {
+        toast(savedCandidate.placement.action === 'created' ? 'Candidato aprovado e alocado criado.' : 'Candidato aprovado e alocado atualizado.');
+      } else if (savedCandidate.placement?.type === 'hunting') {
+        toast('Candidato aprovado e hunting atualizado.');
+      } else {
+        toast(editingId ? 'Candidato atualizado.' : 'Candidato cadastrado.');
+      }
       await refresh();
     } catch (error) {
       toast(error.message || 'Não foi possível salvar o candidato.');
@@ -3674,6 +3716,7 @@ bindEditableRows();
 bindCurriculumSearch();
 bindEmailProcessing();
 bindCurriculumSelection();
+initPanelMaximizeControls();
 document.body.dataset.appReady = 'true';
 
 if (session.token) {
