@@ -1557,6 +1557,21 @@ function selectedCvFilter() {
   return state.cvFilters.find((filter) => filter.id === state.editing.cvFilterId);
 }
 
+function candidateLinkHtml(candidate) {
+  const curriculumId = String(candidate.curriculumId || candidate.curriculumControlId || '').trim();
+  const externalLink = String(candidate.link || '').trim();
+
+  if (curriculumId) {
+    return `<button class="link-action" type="button" data-open-curriculum="${escapeHtml(curriculumId)}">Abrir</button>`;
+  }
+
+  if (externalLink) {
+    return `<a href="${escapeHtml(externalLink)}" target="_blank" rel="noopener">Abrir</a>`;
+  }
+
+  return '-';
+}
+
 function renderCvResultRows(results, emptyMessage, group) {
   if (!results.length) {
     return `<tr><td colspan="6">${emptyMessage}</td></tr>`;
@@ -1568,7 +1583,7 @@ function renderCvResultRows(results, emptyMessage, group) {
         <td><input type="checkbox" data-select-cv-result="${result.id}" data-result-group="${group}" aria-label="Selecionar ${result.name || 'candidato'}" /></td>
         <td><strong>${result.name || '-'}</strong></td>
         <td>${result.source || 'APINFO'}</td>
-        <td>${result.link ? `<a href="${result.link}" target="_blank" rel="noopener">Abrir</a>` : '-'}</td>
+        <td>${candidateLinkHtml(result)}</td>
         <td>${result.score ?? 0}</td>
         <td>${result.observation || '-'}</td>
       </tr>
@@ -1779,6 +1794,25 @@ function selectCurriculum(curriculumId) {
 
   setCurriculumDetailEditing(false);
   renderCurriculums();
+}
+
+function openCurriculumFromLink(curriculumId) {
+  const id = String(curriculumId || '').trim();
+  const curriculum = state.curriculums.find((item) => (
+    curriculumIdentifier(item) === id
+    || item.id === id
+    || item.id_controle === id
+    || item.mongoId === id
+  ));
+
+  if (!curriculum) {
+    toast('Currículo não encontrado na base interna.');
+    return;
+  }
+
+  state.curriculumSearch = { name: '', skills: '', hasSearched: false };
+  showView('curriculums');
+  selectCurriculum(curriculumIdentifier(curriculum));
 }
 
 function openCurriculumTab(tab) {
@@ -2319,14 +2353,19 @@ function renderSelectedCandidates() {
         <td><input type="checkbox" data-send-selected-candidate="${candidate.id}" aria-label="Selecionar para envio" /></td>
         <td><strong>${candidate.name || '-'}</strong></td>
         <td>${candidate.source || 'APINFO'}</td>
-        <td>${candidate.link ? `<a href="${candidate.link}" target="_blank" rel="noopener">Abrir</a>` : '-'}</td>
+        <td>${candidateLinkHtml(candidate)}</td>
         <td>${candidate.score ?? 0}</td>
         <td>${candidate.opportunityCode || '-'}<br>${candidate.opportunityName || '-'}</td>
         <td>${candidate.origin || '-'}</td>
         <td>${candidate.candidateMessage || '-'}</td>
         <td>${candidate.observation || '-'}</td>
         <td>${candidate.createdAt ? new Date(candidate.createdAt).toLocaleDateString('pt-BR') : '-'}</td>
-        <td><button class="ghost-action" type="button" data-delete-selected-candidate="${candidate.id}" aria-label="Excluir candidato selecionado">Excluir</button></td>
+        <td>
+          <div class="stage-actions">
+            <button class="primary-action compact-action" type="button" data-advance-selected-candidate="${candidate.id}">Avançar</button>
+            <button class="ghost-action" type="button" data-delete-selected-candidate="${candidate.id}" aria-label="Excluir candidato selecionado">Excluir</button>
+          </div>
+        </td>
       </tr>
     `)
     .join('');
@@ -3385,6 +3424,36 @@ function selectedCandidateIdsForSending() {
 
 function bindSelectedCandidateActions() {
   $('#selectedCandidateTable')?.addEventListener('click', async (event) => {
+    const advanceButton = event.target.closest('[data-advance-selected-candidate]');
+    if (advanceButton) {
+      const candidate = state.selectedCandidates.find((item) => item.id === advanceButton.dataset.advanceSelectedCandidate);
+      if (!candidate) return;
+
+      advanceButton.disabled = true;
+      advanceButton.textContent = 'Avançando...';
+
+      try {
+        const advanced = await api(`/api/selected-candidates/${candidate.id}/advance`, { method: 'POST' });
+        await refresh();
+        const typeSelect = $('#candidateFilterType');
+        const valueSelect = $('#candidateFilterValue');
+        if (typeSelect && valueSelect) {
+          typeSelect.value = 'opportunity';
+          renderCandidateFilters();
+          valueSelect.value = advanced.opportunityId || '';
+          renderCandidates();
+        }
+        showView('candidates');
+        toast(`${advanced.name || candidate.name} avançado para Candidatos Entrevistados.`);
+      } catch (error) {
+        toast(error.message || 'Não foi possível avançar o candidato.');
+      } finally {
+        advanceButton.disabled = false;
+        advanceButton.textContent = 'Avançar';
+      }
+      return;
+    }
+
     const button = event.target.closest('[data-delete-selected-candidate]');
     if (!button) return;
 
@@ -3642,6 +3711,13 @@ function bindEmailProcessing() {
 }
 
 function bindCurriculumSelection() {
+  document.addEventListener('click', (event) => {
+    const link = event.target.closest('[data-open-curriculum]');
+    if (!link) return;
+    event.preventDefault();
+    openCurriculumFromLink(link.dataset.openCurriculum);
+  });
+
   $('#candidateForm select[name="curriculumId"]')?.addEventListener('change', (event) => {
     syncCandidateNameFromCurriculum(event.currentTarget.value, true);
   });

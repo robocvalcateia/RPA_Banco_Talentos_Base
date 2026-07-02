@@ -442,7 +442,9 @@ async function searchAlcateiaCandidates(filter, limit = 10) {
       id: `alcateia_${curriculum.id || curriculum.id_controle || curriculum.mongoId}`,
       name: curriculum.nome || '-',
       source: 'ALCATEIA',
+      curriculumId: curriculum.id_controle || curriculum.id || curriculum.mongoId || '',
       link: curriculum.linkedin || '',
+      linkedinLink: curriculum.linkedin || '',
       score,
       observation: [
         `ID Controle: ${curriculum.id_controle || '-'}`,
@@ -460,7 +462,9 @@ async function searchAlcateiaCandidates(filter, limit = 10) {
       id: `alcateia_rej_${curriculum.id || curriculum.id_controle || curriculum.mongoId}`,
       name: curriculum.nome || '-',
       source: 'ALCATEIA',
+      curriculumId: curriculum.id_controle || curriculum.id || curriculum.mongoId || '',
       link: curriculum.linkedin || '',
+      linkedinLink: curriculum.linkedin || '',
       score,
       observation: [
         `Reprovado pela regra de aderência mínima ${minimum}%`,
@@ -907,6 +911,136 @@ export function findUserByName(db, name) {
   const normalized = String(name ?? '').trim().toLowerCase();
   if (!normalized) return null;
   return db.users.find((user) => String(user.name ?? '').trim().toLowerCase() === normalized) ?? null;
+}
+
+function comparableText(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, ' ')
+    .toLowerCase()
+    .trim();
+}
+
+function candidateAderenciaFromScore(score) {
+  const numericScore = Number(score ?? 0);
+  if (!Number.isFinite(numericScore)) return 50;
+  return CANDIDATE_ADERENCIA_OPTIONS.reduce((closest, option) => (
+    Math.abs(option - numericScore) < Math.abs(closest - numericScore) ? option : closest
+  ), 50);
+}
+
+export function findCurriculumForCandidateResult(db, result) {
+  const curriculumId = String(result?.curriculumId ?? '').trim();
+  if (curriculumId) {
+    const byId = db.curriculums.find((item) => item.id === curriculumId || item.id_controle === curriculumId || item.mongoId === curriculumId);
+    if (byId) return byId;
+  }
+
+  const observation = String(result?.observation ?? '');
+  const controlMatch = observation.match(/ID\s*Controle:\s*([^|]+)/i);
+  const controlId = String(controlMatch?.[1] ?? '').trim();
+  if (controlId && controlId !== '-') {
+    const byControl = db.curriculums.find((item) => item.id === controlId || item.id_controle === controlId || item.mongoId === controlId);
+    if (byControl) return byControl;
+  }
+
+  const resultName = comparableText(result?.name);
+  if (!resultName) return null;
+
+  return db.curriculums.find((item) => comparableText(item.nome) === resultName) ?? null;
+}
+
+function preferredExternalCandidateLink(result) {
+  const link = String(result?.link ?? '').trim();
+  const linkedinLink = String(result?.linkedinLink ?? result?.linkedin ?? '').trim();
+  const apinfoLink = String(result?.apinfoLink ?? result?.apinfo ?? '').trim();
+
+  if (linkedinLink) return linkedinLink;
+  if (/linkedin\.com/i.test(link)) return link;
+  if (apinfoLink) return apinfoLink;
+  return link;
+}
+
+function enrichCvSearchResultWithCurriculum(result, db) {
+  const curriculum = findCurriculumForCandidateResult(db, result);
+  const curriculumId = curriculum?.id_controle || curriculum?.id || result.curriculumId || '';
+
+  return normalizeCvSearchResult({
+    ...result,
+    curriculumId,
+    link: curriculum ? preferredExternalCandidateLink(result) : preferredExternalCandidateLink(result)
+  });
+}
+
+export function advanceSelectedCandidateToInterview(db, selectedCandidateId) {
+  const selected = db.selectedCandidates.find((item) => item.id === selectedCandidateId);
+  if (!selected) {
+    const error = new Error('Candidato selecionado nao encontrado.');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const opportunity = db.opportunities.find((item) => item.id === selected.opportunityId);
+  if (!opportunity) {
+    const error = new Error('Oportunidade do candidato selecionado nao encontrada.');
+    error.statusCode = 422;
+    throw error;
+  }
+
+  const curriculum = findCurriculumForCandidateResult(db, selected);
+  const curriculumId = selected.curriculumId || curriculum?.id_controle || curriculum?.id || '';
+  const selectedName = String(selected.name || curriculum?.nome || '').trim();
+  const normalizedName = comparableText(selectedName);
+  const existing = db.candidates.find((candidate) => (
+    candidate.opportunityId === selected.opportunityId
+    && (
+      (curriculumId && candidate.curriculumId === curriculumId)
+      || (normalizedName && comparableText(candidate.name) === normalizedName)
+    )
+  ));
+  const timestamp = toISODate();
+
+  if (existing) {
+    existing.name = selectedName || existing.name;
+    existing.curriculumId = curriculumId || existing.curriculumId;
+    existing.opportunityId = selected.opportunityId;
+    existing.observation = selected.observation || existing.observation || '';
+    existing.source = selected.source || existing.source || '';
+    existing.aderencia = candidateAderenciaFromScore(selected.score ?? existing.aderencia);
+    if (!['Aprovado', 'Reprovado'].includes(existing.stage) && existing.stage !== 'Entrevista Alcateia') {
+      moveCandidateStage(existing, 'Entrevista Alcateia');
+    }
+    existing.updatedAt = timestamp;
+    return existing;
+  }
+
+  const candidate = normalizeCandidate({
+    id: createId('cand', selectedName || 'candidato'),
+    name: selectedName,
+    curriculumId,
+    opportunityId: selected.opportunityId,
+    hourlyRate: 0,
+    observation: selected.observation,
+    approved: false,
+    stage: 'Entrevista Alcateia',
+    aderencia: candidateAderenciaFromScore(selected.score),
+    source: selected.source,
+    notes: selected.candidateMessage,
+    status: 'Em andamento',
+    stageEnteredAt: timestamp,
+    createdAt: timestamp,
+    stageHistory: [{ stage: 'Entrevista Alcateia', enteredAt: timestamp, leftAt: '' }]
+  });
+
+  if (!candidate.name) {
+    const error = new Error('Informe o nome do candidato.');
+    error.statusCode = 422;
+    throw error;
+  }
+
+  db.candidates.push(candidate);
+  return candidate;
 }
 
 export function placementCodeFromCandidate(candidate, opportunity) {
@@ -1918,12 +2052,12 @@ async function handleApi(request, response) {
         const mergedResults = [
           ...search.results,
           ...alcateiaSearch.results
-        ].map((result) => normalizeCvSearchResult(result));
+        ].map((result) => enrichCvSearchResultWithCurriculum(result, db));
 
         const mergedRejectedResults = [
           ...search.rejectedResults,
           ...alcateiaSearch.rejectedResults
-        ].map((result) => normalizeCvSearchResult(result));
+        ].map((result) => enrichCvSearchResultWithCurriculum(result, db));
 
         searchResponse.searchStatus = 'completed';
 
@@ -2081,6 +2215,16 @@ async function handleApi(request, response) {
       return;
     }
 
+    if (request.method === 'POST' && /^\/api\/selected-candidates\/[^/]+\/advance$/.test(pathname)) {
+      const candidateId = pathname.split('/').at(-2);
+      const db = await readDatabase();
+      const candidate = advanceSelectedCandidateToInterview(db, candidateId);
+
+      await writeDatabase(db);
+      sendJson(response, 200, enrichCandidate(candidate, db));
+      return;
+    }
+
     if (request.method === 'DELETE' && /^\/api\/selected-candidates\/[^/]+$/.test(pathname)) {
       const candidateId = pathname.split('/').at(-1);
       const db = await readDatabase();
@@ -2123,6 +2267,9 @@ async function handleApi(request, response) {
           candidateMessage,
           createdAt: candidatePayload.createdAt || toISODate()
         });
+        const matchingCurriculum = findCurriculumForCandidateResult(db, candidate);
+        candidate.curriculumId = candidate.curriculumId || matchingCurriculum?.id_controle || matchingCurriculum?.id || '';
+        candidate.link = preferredExternalCandidateLink(candidate);
 
         if (!candidate.name) continue;
 

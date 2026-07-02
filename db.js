@@ -580,6 +580,9 @@ export function normalizeCvSearchResult(result) {
     name: String(result.name ?? result.nome ?? '').trim(),
     source: String(result.source ?? result.fonte ?? 'APINFO').trim(),
     link: String(result.link ?? '').trim(),
+    linkedinLink: String(result.linkedinLink ?? result.linkedin ?? '').trim(),
+    apinfoLink: String(result.apinfoLink ?? result.apinfo ?? '').trim(),
+    curriculumId: String(result.curriculumId ?? result.idNome ?? result.id_controle ?? '').trim(),
     score: Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : 0,
     observation: String(result.observation ?? result.observacao ?? result['observacao'] ?? '').trim()
   };
@@ -595,6 +598,9 @@ export function normalizeSelectedCandidate(candidate) {
     name: String(candidate.name ?? candidate.nome ?? '').trim(),
     source: String(candidate.source ?? candidate.fonte ?? 'APINFO').trim(),
     link: String(candidate.link ?? '').trim(),
+    linkedinLink: String(candidate.linkedinLink ?? candidate.linkedin ?? '').trim(),
+    apinfoLink: String(candidate.apinfoLink ?? candidate.apinfo ?? '').trim(),
+    curriculumId: String(candidate.curriculumId ?? candidate.idNome ?? candidate.id_controle ?? '').trim(),
     score: Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : 0,
     origin: String(candidate.origin ?? candidate.origem ?? 'Resultado').trim(),
     candidateMessage: String(candidate.candidateMessage ?? candidate.mensagemCandidato ?? '').trim(),

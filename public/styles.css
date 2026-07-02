@@ -844,6 +844,17 @@ th {
   padding: 0 12px;
 }
 
+.link-action {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: #551a8b;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-decoration: underline;
+}
+
 .ghost-action {
   border: 1px solid var(--line);
   border-radius: 6px;

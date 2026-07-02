@@ -366,6 +366,9 @@ test('candidato selecionado normaliza e vincula oportunidade', () => {
     nome: ' Candidato APINFO ',
     fonte: 'APINFO',
     link: 'https://www.apinfo.com/apinfo/candidato/123',
+    curriculumId: '1001',
+    linkedinLink: 'https://linkedin.com/in/candidato',
+    apinfoLink: 'https://www.apinfo.com/apinfo/candidato/123',
     score: 120,
     origem: 'Rejeitado',
     mensagemCandidato: 'Mensagem de contato',
@@ -375,6 +378,9 @@ test('candidato selecionado normaliza e vincula oportunidade', () => {
 
   assert.equal(normalized.name, 'Candidato APINFO');
   assert.equal(normalized.score, 100);
+  assert.equal(normalized.curriculumId, '1001');
+  assert.equal(normalized.linkedinLink, 'https://linkedin.com/in/candidato');
+  assert.equal(normalized.apinfoLink, 'https://www.apinfo.com/apinfo/candidato/123');
   assert.equal(normalized.origin, 'Rejeitado');
   assert.equal(normalized.candidateMessage, 'Mensagem de contato');
   assert.equal(enriched.opportunityName, 'Dev Backend');
@@ -386,6 +392,9 @@ test('resultado de busca de CV normaliza link e limita score', () => {
     nome: ' Candidato APINFO ',
     fonte: 'APINFO',
     link: 'https://www.apinfo.com/apinfo/candidato/123',
+    curriculumId: '1001',
+    linkedinLink: 'https://linkedin.com/in/candidato',
+    apinfoLink: 'https://www.apinfo.com/apinfo/candidato/123',
     score: 120,
     observacao: 'Boa aderencia ao filtro'
   });
@@ -393,6 +402,9 @@ test('resultado de busca de CV normaliza link e limita score', () => {
   assert.equal(normalized.name, 'Candidato APINFO');
   assert.equal(normalized.source, 'APINFO');
   assert.equal(normalized.link, 'https://www.apinfo.com/apinfo/candidato/123');
+  assert.equal(normalized.curriculumId, '1001');
+  assert.equal(normalized.linkedinLink, 'https://linkedin.com/in/candidato');
+  assert.equal(normalized.apinfoLink, 'https://www.apinfo.com/apinfo/candidato/123');
   assert.equal(normalized.score, 100);
   assert.equal(normalized.observation, 'Boa aderencia ao filtro');
 });

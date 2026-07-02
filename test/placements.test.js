@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { findUserByName, syncApprovedCandidatePlacement } from '../server.js';
+import { advanceSelectedCandidateToInterview, findCurriculumForCandidateResult, findUserByName, syncApprovedCandidatePlacement } from '../server.js';
 
 function buildDb() {
   return {
@@ -29,6 +29,7 @@ function buildDb() {
       }
     ],
     candidates: [],
+    selectedCandidates: [],
     allocateds: []
   };
 }
@@ -107,4 +108,42 @@ test('candidato aprovado em hunting atualiza oportunidade sem criar alocado', ()
   assert.equal(db.opportunities[0].closedQuantity, 1);
   assert.equal(candidate.stage, 'Aprovado');
   assert.equal(db.allocateds.length, 0);
+});
+
+test('resultado com curriculo interno encontra a base antes de link externo', () => {
+  const db = buildDb();
+  const curriculum = findCurriculumForCandidateResult(db, {
+    name: 'Pessoa Teste',
+    link: 'https://linkedin.com/in/pessoa-teste',
+    observation: 'ID Controle: 1001 | Aderencia MongoDB: 100%'
+  });
+
+  assert.equal(curriculum?.id_controle, '1001');
+});
+
+test('candidato selecionado avanca para entrevistados sem duplicar', () => {
+  const db = buildDb();
+  db.selectedCandidates.push({
+    id: 'sel_a',
+    opportunityId: 'opp_a',
+    cvFilterId: 'cvf_a',
+    name: 'Pessoa Teste',
+    source: 'ALCATEIA',
+    link: '',
+    curriculumId: '1001',
+    score: 100,
+    origin: 'Resultado',
+    candidateMessage: 'Convite enviado',
+    observation: 'ID Controle: 1001 | aderente',
+    createdAt: '2026-07-02T00:00:00.000Z'
+  });
+
+  const created = advanceSelectedCandidateToInterview(db, 'sel_a');
+  const updated = advanceSelectedCandidateToInterview(db, 'sel_a');
+
+  assert.equal(created.id, updated.id);
+  assert.equal(db.candidates.length, 1);
+  assert.equal(db.candidates[0].stage, 'Entrevista Alcateia');
+  assert.equal(db.candidates[0].curriculumId, '1001');
+  assert.equal(db.candidates[0].opportunityId, 'opp_a');
 });
