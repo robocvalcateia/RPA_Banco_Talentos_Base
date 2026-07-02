@@ -555,7 +555,8 @@ body.panel-is-maximized {
 }
 
 .panel.panel-maximized,
-.modal-panel.panel-maximized {
+.modal-panel.panel-maximized,
+.modal-card.panel-maximized {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -573,7 +574,8 @@ body.panel-is-maximized {
 }
 
 .panel.panel-maximized .table-wrap,
-.modal-panel.panel-maximized .table-wrap {
+.modal-panel.panel-maximized .table-wrap,
+.modal-card.panel-maximized .table-wrap {
   max-height: none;
 }
 
@@ -695,6 +697,20 @@ label.full,
 }
 
 .primary-action:hover {
+  filter: brightness(0.95);
+}
+
+.danger-action {
+  min-height: 44px;
+  border: 1px solid #c62828;
+  border-radius: 6px;
+  background: #c62828;
+  color: #ffffff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.danger-action:hover {
   filter: brightness(0.95);
 }
 
@@ -999,6 +1015,12 @@ th {
   padding: 0 18px;
 }
 
+.heading-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
 .dashboard-analytics-modal-card {
   width: min(1180px, 100%);
 }
@@ -1189,7 +1211,8 @@ th {
 }
 
 .secondary-action:disabled,
-.primary-action:disabled {
+.primary-action:disabled,
+.danger-action:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
@@ -1284,11 +1307,26 @@ th {
 }
 
 .detail-actions .primary-action,
-.detail-actions .secondary-action {
+.detail-actions .secondary-action,
+.detail-actions .danger-action {
   grid-column: auto;
   min-width: 120px;
   height: 44px;
   padding: 0 16px;
+}
+
+.blacklist-banner {
+  background: #b71c1c;
+  border-radius: 6px;
+  color: #ffffff;
+  font-weight: 800;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  text-transform: uppercase;
+}
+
+.curriculum-opportunity-modal-card {
+  width: min(720px, 100%);
 }
 
 .template-field {

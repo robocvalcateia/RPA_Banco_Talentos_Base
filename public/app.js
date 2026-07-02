@@ -533,10 +533,31 @@ function getDashboardCandidatesByStage() {
 
 function getDashboardOpportunitiesByStatus() {
   const values = Object.fromEntries(state.opportunityStatuses.map((status) => [status, 0]));
-  for (const opportunity of state.opportunities.filter(isDashboardOpenOpportunity)) {
+  for (const opportunity of getDashboardStatusOpportunities()) {
     values[opportunity.status] = (values[opportunity.status] ?? 0) + 1;
   }
   return values;
+}
+
+function matchesDashboardStatusFilters(opportunity) {
+  if (!matchesDashboardModel(opportunity)) return false;
+
+  if (opportunity.status === 'WON') {
+    return !state.dashboardMonth || getWonOpportunityMonth(opportunity) === state.dashboardMonth;
+  }
+
+  if (['LOST', 'Closed'].includes(opportunity.status)) {
+    const month = monthKeyFromValue(opportunity.closingDate || opportunity.monthYear);
+    return !state.dashboardMonth || month === state.dashboardMonth;
+  }
+
+  return isDashboardOpenOpportunity(opportunity);
+}
+
+function getDashboardStatusOpportunities() {
+  return state.opportunities
+    .filter(matchesDashboardStatusFilters)
+    .sort(byOpportunityCode);
 }
 
 function calculateWonContractValue(opportunities) {
@@ -624,6 +645,7 @@ function buildDashboardAnalytics(metricId) {
   const activeOpportunities = state.opportunities
     .filter(isDashboardOpenOpportunity)
     .sort(byOpportunityCode);
+  const statusOpportunities = getDashboardStatusOpportunities();
   const openOpportunities = state.opportunities
     .filter((opportunity) => opportunity.status === 'Open')
     .sort(byOpportunityCode);
@@ -646,13 +668,13 @@ function buildDashboardAnalytics(metricId) {
 
   if (metricId?.startsWith('opportunityStatus:')) {
     const status = metricId.slice('opportunityStatus:'.length);
-    const rows = activeOpportunities
+    const rows = statusOpportunities
       .filter((opportunity) => opportunity.status === status)
       .sort(byOpportunityCode)
       .map((opportunity) => opportunityAnalyticsRow(opportunity, status === 'WON'));
     return {
       title: `Oportunidades ${status}`,
-      summary: `${rows.length} oportunidade(s) com status ${status}.`,
+      summary: `${rows.length} oportunidade(s) com status ${status} no filtro do dashboard.`,
       rows,
       filename: `dashboard-oportunidades-${status}`
     };
@@ -797,6 +819,28 @@ function buildDashboardAnalyticsCsv(analytics) {
   ].join('\r\n');
 }
 
+function buildRowsCsv(rows, fallbackMessage = 'Nenhum registro encontrado para este filtro.') {
+  const columns = rows.length ? Object.keys(rows[0]) : ['Mensagem'];
+  const bodyRows = rows.length ? rows : [{ Mensagem: fallbackMessage }];
+  return [
+    columns.map(csvEscape).join(';'),
+    ...bodyRows.map((row) => columns.map((column) => csvEscape(row[column])).join(';'))
+  ].join('\r\n');
+}
+
+function downloadCsv(filename, rows) {
+  const csv = buildRowsCsv(rows);
+  const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${filename}-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function revokeDashboardAnalyticsCsvUrl(delay = 0) {
   if (!state.dashboardAnalyticsCsvUrl) return;
 
@@ -844,6 +888,7 @@ function ensureDashboardAnalyticsModal() {
     </div>
   `;
   document.body.appendChild(modal);
+  initPanelMaximizeControls();
   return modal;
 }
 
@@ -1524,6 +1569,27 @@ function getFilteredHuntingRows() {
   return rows;
 }
 
+function huntingCsvRows() {
+  return getFilteredHuntingRows().map(({ opportunity, candidate }) => {
+    const client = state.clients.find((item) => item.id === opportunity.clientId);
+    return {
+      Candidato: candidate?.name || '-',
+      Perfil: opportunity.opportunity || '-',
+      'Data de início': opportunity.openingDate || '-',
+      Cliente: client?.customerName || '-',
+      Salário: formatCurrency(candidate?.hourlyRate ?? 0),
+      Faturamento: formatCurrency(opportunity.contractValue ?? 0),
+      Taxa: candidate?.huntingTax || '-',
+      Fonte: candidate?.source || opportunity.source || '-',
+      Status: opportunity.status || '-'
+    };
+  });
+}
+
+function exportHuntingCsv() {
+  downloadCsv('huntings', huntingCsvRows());
+}
+
 function calculateHuntingTax(candidate, opportunity) {
   const salary = Number(candidate?.hourlyRate ?? 0);
   const revenue = Number(opportunity?.contractValue ?? 0);
@@ -1834,7 +1900,9 @@ function fillCurriculumDetailForm(curriculum) {
     'cargo_alvo',
     'disponibilidade_viagem',
     'feedback_entrevista_ingles',
-    'observacoes_entrevista'
+    'observacoes_entrevista',
+    'blacklist',
+    'blacklistObservation'
   ].forEach((fieldName) => setFieldValue(form, fieldName, curriculum[fieldName] || ''));
 }
 
@@ -1846,6 +1914,8 @@ function readCurriculumDetailForm() {
     ...payload,
     id: current?.id || '',
     mongoId: current?.mongoId || '',
+    blacklist: payload.blacklist === 'true' || payload.blacklist === true || current?.blacklist === true,
+    blacklistObservation: payload.blacklistObservation || current?.blacklistObservation || '',
     data_criação: current?.data_criação || '',
     data_origem: current?.data_origem || ''
   };
@@ -1932,6 +2002,12 @@ if (!shouldShowDetail) {
 panel.classList.remove('hidden');
   $('#selectedCurriculumName').textContent = curriculum.nome || 'Candidato sem nome';
   $('#selectedCurriculumId').textContent = curriculum.id_controle || curriculum.id || curriculum.mongoId || '';
+  const banner = $('#curriculumBlacklistBanner');
+  if (banner) {
+    const observation = curriculum.blacklistObservation || curriculum.observacoes_entrevista || 'Candidato marcado em Black List.';
+    banner.textContent = curriculum.blacklist ? `BLACK LIST: ${observation}` : '';
+    banner.classList.toggle('hidden', !curriculum.blacklist);
+  }
   fillCurriculumDetailForm(curriculum);
   setCurriculumDetailEditing(state.curriculumEditing);
 }
@@ -2012,6 +2088,245 @@ async function exportSelectedCurriculumTemplate(templateId, button) {
   } finally {
     generationButtons.forEach((item) => { item.disabled = false; });
     if (button) button.textContent = originalText;
+  }
+}
+
+function openOpportunitiesForCurriculumSelection() {
+  return state.opportunities
+    .filter((opportunity) => isDashboardOpenOpportunity(opportunity) && opportunity.status === 'Open')
+    .sort(byOpportunityCode);
+}
+
+function ensureCurriculumOpportunityModal() {
+  let modal = $('#curriculumOpportunityModal');
+  if (modal) return modal;
+
+  modal = document.createElement('section');
+  modal.id = 'curriculumOpportunityModal';
+  modal.className = 'modal hidden';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-labelledby', 'curriculumOpportunityTitle');
+  modal.innerHTML = `
+    <div class="modal-card curriculum-opportunity-modal-card">
+      <div class="modal-heading">
+        <div>
+          <h2 id="curriculumOpportunityTitle">Selecionar candidato</h2>
+          <span id="curriculumOpportunitySummary"></span>
+        </div>
+        <button class="ghost-action" type="button" data-close-curriculum-opportunity aria-label="Fechar">×</button>
+      </div>
+      <form id="curriculumOpportunityForm" class="form-grid">
+        <label class="full">Oportunidade em aberto
+          <select name="opportunityId" required></select>
+        </label>
+        <label class="full">Observação
+          <textarea name="observation" rows="3" placeholder="Observação para Candidatos Selecionados"></textarea>
+        </label>
+        <button class="primary-action" type="submit">Salvar em Candidatos Selecionados</button>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  $('#curriculumOpportunityForm', modal)?.addEventListener('submit', saveSelectedCurriculumCandidate);
+  initPanelMaximizeControls();
+  return modal;
+}
+
+function closeCurriculumOpportunityModal() {
+  $('#curriculumOpportunityModal')?.classList.add('hidden');
+}
+
+function openCurriculumOpportunityModal() {
+  const current = selectedCurriculum();
+  if (!current) {
+    toast('Selecione um candidato antes de vincular a uma oportunidade.');
+    return;
+  }
+
+  const opportunities = openOpportunitiesForCurriculumSelection();
+  if (!opportunities.length) {
+    toast('Não há oportunidades em aberto para seleção.');
+    return;
+  }
+
+  const modal = ensureCurriculumOpportunityModal();
+  $('#curriculumOpportunitySummary', modal).textContent = current.nome || 'Candidato selecionado';
+  const select = $('#curriculumOpportunityForm select[name="opportunityId"]', modal);
+  select.innerHTML = [
+    '<option value="">Selecione</option>',
+    ...opportunities.map((opportunity) => `<option value="${escapeHtml(opportunity.id)}">${escapeHtml(opportunityLabel(opportunity))}</option>`)
+  ].join('');
+  $('#curriculumOpportunityForm textarea[name="observation"]', modal).value = '';
+  modal.classList.remove('hidden');
+  select.focus();
+}
+
+async function saveSelectedCurriculumCandidate(event) {
+  event.preventDefault();
+  const current = selectedCurriculum();
+  if (!current) {
+    toast('Selecione um candidato antes de salvar.');
+    return;
+  }
+
+  const form = event.currentTarget;
+  const payload = formPayload(form);
+  const opportunityId = String(payload.opportunityId || '').trim();
+  const opportunity = state.opportunities.find((item) => item.id === opportunityId);
+  if (!opportunity || !isDashboardOpenOpportunity(opportunity)) {
+    toast('Selecione uma oportunidade em aberto.');
+    return;
+  }
+
+  const button = $('button[type="submit"]', form);
+  const originalText = button?.textContent || 'Salvar em Candidatos Selecionados';
+  try {
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Salvando...';
+    }
+
+    await api('/api/selected-candidates', {
+      method: 'POST',
+      body: JSON.stringify({
+        opportunityId,
+        cvFilterId: '',
+        candidateMessage: '',
+        candidates: [{
+          name: current.nome,
+          source: 'ALCATEIA',
+          link: '',
+          linkedinLink: current.linkedin || '',
+          apinfoLink: '',
+          curriculumId: current.id_controle || current.id || current.mongoId || '',
+          score: 100,
+          origin: 'Banco de Talentos',
+          observation: payload.observation || `Selecionado no Banco de Talentos para ${opportunityLabel(opportunity)}`
+        }]
+      })
+    });
+
+    closeCurriculumOpportunityModal();
+    await refresh();
+    state.selectedCandidateFilter = { type: 'name', value: current.nome || '' };
+    showView('selectedCandidates');
+    renderSelectedCandidates();
+    toast('Candidato enviado para Candidatos Selecionados.');
+  } catch (error) {
+    toast(error.message || 'Não foi possível selecionar o candidato.');
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
+  }
+}
+
+function ensureCurriculumBlacklistModal() {
+  let modal = $('#curriculumBlacklistModal');
+  if (modal) return modal;
+
+  modal = document.createElement('section');
+  modal.id = 'curriculumBlacklistModal';
+  modal.className = 'modal hidden';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-labelledby', 'curriculumBlacklistTitle');
+  modal.innerHTML = `
+    <div class="modal-card curriculum-opportunity-modal-card">
+      <div class="modal-heading">
+        <div>
+          <h2 id="curriculumBlacklistTitle">Black List</h2>
+          <span id="curriculumBlacklistSummary"></span>
+        </div>
+        <button class="ghost-action" type="button" data-close-curriculum-blacklist aria-label="Fechar">×</button>
+      </div>
+      <form id="curriculumBlacklistForm" class="form-grid">
+        <label class="full">Observação obrigatória
+          <textarea name="blacklistObservation" rows="4" required></textarea>
+        </label>
+        <button class="danger-action" type="submit">Salvar Black List</button>
+      </form>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  $('#curriculumBlacklistForm', modal)?.addEventListener('submit', saveCurriculumBlacklist);
+  initPanelMaximizeControls();
+  return modal;
+}
+
+function closeCurriculumBlacklistModal() {
+  $('#curriculumBlacklistModal')?.classList.add('hidden');
+}
+
+function openCurriculumBlacklistModal() {
+  const current = selectedCurriculum();
+  if (!current) {
+    toast('Selecione um candidato antes de marcar Black List.');
+    return;
+  }
+
+  const modal = ensureCurriculumBlacklistModal();
+  $('#curriculumBlacklistSummary', modal).textContent = current.nome || 'Candidato selecionado';
+  $('#curriculumBlacklistForm textarea[name="blacklistObservation"]', modal).value = current.blacklistObservation || '';
+  modal.classList.remove('hidden');
+  $('#curriculumBlacklistForm textarea[name="blacklistObservation"]', modal).focus();
+}
+
+async function saveCurriculumBlacklist(event) {
+  event.preventDefault();
+  const current = selectedCurriculum();
+  if (!current) {
+    toast('Selecione um candidato antes de marcar Black List.');
+    return;
+  }
+
+  const form = event.currentTarget;
+  const observation = String(form.elements.blacklistObservation?.value || '').trim();
+  if (!observation) {
+    toast('A observação é obrigatória para Black List.');
+    return;
+  }
+
+  const existingObservation = String(current.observacoes_entrevista || '').trim();
+  const blacklistLine = `Black List: ${observation}`;
+  const nextObservation = existingObservation.includes(blacklistLine)
+    ? existingObservation
+    : [existingObservation, blacklistLine].filter(Boolean).join('\n');
+
+  const button = $('button[type="submit"]', form);
+  const originalText = button?.textContent || 'Salvar Black List';
+  try {
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Salvando...';
+    }
+
+    const updated = await api(`/api/curriculums/${encodeURIComponent(curriculumIdentifier(current))}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        ...current,
+        blacklist: true,
+        blacklistObservation: observation,
+        observacoes_entrevista: nextObservation
+      })
+    });
+
+    const currentIndex = state.curriculums.findIndex((item) => curriculumIdentifier(item) === curriculumIdentifier(current));
+    if (currentIndex >= 0) state.curriculums[currentIndex] = updated;
+    state.selectedCurriculumId = curriculumIdentifier(updated);
+    state.curriculumActiveTab = 'detail';
+    closeCurriculumBlacklistModal();
+    renderCurriculums();
+    toast('Candidato marcado como Black List.');
+  } catch (error) {
+    toast(error.message || 'Não foi possível marcar Black List.');
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
   }
 }
 function obterUltimoEmpregoComDatas(curriculum) {
@@ -2226,6 +2541,32 @@ function getFilteredAllocateds() {
   }
 
   return state.allocateds;
+}
+
+function allocatedCsvRows() {
+  return getFilteredAllocateds().map((allocated) => {
+    const client = state.clients.find((item) => item.id === allocated.clientId);
+    return {
+      ID: allocated.externalId || allocated.id,
+      Código: allocated.code || '',
+      Consultor: allocated.consultant || '',
+      Skill: allocated.skill || '',
+      Cliente: allocated.clientName || client?.customerName || '',
+      'Valor Hora': formatCurrency(allocated.hourlyRate),
+      Fone: allocated.phone || '',
+      'Email Consultor': allocated.consultantEmail || '',
+      Início: allocated.startDate || '',
+      Ativo: allocated.active ? 'Sim' : 'Não',
+      Término: allocated.endDate || '',
+      Gestor: allocated.manager || '',
+      'Email Gestor': allocated.managerEmail || '',
+      'Fone Gestor': allocated.managerPhone || ''
+    };
+  });
+}
+
+function exportAllocatedCsv() {
+  downloadCsv('alocados', allocatedCsvRows());
 }
 
 function renderAllocateds() {
@@ -2762,6 +3103,7 @@ function ensureCandidateStageMoveModal() {
     </div>
   `;
   document.body.appendChild(modal);
+  initPanelMaximizeControls();
   return modal;
 }
 
@@ -2820,10 +3162,10 @@ function loadUserForEdit(user) {
 }
 
 function initPanelMaximizeControls() {
-  $$('.panel, .modal-panel')
-    .filter((panel) => $('form', panel) && !panel.querySelector('[data-panel-maximize]'))
+  $$('.panel, .modal-panel, .modal-card')
+    .filter((panel) => !panel.querySelector('[data-panel-maximize]'))
     .forEach((panel) => {
-      const heading = $('.panel-heading', panel);
+      const heading = $('.panel-heading, .modal-heading', panel);
       if (!heading) return;
 
       const button = document.createElement('button');
@@ -2831,12 +3173,12 @@ function initPanelMaximizeControls() {
       button.type = 'button';
       button.dataset.panelMaximize = 'true';
       button.textContent = 'Maximizar';
-      button.setAttribute('aria-label', 'Maximizar formulario');
+      button.setAttribute('aria-label', 'Maximizar painel');
       button.addEventListener('click', () => {
         const isMaximized = panel.classList.toggle('panel-maximized');
         document.body.classList.toggle('panel-is-maximized', isMaximized);
         button.textContent = isMaximized ? 'Restaurar' : 'Maximizar';
-        button.setAttribute('aria-label', isMaximized ? 'Restaurar formulario' : 'Maximizar formulario');
+        button.setAttribute('aria-label', isMaximized ? 'Restaurar painel' : 'Maximizar painel');
       });
 
       heading.append(button);
@@ -3314,6 +3656,8 @@ function bindAllocatedFilters() {
     state.allocatedFilter.value = event.currentTarget.value;
     renderAllocateds();
   });
+
+  $('#allocatedCsvButton')?.addEventListener('click', exportAllocatedCsv);
 }
 
 function bindHuntingFilters() {
@@ -3330,6 +3674,8 @@ function bindHuntingFilters() {
     state.huntingFilter.value = event.currentTarget.value;
     renderHuntings();
   });
+
+  $('#huntingCsvButton')?.addEventListener('click', exportHuntingCsv);
 }
 
 function bindDashboardFilters() {
@@ -3387,6 +3733,8 @@ function bindDashboardFilters() {
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
       closeDashboardAnalytics();
+      closeCurriculumOpportunityModal();
+      closeCurriculumBlacklistModal();
     }
   });
 
@@ -3400,12 +3748,16 @@ function bindDashboardFilters() {
     state.dashboardMonth = event.currentTarget.value;
     renderDashboardFilters();
     renderMetrics();
+    renderBars('statusBars', getDashboardOpportunitiesByStatus(), 'opportunityStatus');
+    renderBars('stageBars', getDashboardCandidatesByStage(), 'candidateStage');
   });
 
   $('#dashboardModelFilter')?.addEventListener('change', (event) => {
     state.dashboardModel = event.currentTarget.value;
     renderDashboardFilters();
     renderMetrics();
+    renderBars('statusBars', getDashboardOpportunitiesByStatus(), 'opportunityStatus');
+    renderBars('stageBars', getDashboardCandidatesByStage(), 'candidateStage');
   });
 
   $('#faturamentoDashboardChartScroll')?.addEventListener('input', (event) => {
@@ -3901,6 +4253,16 @@ function bindEmailProcessing() {
 
 function bindCurriculumSelection() {
   document.addEventListener('click', (event) => {
+    if (event.target.closest('[data-close-curriculum-opportunity]') || event.target.id === 'curriculumOpportunityModal') {
+      closeCurriculumOpportunityModal();
+      return;
+    }
+
+    if (event.target.closest('[data-close-curriculum-blacklist]') || event.target.id === 'curriculumBlacklistModal') {
+      closeCurriculumBlacklistModal();
+      return;
+    }
+
     const link = event.target.closest('[data-open-curriculum]');
     if (!link) return;
     event.preventDefault();
@@ -3945,6 +4307,8 @@ function bindCurriculumSelection() {
   });
 
   $('#saveCurriculumButton')?.addEventListener('click', saveCurriculumDetail);
+  $('#selectCurriculumCandidateButton')?.addEventListener('click', openCurriculumOpportunityModal);
+  $('#blacklistCurriculumButton')?.addEventListener('click', openCurriculumBlacklistModal);
   $('#exportAlcateiaButton')?.addEventListener('click', (event) => {
     exportSelectedCurriculumTemplate('alcateia', event.currentTarget);
   });
@@ -3996,4 +4360,5 @@ if (session.token) {
 } else {
   showLogin();
 }
+
 

@@ -755,6 +755,8 @@ function buildCurriculumPayload(payload = {}) {
     data_criacao: payload.data_criacao,
     data_origem: payload.data_origem,
     data_nascimento: payload.data_nascimento,
+    blacklist: payload.blacklist,
+    blacklistObservation: payload.blacklistObservation,
     data_atualizacao: toISODate()
   });
 }

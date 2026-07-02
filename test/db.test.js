@@ -169,8 +169,8 @@ test('calcula indicadores basicos do MVP', () => {
   assert.equal(indicators.candidatesByStage.Triagem, 1);
   assert.equal(indicators.candidatesByStage.Aprovado, 0);
   assert.equal(indicators.opportunitiesByStatus.Open, 1);
-  assert.equal(indicators.opportunitiesByStatus.Closed, 0);
-  assert.equal(indicators.opportunitiesByStatus.WON, 0);
+  assert.equal(indicators.opportunitiesByStatus.Closed, 1);
+  assert.equal(indicators.opportunitiesByStatus.WON, 2);
   assert.equal(indicators.totals.wonCurrentMonth, 1);
   assert.equal(indicators.wonByModelCurrentMonth.Hunting, 1);
   assert.equal(indicators.totals.wonContractValueCurrentMonth, 6000);
@@ -263,6 +263,8 @@ test('curriculum normaliza estrutura importada', () => {
     email: 'antoniomiguel2332@gmail.com',
     telefone: '34-93300-2293',
     id_controle: '01',
+    blacklist: true,
+    blacklistObservation: 'Nao contratar novamente',
     versoes: [{ numero: 1 }]
   });
 
@@ -270,6 +272,8 @@ test('curriculum normaliza estrutura importada', () => {
   assert.equal(normalized.mongoId, "ObjectId('69d810e8ea6b2af3cebdfb48')");
   assert.equal(normalized.nome, 'Antonio Miguel Costa Junior');
   assert.equal(normalized.email, 'antoniomiguel2332@gmail.com');
+  assert.equal(normalized.blacklist, true);
+  assert.equal(normalized.blacklistObservation, 'Nao contratar novamente');
   assert.deepEqual(normalized.versoes, [{ numero: 1 }]);
 });
 

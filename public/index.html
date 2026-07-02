@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=20260623-dashboard" />
+    <link rel="stylesheet" href="/styles.css?v=20260702-dashboard-talent-actions" />
   </head>
   <body class="auth-locked">
     <section class="auth-screen" id="authScreen">
@@ -350,7 +350,10 @@
               <h2>Huntings</h2>
               <span>Consulta</span>
             </div>
-            <span id="huntingCount">0</span>
+            <div class="heading-actions">
+              <span id="huntingCount">0</span>
+              <button class="secondary-action compact-action" id="huntingCsvButton" type="button">CSV</button>
+            </div>
           </div>
           <div class="filter-bar">
             <label>Consultar por
@@ -591,14 +594,20 @@
           </div>
 
           <div class="detail-actions">
+            <button class="primary-action" id="selectCurriculumCandidateButton" type="button">Selecionar candidato</button>
             <button class="secondary-action" id="editCurriculumButton" type="button">Editar</button>
             <button class="primary-action" id="saveCurriculumButton" type="button" disabled>Salvar dados</button>
             <button class="secondary-action" id="cancelCurriculumEditButton" type="button" disabled>Cancelar</button>
-            <button class="secondary-action" id="exportAlcateiaButton" type="button">Gerar CV Alcateia</button>
-            <button class="primary-action" id="exportDttButton" type="button">DTT — gerar 3 documentos</button>
+            <button class="secondary-action" id="exportAlcateiaButton" type="button">CV Alcateia</button>
+            <button class="primary-action" id="exportDttButton" type="button">CV Deloitte</button>
+            <button class="danger-action" id="blacklistCurriculumButton" type="button">Black List</button>
           </div>
 
+          <div class="blacklist-banner hidden" id="curriculumBlacklistBanner" role="status"></div>
+
           <form id="curriculumDetailForm" class="form-grid curriculum-detail-form">
+            <input name="blacklist" type="hidden" />
+            <input name="blacklistObservation" type="hidden" />
             <label>id_controle<input name="id_controle" /></label>
             <label>Nome<input name="nome" required /></label>
             <label>E-mail<input name="email" type="email" /></label>
@@ -745,8 +754,11 @@
         </section>
         <section class="panel">
           <div class="panel-heading">
-            <h2>Alocados</h2>
-            <span id="allocatedCount">0</span>
+            <div>
+              <h2>Alocados</h2>
+              <span id="allocatedCount">0</span>
+            </div>
+            <button class="secondary-action compact-action" id="allocatedCsvButton" type="button">CSV</button>
           </div>
           <div class="filter-bar">
             <label>Consultar por
@@ -905,7 +917,7 @@
         }
       });
     </script>
-    <script src="/app.js?v=20260623-dashboard"></script>
+    <script src="/app.js?v=20260702-dashboard-talent-actions"></script>
   </body>
 </html>
 

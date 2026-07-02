@@ -458,6 +458,8 @@ export function normalizeCurriculum(curriculum) {
     search_text: String(curriculum.search_text ?? curriculum.texto_pesquisa ?? '').trim(),
     search_text_all: String(curriculum.search_text_all ?? curriculum.texto_pesquisavel ?? '').trim(),
     data_nascimento: String(curriculum.data_nascimento ?? '').trim(),
+    blacklist: normalizeBoolean(curriculum.blacklist ?? curriculum.blackList ?? curriculum.black_list ?? false),
+    blacklistObservation: String(curriculum.blacklistObservation ?? curriculum.blackListObservation ?? curriculum.blacklist_observation ?? '').trim(),
     id_controle: idControle || id
   };
 }
@@ -762,7 +764,7 @@ export function calculateIndicators(db, now = new Date()) {
   }
 
   const opportunitiesByStatus = Object.fromEntries(OPPORTUNITY_STATUSES.map((status) => [status, 0]));
-  for (const opportunity of db.opportunities.filter((item) => activeOpportunityIds.has(item.id))) {
+  for (const opportunity of db.opportunities) {
     opportunitiesByStatus[opportunity.status] = (opportunitiesByStatus[opportunity.status] ?? 0) + 1;
   }
 
