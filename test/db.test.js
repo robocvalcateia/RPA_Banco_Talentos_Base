@@ -385,8 +385,21 @@ test('bolsao de candidatos normaliza campos da planilha TOTVS', () => {
   assert.equal(normalized.agreementDate, '2026-05-22');
   assert.equal(normalized.active, true);
   assert.equal(normalized.tecnicoAdvpl, true);
+  assert.equal(normalized.scrumMaster, false);
   assert.equal(enriched.clientName, 'Cliente Teste');
   assert.deepEqual(enriched.activeSkills, ['Técnico ADVPL']);
+});
+
+test('bolsao de candidatos aceita flag Scrum Master', () => {
+  const normalized = normalizeCandidatePool({
+    id: 'pool_scrum',
+    clientId: 'client_1',
+    candidateName: 'Scrum Teste',
+    profile: 'Funcional',
+    scrumMaster: true
+  });
+
+  assert.equal(normalized.scrumMaster, true);
 });
 
 test('base normalizada cria bolsao TOTVS inicial sem duplicar', () => {

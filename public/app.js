@@ -152,7 +152,8 @@ const defaultCandidatePoolSkillFields = [
   ['fluigEcm', 'Fluig ECM'],
   ['fluigFormularios', 'Fluig Formulários'],
   ['fluigIntegracoes', 'Fluig Integrações'],
-  ['tecnicoAdvpl', 'Técnico ADVPL']
+  ['tecnicoAdvpl', 'Técnico ADVPL'],
+  ['scrumMaster', 'Scrum Master']
 ];
 
 const $ = (selector, root = document) => root.querySelector(selector);

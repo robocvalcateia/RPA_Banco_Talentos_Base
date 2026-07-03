@@ -130,7 +130,8 @@ export const CANDIDATE_POOL_SKILL_FIELDS = [
   ['fluigEcm', 'Fluig ECM'],
   ['fluigFormularios', 'Fluig Formulários'],
   ['fluigIntegracoes', 'Fluig Integrações'],
-  ['tecnicoAdvpl', 'Técnico ADVPL']
+  ['tecnicoAdvpl', 'Técnico ADVPL'],
+  ['scrumMaster', 'Scrum Master']
 ];
 
 const DEFAULT_CANDIDATE_POOL_CLIENT_NAME = 'TOTVS';
@@ -844,7 +845,8 @@ export function normalizeCandidatePool(item) {
     fluigEcm: ['Fluig_ECM (Checkbox)', 'fluig_ecm'],
     fluigFormularios: ['Fluig_Formulários (Checkbox)', 'Fluig_Formularios (Checkbox)', 'fluig_formularios'],
     fluigIntegracoes: ['Fluig_Integrações (Checkbox)', 'Fluig_Integracoes (Checkbox)', 'fluig_integracoes'],
-    tecnicoAdvpl: ['Técnico ADVPL (Checkbox)', 'Tecnico ADVPL (Checkbox)', 'tecnico_advpl']
+    tecnicoAdvpl: ['Técnico ADVPL (Checkbox)', 'Tecnico ADVPL (Checkbox)', 'tecnico_advpl'],
+    scrumMaster: ['Scrum Master (Checkbox)', 'Scrum_Master (Checkbox)', 'scrum_master']
   };
 
   for (const [field] of CANDIDATE_POOL_SKILL_FIELDS) {
