@@ -989,6 +989,16 @@ th {
   margin-top: 0;
 }
 
+.curriculum-observations-panel {
+  width: min(920px, 100%);
+}
+
+.curriculum-observations-list {
+  max-height: 360px;
+  overflow: auto;
+  margin-bottom: 16px;
+}
+
 .modal {
   align-items: center;
   background: rgb(18 18 18 / 48%);

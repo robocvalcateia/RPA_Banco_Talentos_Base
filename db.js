@@ -78,6 +78,7 @@ const REQUIRED_COLLECTIONS = [
   'rateCards',
   'candidatePool',
   'cvFilters',
+  'curriculumObservations',
   'selectedCandidates'
 ];
 
@@ -440,6 +441,7 @@ export function normalizeDatabase(data = {}) {
   data.candidatePool = data.candidatePool.map((item) => normalizeCandidatePool(item));
   ensureDefaultCandidatePool(data);
   data.cvFilters = data.cvFilters.map((filter) => normalizeCvFilter(filter));
+  data.curriculumObservations = data.curriculumObservations.map((observation) => normalizeCurriculumObservation(observation));
   data.selectedCandidates = data.selectedCandidates.map((candidate) => normalizeSelectedCandidate(candidate));
   delete data.applications;
 
@@ -709,6 +711,42 @@ export function normalizeCurriculum(curriculum) {
       ?? ''
     ).trim(),
     id_controle: idControle || id
+  };
+}
+
+export function normalizeCurriculumObservation(observation = {}) {
+  const curriculumId = String(
+    observation.curriculumId
+    ?? observation.idCurriculum
+    ?? observation.id_curriculum
+    ?? observation.idCurriculo
+    ?? observation.id_curriculo
+    ?? ''
+  ).trim();
+  const userId = String(
+    observation.userId
+    ?? observation.responsibleUserId
+    ?? observation.responsavelId
+    ?? observation.responsavel
+    ?? ''
+  ).trim();
+  const text = String(
+    observation.observation
+    ?? observation.observacoes
+    ?? observation.observacao
+    ?? observation['observações']
+    ?? ''
+  ).trim();
+
+  return {
+    id: String(observation.id ?? createId('curr_obs', `${curriculumId}-${userId}`)).trim(),
+    curriculumId,
+    observation: text,
+    date: String(observation.date ?? observation.data ?? observation.createdAt ?? toISODate()).trim(),
+    userId,
+    userName: String(observation.userName ?? observation.responsibleName ?? observation.responsavelNome ?? '').trim(),
+    userEmail: String(observation.userEmail ?? observation.responsibleEmail ?? observation.responsavelEmail ?? '').trim(),
+    createdAt: String(observation.createdAt ?? observation.date ?? toISODate()).trim()
   };
 }
 

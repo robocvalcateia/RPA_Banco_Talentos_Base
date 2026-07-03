@@ -17,6 +17,7 @@ import {
   normalizeCandidate,
   normalizeCandidatePool,
   normalizeCurriculum,
+  normalizeCurriculumObservation,
   normalizeCvFilter,
   normalizeCvSearchResult,
   normalizeRateCard,
@@ -423,6 +424,44 @@ test('base normalizada cria bolsao TOTVS inicial sem duplicar', () => {
   assert.ok(totvsClient);
   assert.equal(totvsPool.length, 5);
   assert.equal(totvsPool.find((item) => item.candidateName === 'Roberto Teixeira')?.tecnicoAdvpl, true);
+});
+
+test('observacoes de curriculum normalizam rastreabilidade por usuario', () => {
+  const normalized = normalizeDatabase({
+    clients: [],
+    users: [],
+    opportunities: [],
+    faturamento: [],
+    curriculums: [],
+    candidates: [],
+    allocateds: [],
+    cvFilters: [],
+    selectedCandidates: [],
+    rateCards: [],
+    candidatePool: [],
+    curriculumObservations: [
+      {
+        id_curriculum: 'curr_1',
+        observacoes: 'Contato realizado com candidato.',
+        responsavel: 'user_1',
+        data: '2026-07-03T10:00:00.000Z'
+      }
+    ]
+  });
+  const observation = normalized.curriculumObservations[0];
+  const direct = normalizeCurriculumObservation({
+    curriculumId: 'curr_2',
+    observation: 'Nova observação',
+    userId: 'user_2'
+  });
+
+  assert.equal(observation.curriculumId, 'curr_1');
+  assert.equal(observation.observation, 'Contato realizado com candidato.');
+  assert.equal(observation.userId, 'user_1');
+  assert.equal(observation.date, '2026-07-03T10:00:00.000Z');
+  assert.equal(direct.curriculumId, 'curr_2');
+  assert.equal(direct.userId, 'user_2');
+  assert.equal(direct.observation, 'Nova observação');
 });
 
 test('filtro de CV normaliza campos e valida UF e percentual', () => {

@@ -21,6 +21,7 @@ import {
   hashPassword,
   normalizeCandidate,
   normalizeCurriculum,
+  normalizeCurriculumObservation,
   normalizeCvFilter,
   normalizeCvSearchResult,
   normalizeSelectedCandidate,
@@ -1489,6 +1490,7 @@ async function handleApi(request, response) {
         cvFilters: responseDb.cvFilters.map((filter) => enrichCvFilter(filter, responseDb)),
         selectedCandidates: responseDb.selectedCandidates.map((candidate) => enrichSelectedCandidate(candidate, responseDb)),
         curriculums: curriculumBootstrap.curriculums,
+        curriculumObservations: responseDb.curriculumObservations,
         curriculumTemplates,
         talentSource: curriculumBootstrap.source,
         talentStats: curriculumBootstrap.stats,
@@ -1515,6 +1517,65 @@ async function handleApi(request, response) {
     if (request.method === 'GET' && pathname === '/api/curriculum-templates') {
       const templates = await listCurriculumTemplates();
       sendJson(response, 200, { templates });
+      return;
+    }
+
+    if (request.method === 'GET' && /^\/api\/curriculums\/[^/]+\/observations$/.test(pathname)) {
+      const curriculumId = decodeURIComponent(pathname.split('/').at(-2));
+      const curriculum = await getCurriculumByIdentifier(auth.db, curriculumId).catch(() => null);
+      const curriculumAliases = new Set([
+        curriculumId,
+        curriculum?.id,
+        curriculum?.id_controle,
+        curriculum?.mongoId
+      ].filter(Boolean).map((value) => String(value).trim()));
+      const observations = auth.db.curriculumObservations
+        .filter((observation) => curriculumAliases.has(observation.curriculumId))
+        .map((observation) => {
+          const user = auth.db.users.find((item) => item.id === observation.userId);
+          return {
+            ...observation,
+            userName: observation.userName || user?.name || '',
+            userEmail: observation.userEmail || user?.email || ''
+          };
+        })
+        .sort((first, second) => String(second.date || '').localeCompare(String(first.date || '')));
+
+      sendJson(response, 200, observations);
+      return;
+    }
+
+    if (request.method === 'POST' && /^\/api\/curriculums\/[^/]+\/observations$/.test(pathname)) {
+      const curriculumId = decodeURIComponent(pathname.split('/').at(-2));
+      const payload = await readJsonBody(request);
+      const observationText = String(payload.observation ?? payload.observacoes ?? '').trim();
+
+      if (!observationText) {
+        sendError(response, 422, 'Informe a observacao do candidato.');
+        return;
+      }
+
+      const curriculum = await getCurriculumByIdentifier(auth.db, curriculumId);
+      if (!curriculum) {
+        sendError(response, 404, 'Curriculo nao encontrado.');
+        return;
+      }
+
+      const canonicalCurriculumId = String(curriculum.id_controle || curriculum.id || curriculum.mongoId || curriculumId).trim();
+      const observation = normalizeCurriculumObservation({
+        id: createId('curr_obs', canonicalCurriculumId),
+        curriculumId: canonicalCurriculumId,
+        observation: observationText,
+        date: toISODate(),
+        userId: auth.user.id,
+        userName: auth.user.name,
+        userEmail: auth.user.email,
+        createdAt: toISODate()
+      });
+
+      auth.db.curriculumObservations.push(observation);
+      await writeDatabase(auth.db);
+      sendJson(response, 201, observation);
       return;
     }
 

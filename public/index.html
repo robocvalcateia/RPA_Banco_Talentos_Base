@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=20260703-candidate-display-id" />
+    <link rel="stylesheet" href="/styles.css?v=20260703-curriculum-observations" />
   </head>
   <body class="auth-locked">
     <section class="auth-screen" id="authScreen">
@@ -398,6 +398,7 @@
                   <th>Data Acordo</th>
                   <th>Ativo</th>
                   <th>Skills</th>
+                  <th>Ações</th>
                 </tr>
               </thead>
               <tbody id="candidatePoolTable"></tbody>
@@ -726,6 +727,7 @@
             <button class="secondary-action" id="exportAlcateiaButton" type="button">CV Alcateia</button>
             <button class="primary-action" id="exportDttButton" type="button">CV Deloitte</button>
             <button class="primary-action" id="blacklistCurriculumButton" type="button">Black Flag</button>
+            <button class="secondary-action" id="curriculumObservationsButton" type="button">Observações</button>
           </div>
 
           <div class="blacklist-banner hidden" id="curriculumBlacklistBanner" role="status"></div>
@@ -776,6 +778,7 @@
             <label class="full">Observação<textarea name="observation" rows="3"></textarea></label>
             <label class="checkbox-field"><input name="approved" type="checkbox" /> Aprovado</label>
             <button class="primary-action" type="submit">Salvar candidato</button>
+            <button class="secondary-action" id="candidateFormObservationsButton" type="button" disabled>Observações</button>
           </form>
         </section>
         <section class="panel">
@@ -955,6 +958,34 @@
       </section>
     </div>
 
+    <div class="modal-backdrop hidden" id="curriculumObservationsModal" role="dialog" aria-modal="true" aria-labelledby="curriculumObservationsTitle">
+      <section class="modal-panel curriculum-observations-panel">
+        <div class="panel-heading">
+          <div>
+            <h2 id="curriculumObservationsTitle">Observações do candidato</h2>
+            <span id="curriculumObservationsSummary"></span>
+          </div>
+          <button class="ghost-action" type="button" data-close-curriculum-observations aria-label="Fechar">Fechar</button>
+        </div>
+        <div class="table-wrap curriculum-observations-list">
+          <table>
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Responsável</th>
+                <th>Observação</th>
+              </tr>
+            </thead>
+            <tbody id="curriculumObservationsTable"></tbody>
+          </table>
+        </div>
+        <form id="curriculumObservationForm" class="form-grid">
+          <label class="full">Nova observação<textarea name="observation" rows="4" required></textarea></label>
+          <button class="primary-action" type="submit">Inserir observação</button>
+        </form>
+      </section>
+    </div>
+
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script>
       document.addEventListener('DOMContentLoaded', function () {
@@ -1043,7 +1074,7 @@
         }
       });
     </script>
-    <script src="/app.js?v=20260703-candidate-display-id"></script>
+    <script src="/app.js?v=20260703-curriculum-observations"></script>
   </body>
 </html>
 

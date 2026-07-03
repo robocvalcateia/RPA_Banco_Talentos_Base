@@ -5,6 +5,7 @@
   cvFilters: [],
   selectedCandidates: [],
   curriculums: [],
+  curriculumObservations: [],
   curriculumTemplates: [],
   candidates: [],
   allocateds: [],
@@ -50,7 +51,8 @@
     huntingId: '',
     userId: '',
     selectingCandidateId: '',
-    movingCandidateId: ''
+    movingCandidateId: '',
+    observingCurriculumId: ''
   },
   indicators: null
 };
@@ -1759,6 +1761,68 @@ function candidateCurriculumDisplay(curriculum, fallback = '') {
   return String(curriculum?.id_controle || curriculum?.mongoId || curriculum?.id || fallback || '').trim();
 }
 
+function findCurriculumByIdentifier(curriculumId) {
+  const id = String(curriculumId || '').trim();
+  if (!id) return null;
+  return state.curriculums.find((curriculum) => (
+    curriculumIdentifier(curriculum) === id
+    || curriculum.id === id
+    || curriculum.id_controle === id
+    || curriculum.mongoId === id
+  )) || null;
+}
+
+function curriculumObservationAliases(curriculumOrId) {
+  const curriculum = typeof curriculumOrId === 'string'
+    ? findCurriculumByIdentifier(curriculumOrId)
+    : curriculumOrId;
+  const values = [
+    typeof curriculumOrId === 'string' ? curriculumOrId : '',
+    curriculum?.id,
+    curriculum?.id_controle,
+    curriculum?.mongoId,
+    curriculumIdentifier(curriculum)
+  ];
+  return new Set(values.filter(Boolean).map((value) => String(value).trim()));
+}
+
+function curriculumForObservationSubject(subject) {
+  if (!subject) return null;
+  if (subject.nome || subject.id_controle || subject.mongoId) {
+    return findCurriculumByIdentifier(curriculumIdentifier(subject)) || subject;
+  }
+  if (subject.candidateName) {
+    return findCurriculumForCandidate({ name: subject.candidateName, curriculumId: subject.curriculumId });
+  }
+  return findCurriculumForCandidate(subject);
+}
+
+function curriculumObservationId(subject) {
+  if (typeof subject === 'string') return subject.trim();
+  const curriculum = curriculumForObservationSubject(subject);
+  return String(
+    curriculumIdentifier(curriculum)
+    || subject?.curriculumId
+    || subject?.curriculumControlId
+    || ''
+  ).trim();
+}
+
+function curriculumObservationCount(subject) {
+  const id = curriculumObservationId(subject);
+  if (!id) return 0;
+  const aliases = curriculumObservationAliases(id);
+  return state.curriculumObservations.filter((observation) => aliases.has(String(observation.curriculumId || '').trim())).length;
+}
+
+function renderCurriculumObservationsButton(subject, label = 'Observações') {
+  const id = curriculumObservationId(subject);
+  if (!id) return '';
+  const count = curriculumObservationCount(id);
+  const suffix = count ? ` (${count})` : '';
+  return `<button class="ghost-action compact-action" type="button" data-open-curriculum-observations="${escapeHtml(id)}">${label}${suffix}</button>`;
+}
+
 function renderCvResultRows(results, emptyMessage, group) {
   if (!results.length) {
     return `<tr><td colspan="6">${emptyMessage}</td></tr>`;
@@ -2113,6 +2177,13 @@ panel.classList.remove('hidden');
     blacklistButton.textContent = 'Black Flag';
     blacklistButton.setAttribute('aria-label', blacklisted ? 'Remover Black Flag do candidato' : 'Marcar candidato com Black Flag');
   }
+  const observationsButton = $('#curriculumObservationsButton');
+  if (observationsButton) {
+    const count = curriculumObservationCount(curriculum);
+    observationsButton.textContent = count ? `Observações (${count})` : 'Observações';
+    observationsButton.dataset.openCurriculumObservations = curriculumObservationId(curriculum);
+    observationsButton.disabled = false;
+  }
   fillCurriculumDetailForm(curriculum);
   setCurriculumDetailEditing(state.curriculumEditing);
 }
@@ -2449,6 +2520,121 @@ async function saveCurriculumBlacklist(event) {
     }
   }
 }
+
+function formatObservationDate(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('pt-BR');
+}
+
+function renderCurriculumObservationsTable(observations) {
+  const table = $('#curriculumObservationsTable');
+  if (!table) return;
+
+  if (!observations.length) {
+    table.innerHTML = '<tr><td colspan="3">Nenhuma observação registrada para este candidato.</td></tr>';
+    return;
+  }
+
+  table.innerHTML = observations
+    .map((observation) => `
+      <tr>
+        <td>${formatObservationDate(observation.date || observation.createdAt)}</td>
+        <td>${escapeHtml(observation.userName || observation.userEmail || observation.userId || '-')}</td>
+        <td>${escapeHtml(observation.observation || '-')}</td>
+      </tr>
+    `)
+    .join('');
+}
+
+function observationsForCurriculum(curriculumId) {
+  const aliases = curriculumObservationAliases(curriculumId);
+  return state.curriculumObservations
+    .filter((observation) => aliases.has(String(observation.curriculumId || '').trim()))
+    .sort((first, second) => String(second.date || '').localeCompare(String(first.date || '')));
+}
+
+function mergeCurriculumObservations(curriculumId, observations) {
+  const aliases = curriculumObservationAliases(curriculumId);
+  state.curriculumObservations = state.curriculumObservations
+    .filter((observation) => !aliases.has(String(observation.curriculumId || '').trim()))
+    .concat(observations);
+}
+
+function closeCurriculumObservationsModal() {
+  state.editing.observingCurriculumId = '';
+  closeSurfaceDialog('#curriculumObservationsModal');
+}
+
+async function openCurriculumObservationsModal(curriculumId) {
+  const id = String(curriculumId || '').trim();
+  if (!id) {
+    toast('Currículo não identificado para observações.');
+    return;
+  }
+
+  const modal = $('#curriculumObservationsModal');
+  const form = $('#curriculumObservationForm');
+  const curriculum = findCurriculumByIdentifier(id);
+  state.editing.observingCurriculumId = id;
+  if (form) form.reset();
+  $('#curriculumObservationsSummary').textContent = curriculum
+    ? `${curriculum.nome || 'Candidato'} · ${candidateCurriculumDisplay(curriculum)}`
+    : `Currículo ${id}`;
+  renderCurriculumObservationsTable(observationsForCurriculum(id));
+  modal?.classList.remove('hidden');
+
+  try {
+    const observations = await api(`/api/curriculums/${encodeURIComponent(id)}/observations`);
+    mergeCurriculumObservations(id, observations);
+    renderCurriculumObservationsTable(observationsForCurriculum(id));
+    render();
+  } catch (error) {
+    toast(error.message || 'Não foi possível carregar observações.');
+  }
+}
+
+async function saveCurriculumObservation(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const curriculumId = state.editing.observingCurriculumId;
+  const observation = String(form.elements.observation?.value || '').trim();
+
+  if (!curriculumId) {
+    toast('Currículo não identificado para observações.');
+    return;
+  }
+  if (!observation) {
+    toast('Informe a observação do candidato.');
+    return;
+  }
+
+  const button = $('button[type="submit"]', form);
+  try {
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Inserindo...';
+    }
+    const saved = await api(`/api/curriculums/${encodeURIComponent(curriculumId)}/observations`, {
+      method: 'POST',
+      body: JSON.stringify({ observation })
+    });
+    state.curriculumObservations.push(saved);
+    form.reset();
+    renderCurriculumObservationsTable(observationsForCurriculum(curriculumId));
+    render();
+    toast('Observação inserida.');
+  } catch (error) {
+    toast(error.message || 'Não foi possível inserir a observação.');
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = 'Inserir observação';
+    }
+  }
+}
+
 function obterUltimoEmpregoComDatas(curriculum) {
   const experiencia = String(curriculum.experiencia_profissional || '').trim();
 
@@ -2856,10 +3042,11 @@ function renderCandidatePool() {
           <td>${item.agreementDate ? new Date(`${item.agreementDate}T00:00:00`).toLocaleDateString('pt-BR') : '-'}</td>
           <td>${item.active ? 'Sim' : 'Não'}</td>
           <td>${skills.length ? escapeHtml(skills.join(', ')) : '-'}</td>
+          <td>${renderCurriculumObservationsButton(item)}</td>
         </tr>
       `;
     }).join('')
-    : '<tr><td colspan="7">Nenhum candidato encontrado para o filtro informado.</td></tr>';
+    : '<tr><td colspan="8">Nenhum candidato encontrado para o filtro informado.</td></tr>';
 }
 
 function renderCandidateFilters() {
@@ -2947,6 +3134,7 @@ function renderCandidates() {
           <td>${candidate.approved ? 'Sim' : 'Não'}</td>
           <td>
             <div class="stage-actions">
+              ${renderCurriculumObservationsButton(candidate)}
               <button class="primary-action compact-action" type="button" data-select-candidate="${candidate.id}">Selecionado</button>
               ${renderCandidateStageActions(candidate)}
             </div>
@@ -3043,6 +3231,7 @@ function renderSelectedCandidates() {
         <td>${candidate.createdAt ? new Date(candidate.createdAt).toLocaleDateString('pt-BR') : '-'}</td>
         <td>
           <div class="stage-actions">
+            ${renderCurriculumObservationsButton(candidate)}
             <button class="primary-action compact-action" type="button" data-advance-selected-candidate="${candidate.id}">Avançar</button>
             <button class="ghost-action" type="button" data-delete-selected-candidate="${candidate.id}" aria-label="Excluir candidato selecionado">Excluir</button>
           </div>
@@ -3263,6 +3452,14 @@ function loadCandidateForEdit(candidate) {
     observation: candidate.observation,
     approved: candidate.approved
   }, 'Atualizar candidato');
+  const observationsButton = $('#candidateFormObservationsButton');
+  if (observationsButton) {
+    observationsButton.disabled = !curriculumId;
+    observationsButton.dataset.openCurriculumObservations = curriculumId;
+    observationsButton.textContent = curriculumId && curriculumObservationCount(curriculumId)
+      ? `Observações (${curriculumObservationCount(curriculumId)})`
+      : 'Observações';
+  }
   toast('Candidato carregado para atualização.');
 }
 
@@ -3724,6 +3921,12 @@ function bindForms() {
         body: JSON.stringify(payload)
       });
       clearEditing(form, 'candidateId', 'Salvar candidato');
+      const observationsButton = $('#candidateFormObservationsButton');
+      if (observationsButton) {
+        observationsButton.disabled = true;
+        observationsButton.textContent = 'Observações';
+        delete observationsButton.dataset.openCurriculumObservations;
+      }
       if (savedCandidate.placement?.type === 'allocated') {
         toast(savedCandidate.placement.action === 'created' ? 'Candidato aprovado e alocado criado.' : 'Candidato aprovado e alocado atualizado.');
       } else if (savedCandidate.placement?.type === 'hunting') {
@@ -4745,11 +4948,25 @@ function bindCurriculumSelection() {
       return;
     }
 
+    if (event.target.closest('[data-close-curriculum-observations]') || event.target.id === 'curriculumObservationsModal') {
+      closeCurriculumObservationsModal();
+      return;
+    }
+
+    const observationsButton = event.target.closest('[data-open-curriculum-observations]');
+    if (observationsButton) {
+      event.preventDefault();
+      openCurriculumObservationsModal(observationsButton.dataset.openCurriculumObservations);
+      return;
+    }
+
     const link = event.target.closest('[data-open-curriculum]');
     if (!link) return;
     event.preventDefault();
     openCurriculumFromLink(link.dataset.openCurriculum);
   });
+
+  $('#curriculumObservationForm')?.addEventListener('submit', saveCurriculumObservation);
 
   $('#candidateForm select[name="curriculumId"]')?.addEventListener('change', (event) => {
     syncCandidateNameFromCurriculum(event.currentTarget.value, true);
