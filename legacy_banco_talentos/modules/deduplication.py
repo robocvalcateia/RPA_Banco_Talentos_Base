@@ -100,14 +100,34 @@ class DeduplicationHandler:
         try:
             fields_to_compare = [
                 'Nome', 'Email', 'Telefone', 'Endereco',
+                'Nacionalidade', 'Estado_Civil', 'Idade',
                 'DataNascimento', 'Skil', 'Formacao_Academica',
                 'Cursos_Certificacoes', 'Nivel_Idioma_Ingles',
                 'Nivel_Idioma_Espanhol', 'Experiencia_Profissional',
-                'Link_Linkedin'
+                'Conhecimento_Tecnico', 'Link_Linkedin'
             ]
+
+            field_map = {
+                'Nome': 'nome',
+                'Email': 'email',
+                'Telefone': 'telefone',
+                'Endereco': 'endereco',
+                'Nacionalidade': 'nacionalidade',
+                'Estado_Civil': 'estado_civil',
+                'Idade': 'idade',
+                'DataNascimento': 'data_nascimento',
+                'Skil': 'skills',
+                'Formacao_Academica': 'formacao_academica',
+                'Cursos_Certificacoes': 'cursos_certificacoes',
+                'Nivel_Idioma_Ingles': 'nivel_ingles',
+                'Nivel_Idioma_Espanhol': 'nivel_espanhol',
+                'Experiencia_Profissional': 'experiencia_profissional',
+                'Conhecimento_Tecnico': 'conhecimento_tecnico',
+                'Link_Linkedin': 'linkedin'
+            }
             
             for field in fields_to_compare:
-                existing_value = existing_data.get(field.lower(), '')
+                existing_value = existing_data.get(field_map.get(field, field.lower()), '')
                 new_value = new_data.get(field, '')
                 
                 # Normalizar valores para comparao
@@ -210,6 +230,9 @@ class DeduplicationHandler:
                 'nome': Validators.normalize_name(candidate_data.get('Nome', '')),
                 'telefone': telefone_normalizado,
                 'endereco': candidate_data.get('Endereco', '').strip(),
+                'nacionalidade': candidate_data.get('Nacionalidade', '').strip(),
+                'estado_civil': candidate_data.get('Estado_Civil', '').strip(),
+                'idade': candidate_data.get('Idade', ''),
                 'data_nascimento': candidate_data.get('DataNascimento', ''),
                 'linkedin': candidate_data.get('Link_Linkedin', '').strip(),
                 'skills': candidate_data.get('Skil', '').strip(),
@@ -217,6 +240,7 @@ class DeduplicationHandler:
                 'cursos_certificacoes': candidate_data.get('Cursos_Certificacoes', '').strip(),
                 'nivel_ingles': candidate_data.get('Nivel_Idioma_Ingles', '').strip(),
                 'nivel_espanhol': candidate_data.get('Nivel_Idioma_Espanhol', '').strip(),
+                'conhecimento_tecnico': candidate_data.get('Conhecimento_Tecnico', '').strip(),
                 'experiencia_profissional': candidate_data.get('Experiencia_Profissional', '').strip(),
                 'data_atualizacao': now,
                 'data_origem': source_date
