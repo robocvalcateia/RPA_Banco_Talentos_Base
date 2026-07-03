@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=20260703-curriculum-observations" />
+    <link rel="stylesheet" href="/styles.css?v=20260703-form-actions" />
   </head>
   <body class="auth-locked">
     <section class="auth-screen" id="authScreen">
@@ -181,7 +181,7 @@
             <h2>Cadastrar faturamento</h2>
             <span>Manutenção</span>
           </div>
-          <form id="faturamentoForm" class="form-grid">
+          <form id="faturamentoForm" class="form-grid" novalidate>
             <label>Mês / Ano<input name="monthYear" type="month" required /></label>
             <label>Previsto<input name="forecast" type="number" min="0" step="0.01" /></label>
             <label>Realizado<input name="realized" type="number" min="0" step="0.01" /></label>
@@ -223,7 +223,7 @@
             <h2>Cadastrar cliente</h2>
             <span>Admin</span>
           </div>
-          <form id="clientForm" class="form-grid">
+          <form id="clientForm" class="form-grid" novalidate>
             <label>Customer Name<input name="customerName" required /></label>
             <label>Primary Contact Name<input name="primaryContactName" /></label>
             <label>Primary Contact Email<input name="primaryContactEmail" type="email" /></label>
@@ -260,7 +260,7 @@
             <h2>Cadastrar oportunidade</h2>
             <span>Recrutador</span>
           </div>
-          <form id="opportunityForm" class="form-grid">
+          <form id="opportunityForm" class="form-grid" novalidate>
             <label>Oportunidade<input name="opportunity" required /></label>
             <label>Id_Oportunidade<input name="opportunityCode" /></label>
             <label>Cliente<select name="clientId" required></select></label>
@@ -333,7 +333,7 @@
             <h2>Cadastrar Bolsão de Candidatos</h2>
             <span>Manutenção</span>
           </div>
-          <form id="candidatePoolForm" class="form-grid">
+          <form id="candidatePoolForm" class="form-grid" novalidate>
             <label>Cliente<select name="clientId" required></select></label>
             <label>Nome<input name="candidateName" list="candidatePoolNameOptions" required /></label>
             <datalist id="candidatePoolNameOptions"></datalist>
@@ -413,7 +413,7 @@
             <h2>Cadastrar hunting</h2>
             <span>Manutenção</span>
           </div>
-          <form id="huntingForm" class="form-grid">
+          <form id="huntingForm" class="form-grid" novalidate>
             <input name="candidateId" type="hidden" />
             <label>Candidato<input name="candidateName" required /></label>
             <label>Perfil<input name="profile" required /></label>
@@ -477,7 +477,7 @@
             <h2>Cadastrar Rate Card</h2>
             <span>Manutenção</span>
           </div>
-          <form id="rateCardForm" class="form-grid">
+          <form id="rateCardForm" class="form-grid" novalidate>
             <label>Skill<input name="skill" required /></label>
             <label>Taxa<input name="rate" type="number" min="0" step="0.01" required /></label>
             <label>Máximo<input name="maximum" type="number" min="0" step="0.01" readonly /></label>
@@ -521,7 +521,7 @@
             <h2>Cadastrar filtro de CVs</h2>
             <span>Manutenção</span>
           </div>
-          <form id="cvFilterForm" class="form-grid">
+          <form id="cvFilterForm" class="form-grid" novalidate>
             <label>Oportunidade<select name="opportunityId" required></select></label>
             <label>Estado<select name="state"></select></label>
             <label>Cidade<select name="city"></select></label>
@@ -636,7 +636,7 @@
             </label>
             <button class="primary-action" id="selectedCandidateSearchButton" type="button">Consultar</button>
           </div>
-          <form id="selectedCandidateMessageForm" class="form-grid">
+          <form id="selectedCandidateMessageForm" class="form-grid" novalidate>
             <label class="full">Mensagem ao candidato<textarea name="candidateMessage" rows="3"></textarea></label>
             <button class="primary-action" type="submit">Salvar mensagem</button>
             <button class="primary-action full" id="sendSelectedCandidateMessageButton" type="button">Enviar mensagem</button>
@@ -828,7 +828,7 @@
             <h2>Cadastrar usuário</h2>
             <span>Admin</span>
           </div>
-          <form id="userForm" class="form-grid">
+          <form id="userForm" class="form-grid" novalidate>
             <label>Nome<input name="name" required /></label>
             <label>E-mail<input name="email" type="email" required /></label>
             <label>Perfil<input name="role" value="Admin" readonly /></label>
@@ -1074,7 +1074,7 @@
         }
       });
     </script>
-    <script src="/app.js?v=20260703-curriculum-observations"></script>
+    <script src="/app.js?v=20260703-form-actions"></script>
   </body>
 </html>
 

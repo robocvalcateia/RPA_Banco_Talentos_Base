@@ -3336,6 +3336,22 @@ function setSubmitLabel(form, label) {
   if (button) button.textContent = label;
 }
 
+function setSubmitButtonBusy(button, busyLabel) {
+  if (!button) return '';
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = busyLabel;
+  button.setAttribute('aria-busy', 'true');
+  return originalText;
+}
+
+function restoreSubmitButton(button, label) {
+  if (!button) return;
+  button.disabled = false;
+  button.textContent = label;
+  button.removeAttribute('aria-busy');
+}
+
 function setFieldValue(form, name, value) {
   const field = form.elements.namedItem(name);
   if (!field) return;
@@ -3418,7 +3434,7 @@ function loadOpportunityForEdit(opportunity) {
   toast('Oportunidade carregada para atualização.');
 }
 
-async function loadCvFilterForEdit(filter) {
+async function loadCvFilterForEdit(filter, options = {}) {
   state.editing.cvFilterId = filter.id;
   fillForm('#cvFilterForm', {
     opportunityId: filter.opportunityId,
@@ -3434,7 +3450,9 @@ async function loadCvFilterForEdit(filter) {
   }, 'Atualizar filtro');
   await populateCityOptions(filter.state, filter.city);
   renderCvSearchResults();
-  toast('Filtro de CV carregado para atualização.');
+  if (!options.silent) {
+    toast('Filtro de CV carregado para atualização.');
+  }
 }
 
 function loadCandidateForEdit(candidate) {
@@ -3818,14 +3836,30 @@ function bindForms() {
 
   $('#faturamentoForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
+    const form = event.currentTarget;
+    const submitButton = $('button[type="submit"]', form);
     const editingId = state.editing.faturamentoId;
-    await api(editingId ? `/api/faturamento/${editingId}` : '/api/faturamento', {
-      method: editingId ? 'PATCH' : 'POST',
-      body: JSON.stringify(formPayload(event.currentTarget))
-    });
-    clearEditing(event.currentTarget, 'faturamentoId', 'Salvar faturamento');
-    toast(editingId ? 'Faturamento atualizado.' : 'Faturamento cadastrado.');
-    await refresh();
+    const payload = formPayload(form);
+
+    if (!String(payload.monthYear || '').trim()) {
+      toast('Informe o mês/ano do faturamento.');
+      return;
+    }
+
+    const originalText = setSubmitButtonBusy(submitButton, editingId ? 'Atualizando...' : 'Salvando...');
+    try {
+      await api(editingId ? `/api/faturamento/${encodeURIComponent(editingId)}` : '/api/faturamento', {
+        method: editingId ? 'PATCH' : 'POST',
+        body: JSON.stringify(payload)
+      });
+      clearEditing(form, 'faturamentoId', 'Salvar faturamento');
+      toast(editingId ? 'Faturamento atualizado.' : 'Faturamento cadastrado.');
+      await refresh();
+    } catch (error) {
+      toast(error.message || 'Não foi possível salvar o faturamento.');
+    } finally {
+      restoreSubmitButton(submitButton, state.editing.faturamentoId ? (originalText || 'Atualizar faturamento') : 'Salvar faturamento');
+    }
   });
 
   $('#opportunityForm').addEventListener('submit', async (event) => {
@@ -3878,7 +3912,7 @@ function bindForms() {
       await refresh();
       const currentFilter = state.cvFilters.find((filter) => filter.id === savedFilter.id);
       if (currentFilter) {
-        await loadCvFilterForEdit(currentFilter);
+        await loadCvFilterForEdit(currentFilter, { silent: true });
       }
     } catch (error) {
       toast(error.message || 'Não foi possível salvar o filtro de CV.');
@@ -3989,25 +4023,47 @@ function bindForms() {
   $('#rateCardForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
+    const submitButton = $('button[type="submit"]', form);
     syncRateCardMaximum(form);
     const payload = formPayload(form);
     payload.active = form.elements.active.checked;
     payload.maximum = rateCardMaximum(payload.rate);
     const editingId = state.editing.rateCardId;
 
-    await api(editingId ? `/api/rate-cards/${editingId}` : '/api/rate-cards', {
-      method: editingId ? 'PATCH' : 'POST',
-      body: JSON.stringify(payload)
-    });
-    clearEditing(form, 'rateCardId', 'Salvar Rate Card');
-    syncRateCardMaximum(form);
-    toast(editingId ? 'Rate Card atualizado.' : 'Rate Card cadastrado.');
-    await refresh();
+    if (!String(payload.clientId || '').trim()) {
+      toast('Selecione um cliente válido.');
+      return;
+    }
+    if (!String(payload.skill || '').trim()) {
+      toast('Informe a skill do Rate Card.');
+      return;
+    }
+    if (!Number.isFinite(Number(payload.rate)) || Number(payload.rate) <= 0) {
+      toast('Informe uma taxa válida.');
+      return;
+    }
+
+    const originalText = setSubmitButtonBusy(submitButton, editingId ? 'Atualizando...' : 'Salvando...');
+    try {
+      await api(editingId ? `/api/rate-cards/${encodeURIComponent(editingId)}` : '/api/rate-cards', {
+        method: editingId ? 'PATCH' : 'POST',
+        body: JSON.stringify(payload)
+      });
+      clearEditing(form, 'rateCardId', 'Salvar Rate Card');
+      syncRateCardMaximum(form);
+      toast(editingId ? 'Rate Card atualizado.' : 'Rate Card cadastrado.');
+      await refresh();
+    } catch (error) {
+      toast(error.message || 'Não foi possível salvar o Rate Card.');
+    } finally {
+      restoreSubmitButton(submitButton, state.editing.rateCardId ? (originalText || 'Atualizar Rate Card') : 'Salvar Rate Card');
+    }
   });
 
   $('#candidatePoolForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
+    const submitButton = $('button[type="submit"]', form);
     const payload = formPayload(form);
     payload.active = form.elements.active.checked;
     for (const [field] of candidatePoolSkillFields()) {
@@ -4015,26 +4071,70 @@ function bindForms() {
     }
     const editingId = state.editing.candidatePoolId;
 
-    await api(editingId ? `/api/candidate-pool/${editingId}` : '/api/candidate-pool', {
-      method: editingId ? 'PATCH' : 'POST',
-      body: JSON.stringify(payload)
-    });
-    clearEditing(form, 'candidatePoolId', 'Salvar candidato');
-    if (form.elements.active) form.elements.active.checked = true;
-    toast(editingId ? 'Candidato do bolsão atualizado.' : 'Candidato cadastrado no bolsão.');
-    await refresh();
+    if (!String(payload.clientId || '').trim()) {
+      toast('Selecione um cliente válido.');
+      return;
+    }
+    if (!String(payload.candidateName || '').trim()) {
+      toast('Informe o nome do candidato.');
+      return;
+    }
+    if (!String(payload.profile || '').trim()) {
+      toast('Selecione um perfil válido.');
+      return;
+    }
+
+    const originalText = setSubmitButtonBusy(submitButton, editingId ? 'Atualizando...' : 'Salvando...');
+    try {
+      await api(editingId ? `/api/candidate-pool/${encodeURIComponent(editingId)}` : '/api/candidate-pool', {
+        method: editingId ? 'PATCH' : 'POST',
+        body: JSON.stringify(payload)
+      });
+      clearEditing(form, 'candidatePoolId', 'Salvar candidato');
+      if (form.elements.active) form.elements.active.checked = true;
+      toast(editingId ? 'Candidato do bolsão atualizado.' : 'Candidato cadastrado no bolsão.');
+      await refresh();
+    } catch (error) {
+      toast(error.message || 'Não foi possível salvar o candidato do bolsão.');
+    } finally {
+      restoreSubmitButton(submitButton, state.editing.candidatePoolId ? (originalText || 'Atualizar candidato') : 'Salvar candidato');
+    }
   });
 
   $('#huntingForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
+    const form = event.currentTarget;
+    const submitButton = $('button[type="submit"]', form);
     const editingId = state.editing.huntingId;
-    await api(editingId ? `/api/huntings/${editingId}` : '/api/huntings', {
-      method: editingId ? 'PATCH' : 'POST',
-      body: JSON.stringify(formPayload(event.currentTarget))
-    });
-    clearEditing(event.currentTarget, 'huntingId', 'Salvar hunting');
-    toast(editingId ? 'Hunting atualizado.' : 'Hunting cadastrado.');
-    await refresh();
+    const payload = formPayload(form);
+
+    if (!String(payload.candidateName || '').trim()) {
+      toast('Informe o candidato do hunting.');
+      return;
+    }
+    if (!String(payload.profile || '').trim()) {
+      toast('Informe o perfil do hunting.');
+      return;
+    }
+    if (!String(payload.clientId || '').trim()) {
+      toast('Selecione um cliente válido.');
+      return;
+    }
+
+    const originalText = setSubmitButtonBusy(submitButton, editingId ? 'Atualizando...' : 'Salvando...');
+    try {
+      await api(editingId ? `/api/huntings/${encodeURIComponent(editingId)}` : '/api/huntings', {
+        method: editingId ? 'PATCH' : 'POST',
+        body: JSON.stringify(payload)
+      });
+      clearEditing(form, 'huntingId', 'Salvar hunting');
+      toast(editingId ? 'Hunting atualizado.' : 'Hunting cadastrado.');
+      await refresh();
+    } catch (error) {
+      toast(error.message || 'Não foi possível salvar o hunting.');
+    } finally {
+      restoreSubmitButton(submitButton, state.editing.huntingId ? (originalText || 'Atualizar hunting') : 'Salvar hunting');
+    }
   });
 
   $('#candidateSelectForm')?.addEventListener('submit', async (event) => {
@@ -4076,14 +4176,34 @@ function bindForms() {
 
   $('#userForm').addEventListener('submit', async (event) => {
     event.preventDefault();
+    const form = event.currentTarget;
+    const submitButton = $('button[type="submit"]', form);
     const editingId = state.editing.userId;
-    await api(editingId ? `/api/users/${editingId}` : '/api/users', {
-      method: editingId ? 'PATCH' : 'POST',
-      body: JSON.stringify(formPayload(event.currentTarget))
-    });
-    clearEditing(event.currentTarget, 'userId', 'Salvar usuário');
-    toast(editingId ? 'Usuário atualizado.' : 'Usuário cadastrado com senha inicial Alcateia123.');
-    await refresh();
+    const payload = formPayload(form);
+
+    if (!String(payload.name || '').trim()) {
+      toast('Informe o nome do usuário.');
+      return;
+    }
+    if (!String(payload.email || '').trim()) {
+      toast('Informe o e-mail do usuário.');
+      return;
+    }
+
+    const originalText = setSubmitButtonBusy(submitButton, editingId ? 'Atualizando...' : 'Salvando...');
+    try {
+      await api(editingId ? `/api/users/${encodeURIComponent(editingId)}` : '/api/users', {
+        method: editingId ? 'PATCH' : 'POST',
+        body: JSON.stringify(payload)
+      });
+      clearEditing(form, 'userId', 'Salvar usuário');
+      toast(editingId ? 'Usuário atualizado.' : 'Usuário cadastrado com senha inicial Alcateia123.');
+      await refresh();
+    } catch (error) {
+      toast(error.message || 'Não foi possível salvar o usuário.');
+    } finally {
+      restoreSubmitButton(submitButton, state.editing.userId ? (originalText || 'Atualizar usuário') : 'Salvar usuário');
+    }
   });
 }
 
@@ -4603,6 +4723,8 @@ function bindSaveSelectedCandidates() {
 function bindSelectedCandidateMessage() {
   $('#selectedCandidateMessageForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
+    const form = event.currentTarget;
+    const submitButton = $('button[type="submit"]', form);
     const candidates = getFilteredSelectedCandidates();
     const opportunityId = uniqueOpportunityIdFromSelectedCandidates(candidates);
     if (!opportunityId) {
@@ -4610,23 +4732,30 @@ function bindSelectedCandidateMessage() {
       return;
     }
 
-    const updated = await api('/api/selected-candidates/message', {
-      method: 'POST',
-      body: JSON.stringify({
-        opportunityId,
-        candidateMessage: event.currentTarget.elements.candidateMessage.value
-      })
-    });
+    const originalText = setSubmitButtonBusy(submitButton, 'Salvando...');
+    try {
+      const updated = await api('/api/selected-candidates/message', {
+        method: 'POST',
+        body: JSON.stringify({
+          opportunityId,
+          candidateMessage: form.elements.candidateMessage.value
+        })
+      });
 
-    for (const candidate of updated) {
-      const index = state.selectedCandidates.findIndex((item) => item.id === candidate.id);
-      if (index >= 0) {
-        state.selectedCandidates[index] = candidate;
+      for (const candidate of updated) {
+        const index = state.selectedCandidates.findIndex((item) => item.id === candidate.id);
+        if (index >= 0) {
+          state.selectedCandidates[index] = candidate;
+        }
       }
-    }
 
-    renderSelectedCandidates();
-    toast('Mensagem salva para os candidatos selecionados.');
+      renderSelectedCandidates();
+      toast('Mensagem salva para os candidatos selecionados.');
+    } catch (error) {
+      toast(error.message || 'Não foi possível salvar a mensagem.');
+    } finally {
+      restoreSubmitButton(submitButton, originalText || 'Salvar mensagem');
+    }
   });
 }
 
