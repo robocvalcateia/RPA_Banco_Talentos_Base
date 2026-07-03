@@ -2776,10 +2776,10 @@ async function handleApi(request, response) {
         return;
       }
 
-      if (payload.curriculumId !== undefined) {
+      if (payload.curriculumId !== undefined && String(payload.curriculumId ?? '').trim()) {
         const curriculumId = String(payload.curriculumId ?? '').trim();
         const curriculum = db.curriculums.find((item) => item.id === curriculumId || item.id_controle === curriculumId);
-        if (curriculumId && !curriculum) {
+        if (!curriculum) {
           sendError(response, 422, 'Selecione um curriculo valido.');
           return;
         }

@@ -1754,6 +1754,11 @@ function findCurriculumForCandidate(candidate) {
   return state.curriculums.find((curriculum) => normalizeText(curriculum.nome) === candidateName) || null;
 }
 
+function candidateCurriculumDisplay(curriculum, fallback = '') {
+  if (!curriculum && !fallback) return '';
+  return String(curriculum?.id_controle || curriculum?.mongoId || curriculum?.id || fallback || '').trim();
+}
+
 function renderCvResultRows(results, emptyMessage, group) {
   if (!results.length) {
     return `<tr><td colspan="6">${emptyMessage}</td></tr>`;
@@ -3244,11 +3249,13 @@ async function loadCvFilterForEdit(filter) {
 }
 
 function loadCandidateForEdit(candidate) {
-  const curriculum = state.curriculums.find((item) => item.id === candidate.curriculumId || item.id_controle === candidate.curriculumId);
+  const curriculum = findCurriculumForCandidate(candidate);
+  const curriculumId = curriculumIdentifier(curriculum) || candidate.curriculumId || '';
   state.editing.candidateId = candidate.id;
   fillForm('#candidateForm', {
     name: candidate.name,
-    curriculumId: curriculum?.id ?? candidate.curriculumId,
+    curriculumDisplay: candidateCurriculumDisplay(curriculum, candidate.curriculumControlId || candidate.curriculumId),
+    curriculumId,
     opportunityId: candidate.opportunityId,
     stage: candidate.stage,
     aderencia: candidate.aderencia,
@@ -3688,8 +3695,27 @@ function bindForms() {
     const form = event.currentTarget;
     const submitButton = $('button[type="submit"]', form);
     const payload = formPayload(form);
+    delete payload.curriculumDisplay;
     payload.approved = form.elements.approved.checked;
+    const matchedCurriculum = findCurriculumForCandidate({
+      name: payload.name,
+      curriculumId: payload.curriculumId
+    });
+    if (!payload.curriculumId && matchedCurriculum) {
+      payload.curriculumId = curriculumIdentifier(matchedCurriculum);
+      setFieldValue(form, 'curriculumId', payload.curriculumId);
+      setFieldValue(form, 'curriculumDisplay', candidateCurriculumDisplay(matchedCurriculum));
+    }
     const editingId = state.editing.candidateId;
+
+    if (!String(payload.name || '').trim()) {
+      toast('Informe o nome do candidato.');
+      return;
+    }
+    if (!String(payload.opportunityId || '').trim()) {
+      toast('Selecione uma oportunidade válida.');
+      return;
+    }
 
     try {
       if (submitButton) submitButton.disabled = true;

@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=20260703-allocated-update" />
+    <link rel="stylesheet" href="/styles.css?v=20260703-candidate-display-id" />
   </head>
   <body class="auth-locked">
     <section class="auth-screen" id="authScreen">
@@ -765,9 +765,10 @@
             <h2>Cadastrar candidato</h2>
             <span>Vínculo com oportunidade</span>
           </div>
-          <form id="candidateForm" class="form-grid">
+          <form id="candidateForm" class="form-grid" novalidate>
             <label>Name<input name="name" required /></label>
-            <label>Id Nome<select name="curriculumId" required></select></label>
+            <label>Id Nome<input name="curriculumDisplay" readonly /></label>
+            <input name="curriculumId" type="hidden" />
             <label>Oportunidade<select name="opportunityId" required></select></label>
             <label>Etapa<select name="stage"></select></label>
             <label>Aderência (%)<select name="aderencia"></select></label>
@@ -1042,7 +1043,7 @@
         }
       });
     </script>
-    <script src="/app.js?v=20260703-allocated-update"></script>
+    <script src="/app.js?v=20260703-candidate-display-id"></script>
   </body>
 </html>
 
