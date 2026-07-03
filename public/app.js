@@ -3715,16 +3715,46 @@ function bindForms() {
 
   $('#allocatedForm').addEventListener('submit', async (event) => {
     event.preventDefault();
-    const payload = formPayload(event.currentTarget);
-    payload.active = event.currentTarget.elements.active.checked;
+    const form = event.currentTarget;
+    const submitButton = $('button[type="submit"]', form);
+    const payload = formPayload(form);
+    payload.active = form.elements.active.checked;
     const editingId = state.editing.allocatedId;
-    await api(editingId ? `/api/allocateds/${editingId}` : '/api/allocateds', {
-      method: editingId ? 'PATCH' : 'POST',
-      body: JSON.stringify(payload)
-    });
-    clearEditing(event.currentTarget, 'allocatedId', 'Salvar alocado');
-    toast(editingId ? 'Alocado atualizado.' : 'Alocado cadastrado.');
-    await refresh();
+
+    if (!String(payload.code || '').trim()) {
+      toast('Informe o código do alocado.');
+      return;
+    }
+    if (!String(payload.consultant || '').trim()) {
+      toast('Informe o consultor.');
+      return;
+    }
+    if (!String(payload.clientId || '').trim()) {
+      toast('Selecione um cliente válido.');
+      return;
+    }
+
+    try {
+      if (submitButton) {
+        submitButton.disabled = true;
+        submitButton.textContent = editingId ? 'Atualizando...' : 'Salvando...';
+      }
+      await api(editingId ? `/api/allocateds/${encodeURIComponent(editingId)}` : '/api/allocateds', {
+        method: editingId ? 'PATCH' : 'POST',
+        body: JSON.stringify(payload)
+      });
+      clearEditing(form, 'allocatedId', 'Salvar alocado');
+      if (form.elements.active) form.elements.active.checked = true;
+      toast(editingId ? 'Alocado atualizado.' : 'Alocado cadastrado.');
+      await refresh();
+    } catch (error) {
+      toast(error.message || 'Não foi possível salvar o alocado.');
+    } finally {
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = state.editing.allocatedId ? 'Atualizar alocado' : 'Salvar alocado';
+      }
+    }
   });
 
   $('#rateCardForm')?.addEventListener('submit', async (event) => {

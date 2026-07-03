@@ -2650,7 +2650,7 @@ async function handleApi(request, response) {
     }
 
     if (request.method === 'PATCH' && pathname.startsWith('/api/allocateds/')) {
-      const allocatedId = pathname.split('/').at(-1);
+      const allocatedId = decodeURIComponent(pathname.split('/').at(-1));
       const payload = await readJsonBody(request);
       const db = await readDatabase();
       const allocated = db.allocateds.find((item) => item.id === allocatedId);
