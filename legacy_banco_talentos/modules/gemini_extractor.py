@@ -426,6 +426,124 @@ FORMATO FINAL OBRIGATÓRIO:
 
         return ""
 
+    def _normalize_for_match(self, value):
+        import unicodedata
+
+        normalized = unicodedata.normalize("NFD", str(value or ""))
+        normalized = "".join(char for char in normalized if unicodedata.category(char) != "Mn")
+        return re.sub(r"\s+", " ", normalized).strip().lower()
+
+    def _clean_heading_key(self, value):
+        normalized = self._normalize_for_match(value)
+        normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+        return re.sub(r"\s+", " ", normalized).strip()
+
+    def _is_heading_match(self, line, aliases):
+        if not line or len(line) > 120:
+            return False
+
+        key = self._clean_heading_key(line)
+        alias_keys = {self._clean_heading_key(alias) for alias in aliases}
+
+        if key in alias_keys:
+            return True
+
+        normalized = self._normalize_for_match(line)
+        for alias in aliases:
+            alias_norm = self._normalize_for_match(alias)
+            if re.match(rf"^\s*{re.escape(alias_norm)}\s*[:\-|]", normalized):
+                return True
+
+        return False
+
+    def _strip_heading_prefix(self, line, aliases):
+        normalized_line = self._normalize_for_match(line)
+        for alias in sorted(aliases, key=len, reverse=True):
+            alias_norm = self._normalize_for_match(alias)
+            match = re.match(rf"^\s*{re.escape(alias_norm)}\s*[:\-|]\s*(.+)$", normalized_line)
+            if match:
+                delimiter = re.search(r"[:\-|]", line)
+                if delimiter:
+                    return line[delimiter.end():].strip()
+        return ""
+
+    def _compact_multiline(self, value, max_chars=6000):
+        lines = [
+            re.sub(r"\s+", " ", line).strip(" -\t")
+            for line in str(value or "").splitlines()
+            if re.sub(r"\s+", " ", line).strip(" -\t")
+        ]
+        text = "\n".join(lines)
+        return text[:max_chars].strip()
+
+    def _extract_section(self, clean_lines, target_aliases, all_heading_aliases, max_chars=6000):
+        parts = []
+        collecting = False
+
+        for line in clean_lines:
+            target_hit = self._is_heading_match(line, target_aliases)
+            any_heading_hit = self._is_heading_match(line, all_heading_aliases)
+
+            if target_hit:
+                collecting = True
+                inline_value = self._strip_heading_prefix(line, target_aliases)
+                if inline_value:
+                    parts.append(inline_value)
+                continue
+
+            if collecting and any_heading_hit:
+                break
+
+            if collecting:
+                parts.append(line)
+
+        return self._compact_multiline("\n".join(parts), max_chars=max_chars)
+
+    def _join_unique_sections(self, sections, max_chars=7000):
+        seen = set()
+        result = []
+        for section in sections:
+            for line in str(section or "").splitlines():
+                clean = re.sub(r"\s+", " ", line).strip()
+                key = self._clean_heading_key(clean)
+                if clean and key not in seen:
+                    seen.add(key)
+                    result.append(clean)
+        return "\n".join(result)[:max_chars].strip()
+
+    def _extract_keyword_lines(self, clean_lines, keywords, max_lines=40, max_chars=6000):
+        keyword_keys = [self._normalize_for_match(keyword) for keyword in keywords]
+        matches = []
+        for line in clean_lines:
+            line_norm = self._normalize_for_match(line)
+            if any(keyword in line_norm for keyword in keyword_keys):
+                matches.append(line)
+            if len(matches) >= max_lines:
+                break
+        return self._join_unique_sections(matches, max_chars=max_chars)
+
+    def _extract_label_value(self, clean_lines, labels):
+        label_keys = [self._normalize_for_match(label) for label in labels]
+        for line in clean_lines:
+            line_norm = self._normalize_for_match(line)
+            for label in label_keys:
+                if not line_norm.startswith(label):
+                    continue
+                match = re.search(r"[:\-|]\s*(.+)$", line)
+                if match:
+                    return match.group(1).strip()
+                return line.strip()
+        return ""
+
+    def _extract_language_level(self, clean_lines, labels):
+        label_keys = [self._normalize_for_match(label) for label in labels]
+        for line in clean_lines:
+            line_norm = self._normalize_for_match(line)
+            if any(label in line_norm for label in label_keys):
+                match = re.search(r"[:\-|]\s*(.+)$", line)
+                return (match.group(1) if match else line).strip()
+        return ""
+
     def _fallback_extract_from_text(self, text, file_path):
         raw_text = str(text or "")
         clean_lines = [
@@ -477,25 +595,92 @@ FORMATO FINAL OBRIGATÓRIO:
         linkedin = self._normalizar_linkedin(linkedin_match.group(0) if linkedin_match else "")
         phone = phone_match.group(0).strip() if phone_match else ""
         email = email_match.group(0).strip().lower() if email_match else ""
-        snippet = compact_text[:3000]
-        source_note = "Dados extraidos localmente porque o Gemini falhou ou estava indisponivel."
+
+        section_groups = {
+            "perfil": [
+                "perfil", "perfil profissional", "resumo", "resumo profissional",
+                "summary", "professional summary", "objetivo", "objetivo profissional",
+                "qualificacoes", "qualificacoes profissionais", "sobre mim"
+            ],
+            "formacao": [
+                "formacao", "formacao academica", "educacao", "education",
+                "escolaridade", "academic background", "graduacao"
+            ],
+            "cursos": [
+                "cursos", "certificacoes", "certificados", "treinamentos",
+                "cursos e certificacoes", "cursos certificacoes",
+                "certificacoes e cursos", "treinamentos e certificacoes",
+                "courses", "certifications", "certificates"
+            ],
+            "tecnico": [
+                "conhecimentos tecnicos", "conhecimento tecnico", "competencias tecnicas",
+                "habilidades tecnicas", "conhecimentos e habilidades tecnicas",
+                "habilidades e conhecimentos tecnicos", "tecnologias", "ferramentas", "skills",
+                "technical skills", "hard skills", "stack", "sistemas"
+            ],
+            "experiencia": [
+                "experiencia", "experiencia profissional", "experiencias profissionais",
+                "historico profissional", "trajetoria profissional", "professional experience",
+                "work experience", "experiencia corporativa", "atuacao profissional"
+            ],
+            "idiomas": [
+                "idiomas", "languages"
+            ],
+            "dados": [
+                "dados pessoais", "informacoes pessoais", "contato", "contact"
+            ],
+        }
+        all_headings = [alias for aliases in section_groups.values() for alias in aliases]
+
+        perfil = self._extract_section(clean_lines, section_groups["perfil"], all_headings, max_chars=2500)
+        formacao = self._extract_section(clean_lines, section_groups["formacao"], all_headings, max_chars=4000)
+        cursos = self._extract_section(clean_lines, section_groups["cursos"], all_headings, max_chars=4000)
+        tecnico = self._extract_section(clean_lines, section_groups["tecnico"], all_headings, max_chars=5000)
+        experiencia = self._extract_section(clean_lines, section_groups["experiencia"], all_headings, max_chars=12000)
+
+        tech_keywords = [
+            "sap", "totvs", "protheus", "rm", "fluig", "datasul", "advpl", "sql",
+            "java", "javascript", "typescript", "python", "c#", ".net", "react",
+            "angular", "node", "azure", "aws", "power bi", "scrum", "kanban",
+            "jira", "oracle", "mongodb", "docker", "kubernetes", "api", "erp"
+        ]
+        if not tecnico:
+            tecnico = self._extract_keyword_lines(clean_lines, tech_keywords, max_lines=45, max_chars=5000)
+
+        if not perfil:
+            perfil = tecnico[:1600].strip() or compact_text[:1600].strip()
+
+        if not experiencia:
+            experiencia = compact_text[:12000].strip()
+
+        estado_civil = self._extract_label_value(clean_lines, ["estado civil", "civil status"])
+        nacionalidade = self._extract_label_value(clean_lines, ["nacionalidade", "nationality"])
+        idade = self._extract_label_value(clean_lines, ["idade", "age"])
+        endereco = self._extract_label_value(clean_lines, ["endereco", "endereço", "cidade", "localizacao", "localização", "address", "location"])
+
+        if not idade:
+            idade_match = re.search(r"\b(\d{2})\s+anos\b", compact_text, re.IGNORECASE)
+            idade = idade_match.group(1) if idade_match else ""
+
+        ingles = self._extract_language_level(clean_lines, ["ingles", "inglês", "english"])
+        espanhol = self._extract_language_level(clean_lines, ["espanhol", "spanish"])
 
         return {
             "Nome": name,
-            "Nacionalidade": "",
-            "Estado_Civil": "",
-            "Idade": "",
-            "Endereco": "",
+            "Nacionalidade": nacionalidade,
+            "Estado_Civil": estado_civil,
+            "Idade": idade,
+            "Endereco": endereco,
             "Telefone": phone,
             "Email": email,
             "Link_Linkedin": linkedin,
-            "Skil": source_note,
-            "Formacao_Academica": "",
-            "Nivel_Idioma_Ingles": "",
-            "Nivel_Idioma_Espanhol": "",
-            "Cursos_Certificacoes": "",
-            "Conhecimento_Tecnico": snippet,
-            "Experiencia_Profissional": snippet,
+            "Skil": perfil,
+            "Formacao_Academica": formacao,
+            "Nivel_Idioma_Ingles": ingles,
+            "Nivel_Idioma_Espanhol": espanhol,
+            "Cursos_Certificacoes": cursos,
+            "Conhecimento_Tecnico": tecnico,
+            "Experiencia_Profissional": experiencia,
         }
 
     def extract_with_local_fallback(self, file_path):
