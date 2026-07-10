@@ -27,9 +27,23 @@ function createLineReader(socket) {
   let buffer = '';
   const pending = [];
 
+  function rejectPending(error) {
+    while (pending.length) {
+      pending.shift().reject(error);
+    }
+  }
+
   function onData(chunk) {
     buffer += chunk.toString('utf8');
     flush();
+  }
+
+  function onError(error) {
+    rejectPending(error);
+  }
+
+  function onClose() {
+    rejectPending(new Error('Conexao SMTP encerrada antes da resposta esperada.'));
   }
 
   function flush() {
@@ -43,6 +57,9 @@ function createLineReader(socket) {
   }
 
   socket.on('data', onData);
+  socket.on('error', onError);
+  socket.on('end', onClose);
+  socket.on('close', onClose);
 
   return {
     readLine() {
@@ -53,6 +70,9 @@ function createLineReader(socket) {
     },
     detach() {
       socket.off('data', onData);
+      socket.off('error', onError);
+      socket.off('end', onClose);
+      socket.off('close', onClose);
     }
   };
 }

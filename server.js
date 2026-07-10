@@ -1228,6 +1228,7 @@ async function handleApi(request, response) {
           await sendMail({
             to: user.email,
             subject: 'Alteracao de senha - Alcateia',
+            timeoutMs: 12000,
             text: [
               `Olá, ${user.name || user.email}.`,
               '',
