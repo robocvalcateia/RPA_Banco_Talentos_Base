@@ -20,6 +20,22 @@
           <label>Senha<input name="password" type="password" autocomplete="current-password" required /></label>
           <p class="form-error" id="loginError"></p>
           <button class="primary-action" id="loginButton" type="button">Entrar</button>
+          <button class="ghost-action auth-link-action" id="showRecoverPasswordButton" type="button">Recuperar senha</button>
+        </form>
+      </div>
+    </section>
+
+    <section class="auth-screen hidden" id="passwordRecoverScreen">
+      <div class="auth-card">
+        <img class="auth-logo" src="/brand/logo-alcateia.png" alt="" />
+        <p class="eyebrow">Recuperação de senha</p>
+        <h1>Enviar link de alteração</h1>
+        <p class="auth-copy">Informe o e-mail cadastrado para receber o link de alteração de senha.</p>
+        <form id="passwordRecoverForm" class="auth-form">
+          <label>E-mail<input name="email" type="email" autocomplete="username" required /></label>
+          <p class="form-error" id="passwordRecoverMessage"></p>
+          <button class="primary-action" id="passwordRecoverButton" type="button">Enviar link</button>
+          <button class="ghost-action auth-link-action" id="backToLoginButton" type="button">Voltar ao login</button>
         </form>
       </div>
     </section>
@@ -35,6 +51,21 @@
           <label>Confirmar senha<input name="confirmPassword" type="password" autocomplete="new-password" minlength="6" required /></label>
           <p class="form-error" id="passwordChangeError"></p>
           <button class="primary-action" id="passwordChangeButton" type="button">Salvar nova senha</button>
+        </form>
+      </div>
+    </section>
+
+    <section class="auth-screen hidden" id="passwordResetScreen">
+      <div class="auth-card">
+        <img class="auth-logo" src="/brand/logo-alcateia.png" alt="" />
+        <p class="eyebrow">Recuperação de senha</p>
+        <h1>Alterar senha</h1>
+        <p class="auth-copy">Informe a nova senha para concluir a alteração.</p>
+        <form id="passwordResetForm" class="auth-form">
+          <label>Nova senha<input name="newPassword" type="password" autocomplete="new-password" minlength="6" required /></label>
+          <label>Confirmar senha<input name="confirmPassword" type="password" autocomplete="new-password" minlength="6" required /></label>
+          <p class="form-error" id="passwordResetError"></p>
+          <button class="primary-action" id="passwordResetButton" type="button">Alterar senha</button>
         </form>
       </div>
     </section>

@@ -587,7 +587,7 @@ export function verifyPassword(password, passwordHash) {
 
 export function sanitizeUser(user) {
   if (!user) return null;
-  const { passwordHash, ...safeUser } = user;
+  const { passwordHash, passwordResetTokenHash, passwordResetExpiresAt, ...safeUser } = user;
   return safeUser;
 }
 

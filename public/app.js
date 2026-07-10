@@ -116,6 +116,10 @@ const session = {
   user: readStoredUser()
 };
 
+function passwordResetTokenFromUrl() {
+  return new URLSearchParams(window.location.search).get('reset') || '';
+}
+
 const viewTitles = {
   dashboard: 'Dashboard',
   clients: 'Clientes',
@@ -302,19 +306,41 @@ function clearSession() {
 function showLogin() {
   document.body.classList.add('auth-locked');
   $('#authScreen').classList.remove('hidden');
+  $('#passwordRecoverScreen')?.classList.add('hidden');
   $('#passwordChangeScreen').classList.add('hidden');
+  $('#passwordResetScreen')?.classList.add('hidden');
 }
 
 function showPasswordChange() {
   document.body.classList.add('auth-locked');
   $('#authScreen').classList.add('hidden');
+  $('#passwordRecoverScreen')?.classList.add('hidden');
   $('#passwordChangeScreen').classList.remove('hidden');
+  $('#passwordResetScreen')?.classList.add('hidden');
+}
+
+function showPasswordRecover() {
+  document.body.classList.add('auth-locked');
+  $('#authScreen').classList.add('hidden');
+  $('#passwordRecoverScreen')?.classList.remove('hidden');
+  $('#passwordChangeScreen').classList.add('hidden');
+  $('#passwordResetScreen')?.classList.add('hidden');
+}
+
+function showPasswordReset() {
+  document.body.classList.add('auth-locked');
+  $('#authScreen').classList.add('hidden');
+  $('#passwordRecoverScreen')?.classList.add('hidden');
+  $('#passwordChangeScreen').classList.add('hidden');
+  $('#passwordResetScreen')?.classList.remove('hidden');
 }
 
 function showApp() {
   document.body.classList.remove('auth-locked');
   $('#authScreen').classList.add('hidden');
+  $('#passwordRecoverScreen')?.classList.add('hidden');
   $('#passwordChangeScreen').classList.add('hidden');
+  $('#passwordResetScreen')?.classList.add('hidden');
   $('#currentUserLabel').textContent = `${state.currentUser?.name ?? session.user?.name ?? 'Usuário'} · ${state.currentUser?.role ?? session.user?.role ?? 'Admin'}`;
 }
 
@@ -4289,6 +4315,12 @@ function bindForms() {
 }
 
 function bindAuth() {
+  const resetToken = passwordResetTokenFromUrl();
+  if (resetToken) {
+    clearSession();
+    showPasswordReset();
+  }
+
   async function handleLogin() {
     document.body.dataset.loginAttempted = 'true';
     const form = $('#loginForm');
@@ -4361,6 +4393,62 @@ function bindAuth() {
       handlePasswordChange();
     }
   });
+
+  async function handlePasswordRecover() {
+    const form = $('#passwordRecoverForm');
+    setAuthMessage('#passwordRecoverMessage');
+    try {
+      await api('/api/request-password-reset', {
+        method: 'POST',
+        body: JSON.stringify(formPayload(form))
+      });
+      form.reset();
+      setAuthMessage('#passwordRecoverMessage', 'Se o e-mail estiver cadastrado, enviaremos o link de alteração.');
+    } catch (error) {
+      setAuthMessage('#passwordRecoverMessage', error.message);
+    }
+  }
+
+  $('#showRecoverPasswordButton')?.addEventListener('click', () => {
+    setAuthMessage('#loginError');
+    showPasswordRecover();
+  });
+
+  $('#backToLoginButton')?.addEventListener('click', () => showLogin());
+
+  $('#passwordRecoverForm')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    handlePasswordRecover();
+  });
+
+  $('#passwordRecoverButton')?.addEventListener('click', () => handlePasswordRecover());
+
+  async function handlePasswordReset() {
+    const form = $('#passwordResetForm');
+    setAuthMessage('#passwordResetError');
+    try {
+      await api('/api/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...formPayload(form),
+          token: resetToken
+        })
+      });
+      form.reset();
+      window.history.replaceState({}, document.title, window.location.pathname);
+      toast('Senha alterada. Faça login com a nova senha.');
+      showLogin();
+    } catch (error) {
+      setAuthMessage('#passwordResetError', error.message);
+    }
+  }
+
+  $('#passwordResetForm')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    handlePasswordReset();
+  });
+
+  $('#passwordResetButton')?.addEventListener('click', () => handlePasswordReset());
 
   $('#logoutButton').addEventListener('click', async () => {
     if (session.token) {

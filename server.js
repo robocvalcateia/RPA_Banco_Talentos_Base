@@ -218,6 +218,12 @@ function sendError(response, statusCode, message) {
   sendJson(response, statusCode, { error: message });
 }
 
+function getPublicBaseUrl() {
+  const configured = String(process.env.APP_BASE_URL || process.env.PUBLIC_BASE_URL || '').trim();
+  if (configured) return configured.replace(/\/+$/, '');
+  return 'https://rpa-banco-talentos-5v5r.onrender.com';
+}
+
 function getApinfoCredentials() {
   const user = process.env.APINFO_USER || process.env.APINFO_CNPJ || '';
   const password = process.env.APINFO_PASSWORD || process.env.APINFO_SENHA || '';
@@ -1189,6 +1195,86 @@ async function handleApi(request, response) {
         token,
         user: sanitizeUser(user)
       });
+      return;
+    }
+
+    if (request.method === 'POST' && pathname === '/api/request-password-reset') {
+      const payload = await readJsonBody(request);
+      const db = await readDatabase();
+      const email = String(payload.email ?? '').trim().toLowerCase();
+      const user = db.users.find((item) => String(item.email || '').toLowerCase() === email);
+
+      if (user) {
+        const rawToken = randomBytes(32).toString('hex');
+        user.passwordResetTokenHash = hashPassword(rawToken);
+        user.passwordResetExpiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+        user.updatedAt = toISODate();
+        await writeDatabase(db);
+
+        const baseUrl = getPublicBaseUrl();
+        const resetUrl = `${baseUrl}/?reset=${encodeURIComponent(rawToken)}`;
+        const smtpConfig = getSmtpConfigFromEnv();
+
+        try {
+          await sendMail({
+            to: user.email,
+            subject: 'Alteracao de senha - Alcateia',
+            text: [
+              `Olá, ${user.name || user.email}.`,
+              '',
+              'Use o link abaixo para alterar sua senha. O link é válido por 1 hora.',
+              resetUrl,
+              '',
+              'Se você não solicitou essa alteração, ignore este e-mail.'
+            ].join('\n'),
+            html: `<p>Olá, ${user.name || user.email}.</p><p>Use o link abaixo para alterar sua senha. O link é válido por 1 hora.</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>Se você não solicitou essa alteração, ignore este e-mail.</p>`
+          }, smtpConfig);
+        } catch (error) {
+          delete user.passwordResetTokenHash;
+          delete user.passwordResetExpiresAt;
+          await writeDatabase(db);
+          sendError(response, 500, `Senha SMTP retornou ${error.message}`);
+          return;
+        }
+      }
+
+      sendJson(response, 200, { ok: true });
+      return;
+    }
+
+    if (request.method === 'POST' && pathname === '/api/reset-password') {
+      const payload = await readJsonBody(request);
+      const token = String(payload.token ?? '').trim();
+      const newPassword = String(payload.newPassword ?? '');
+      const confirmation = String(payload.confirmPassword ?? '');
+      const db = await readDatabase();
+      const user = db.users.find((item) => {
+        if (!item.passwordResetTokenHash || !item.passwordResetExpiresAt || !token) return false;
+        if (new Date(item.passwordResetExpiresAt).getTime() < Date.now()) return false;
+        return verifyPassword(token, item.passwordResetTokenHash);
+      });
+
+      if (!user) {
+        sendError(response, 422, 'Link de alteração inválido ou expirado.');
+        return;
+      }
+      if (newPassword.length < 6) {
+        sendError(response, 422, 'A nova senha deve ter pelo menos 6 caracteres.');
+        return;
+      }
+      if (newPassword !== confirmation) {
+        sendError(response, 422, 'A confirmação da senha não confere.');
+        return;
+      }
+
+      user.passwordHash = hashPassword(newPassword);
+      user.mustChangePassword = false;
+      user.passwordChangedAt = toISODate();
+      delete user.passwordResetTokenHash;
+      delete user.passwordResetExpiresAt;
+      await writeDatabase(db);
+
+      sendJson(response, 200, { ok: true });
       return;
     }
 
