@@ -1263,6 +1263,7 @@ async function handleApi(request, response) {
 
         try {
           await withTimeout(sendMail({
+            ...smtpConfig,
             to: user.email,
             subject: 'Alteracao de senha - Alcateia',
             timeoutMs: 10000,
@@ -1275,7 +1276,7 @@ async function handleApi(request, response) {
               'Se você não solicitou essa alteração, ignore este e-mail.'
             ].join('\n'),
             html: `<p>Olá, ${user.name || user.email}.</p><p>Use o link abaixo para alterar sua senha. O link é válido por 1 hora.</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>Se você não solicitou essa alteração, ignore este e-mail.</p>`
-          }, smtpConfig), 15000, 'Tempo esgotado no envio SMTP.');
+          }), 15000, 'Tempo esgotado no envio SMTP.');
         } catch (error) {
           delete user.passwordResetTokenHash;
           delete user.passwordResetExpiresAt;
@@ -1361,11 +1362,12 @@ async function handleApi(request, response) {
       const startedAt = Date.now();
       try {
         await withTimeout(sendMail({
+          ...smtpConfig,
           to: auth.user.email,
           subject: 'Teste SMTP - Alcateia',
           timeoutMs: 10000,
           text: 'Teste tecnico de SMTP da recuperacao de senha.'
-        }, smtpConfig), 15000, 'Tempo esgotado no teste SMTP.');
+        }), 15000, 'Tempo esgotado no teste SMTP.');
         sendJson(response, 200, {
           ok: true,
           elapsedMs: Date.now() - startedAt,
