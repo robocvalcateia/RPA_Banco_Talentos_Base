@@ -567,15 +567,53 @@ textarea {
 }
 
 .panel-maximize-button {
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid #d9e7e4;
+  border-radius: 8px;
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
   flex: 0 0 auto;
-  min-width: 104px;
-  padding: 0 12px;
+  font-size: 1rem;
+  font-weight: 400;
+  justify-content: center;
+  line-height: 1;
+  min-height: 54px;
+  min-width: 156px;
+  padding: 0 20px;
+  text-decoration: none;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
 }
 
 .surface-close-button {
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid #d9e7e4;
+  border-radius: 8px;
+  color: var(--ink);
+  cursor: pointer;
+  display: inline-flex;
   flex: 0 0 auto;
-  min-width: 84px;
-  padding: 0 12px;
+  font-size: 1rem;
+  font-weight: 400;
+  justify-content: center;
+  line-height: 1;
+  min-height: 54px;
+  min-width: 112px;
+  padding: 0 20px;
+  text-decoration: none;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+
+.panel-maximize-button:hover,
+.panel-maximize-button:focus-visible,
+.surface-close-button:hover,
+.surface-close-button:focus-visible {
+  background: #fff;
+  border-color: #b9cfca;
+  box-shadow: 0 0 0 3px rgb(0 191 166 / 10%);
+  outline: none;
 }
 
 body.panel-is-maximized {
