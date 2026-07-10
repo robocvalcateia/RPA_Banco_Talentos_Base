@@ -553,6 +553,19 @@ textarea {
   margin-left: auto;
 }
 
+.panel-heading-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.panel-heading-actions select {
+  min-height: 44px;
+  max-width: 240px;
+}
+
 .panel-maximize-button {
   flex: 0 0 auto;
   min-width: 104px;
@@ -749,6 +762,45 @@ label.full,
   grid-column: auto;
   align-self: end;
   padding: 0 18px;
+}
+
+.allocated-filter-bar {
+  grid-template-columns: 240px 220px 220px minmax(220px, auto);
+  align-items: end;
+}
+
+.allocated-filter-bar label {
+  min-width: 0;
+}
+
+.allocated-filter-bar select {
+  width: 100%;
+}
+
+.allocated-status-filter {
+  display: grid;
+  gap: 7px;
+}
+
+.allocated-status-filter > span {
+  color: var(--muted);
+}
+
+.allocated-status-filter div {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  min-height: 44px;
+}
+
+.allocated-select-all {
+  justify-content: flex-start;
+}
+
+.allocated-select-all span {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-left: 4px;
 }
 
 .curriculum-search {

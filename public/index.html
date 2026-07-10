@@ -870,6 +870,8 @@
             <label>Skill<input name="skill" /></label>
             <label>Cliente<select name="clientId" required></select></label>
             <label>Valor Hora<input name="hourlyRate" type="number" min="0" step="0.01" /></label>
+            <label>Valor Venda Hora<input name="saleHourlyRate" type="number" min="0" step="0.01" /></label>
+            <label>Horas Mês<input name="monthlyHours" type="number" min="0" step="0.01" /></label>
             <label>Fone<input name="phone" /></label>
             <label>Email Consultor<input name="consultantEmail" type="email" /></label>
             <label>Início<input name="startDate" type="date" /></label>
@@ -887,9 +889,18 @@
               <h2>Alocados</h2>
               <span id="allocatedCount">0</span>
             </div>
-            <button class="secondary-action compact-action" id="allocatedCsvButton" type="button">CSV</button>
+            <div class="panel-heading-actions">
+              <select id="allocatedDocumentTemplate">
+                <option value="all">Todos os formulários</option>
+                <option value="contrato-base">Contrato Base</option>
+                <option value="termo-compromisso">Termo de compromisso</option>
+                <option value="vinculo-tecnico-profissional">Vínculo Técnico Profissional</option>
+              </select>
+              <button class="secondary-action compact-action" id="allocatedDocumentsButton" type="button">Gerar Formulários</button>
+              <button class="secondary-action compact-action" id="allocatedCsvButton" type="button">CSV</button>
+            </div>
           </div>
-          <div class="filter-bar">
+          <div class="filter-bar allocated-filter-bar">
             <label>Consultar por
               <select id="allocatedFilterType">
                 <option value="">Todos</option>
@@ -902,17 +913,32 @@
                 <option value="">Todos</option>
               </select>
             </label>
+            <div class="allocated-status-filter">
+              <span>Status</span>
+              <div>
+                <label class="checkbox-field inline-check"><input id="allocatedActiveFilter" type="checkbox" /> Ativos</label>
+                <label class="checkbox-field inline-check"><input id="allocatedInactiveFilter" type="checkbox" /> Inativos</label>
+              </div>
+            </div>
+            <label class="checkbox-field allocated-select-all">
+              <input id="allocatedSelectAll" type="checkbox" />
+              Selecionar Todos
+              <span id="allocatedSelectedCount">0 selecionados</span>
+            </label>
           </div>
           <div class="table-wrap">
             <table>
               <thead>
                 <tr>
+                  <th>Selecionar</th>
                   <th>ID</th>
                   <th>Código</th>
                   <th>Consultor</th>
                   <th>Skill</th>
                   <th>Cliente</th>
                   <th>Valor Hora</th>
+                  <th>Valor Venda Hora</th>
+                  <th>Horas Mês</th>
                   <th>Fone</th>
                   <th>Email Consultor</th>
                   <th>Início</th>

@@ -55,6 +55,10 @@ import {
   renderCurriculumDocuments
 } from './dtt.js';
 import {
+  buildAllocatedDocumentsZip,
+  renderAllocatedDocuments
+} from './allocated-documents.js';
+import {
   createCurriculumInMongo,
   getCurriculumsFromMongo,
   getCurriculumFromMongo,
@@ -71,6 +75,7 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
+const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
 
 async function loadLocalEnv() {
   try {
@@ -1436,6 +1441,24 @@ async function handleApi(request, response) {
         skill: item.skill,
         clientId: item.clientId,
         hourlyRate: item.hourlyRate,
+        saleHourlyRate: item.saleHourlyRate,
+        monthlyHours: item.monthlyHours,
+        contractTerm: item.contractTerm,
+        contractType: item.contractType,
+        companyName: item.companyName,
+        companyCnpj: item.companyCnpj,
+        companyAddress: item.companyAddress,
+        companyCity: item.companyCity,
+        companyState: item.companyState,
+        companyZip: item.companyZip,
+        contactAddress: item.contactAddress,
+        contactCity: item.contactCity,
+        contactState: item.contactState,
+        contactZip: item.contactZip,
+        rg: item.rg,
+        cpf: item.cpf,
+        birthDate: item.birthDate,
+        motherName: item.motherName,
         phone: item.phone,
         consultantEmail: item.consultantEmail,
         startDate: item.startDate,
@@ -2745,6 +2768,49 @@ async function handleApi(request, response) {
       Object.assign(allocated, updated);
       await writeDatabase(db);
       sendJson(response, 200, enrichAllocated(allocated, db));
+      return;
+    }
+
+    if (request.method === 'POST' && pathname === '/api/allocateds/export-documents') {
+      const payload = await readJsonBody(request);
+      const db = await readDatabase();
+      const allocatedIds = Array.isArray(payload.allocatedIds)
+        ? payload.allocatedIds.map((id) => String(id || '').trim()).filter(Boolean)
+        : [];
+      const templateIds = Array.isArray(payload.templateIds)
+        ? payload.templateIds.map((id) => String(id || '').trim()).filter(Boolean)
+        : [];
+
+      if (!allocatedIds.length) {
+        sendError(response, 422, 'Selecione ao menos um alocado.');
+        return;
+      }
+
+      const selected = db.allocateds.filter((allocated) => allocatedIds.includes(allocated.id));
+      if (!selected.length) {
+        sendError(response, 404, 'Nenhum alocado encontrado para gerar formularios.');
+        return;
+      }
+
+      const documents = await renderAllocatedDocuments(selected, db.clients, templateIds, ALLOCATED_TEMPLATE_DIR);
+      if (documents.length === 1) {
+        const document = documents[0];
+        response.writeHead(200, {
+          'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'Content-Disposition': `attachment; filename="${document.filename}"`,
+          'Cache-Control': 'no-store'
+        });
+        response.end(document.content);
+        return;
+      }
+
+      const archive = buildAllocatedDocumentsZip(documents);
+      response.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename="formularios-alocados-${new Date().toISOString().slice(0, 10)}.zip"`,
+        'Cache-Control': 'no-store'
+      });
+      response.end(archive);
       return;
     }
 

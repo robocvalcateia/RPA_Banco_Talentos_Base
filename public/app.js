@@ -29,7 +29,8 @@
   dashboardModel: '',
   dashboardAnalyticsCsvUrl: '',
   selectedCandidateFilter: { type: '', value: '' },
-  allocatedFilter: { type: '', value: '' },
+  allocatedFilter: { type: '', value: '', status: '' },
+  selectedAllocatedIds: new Set(),
   huntingFilter: { type: '', value: '' },
   rateCardFilter: { clientId: '' },
   candidatePoolFilter: { clientId: '' },
@@ -2802,13 +2803,18 @@ function formatCurrency(value) {
 function renderAllocatedFilters() {
   const typeSelect = $('#allocatedFilterType');
   const valueSelect = $('#allocatedFilterValue');
+  const activeFilter = $('#allocatedActiveFilter');
+  const inactiveFilter = $('#allocatedInactiveFilter');
   if (!typeSelect || !valueSelect) return;
 
   const type = state.allocatedFilter.type || typeSelect.value;
   const selected = state.allocatedFilter.value || valueSelect.value;
+  const status = state.allocatedFilter.status || '';
   let options = [{ value: '', label: 'Todos' }];
 
   typeSelect.value = type;
+  if (activeFilter) activeFilter.checked = status === 'active';
+  if (inactiveFilter) inactiveFilter.checked = status === 'inactive';
 
   if (type === 'consultant') {
     const consultants = [...new Set(state.allocateds.map((allocated) => allocated.consultant).filter(Boolean))];
@@ -2832,38 +2838,68 @@ function renderAllocatedFilters() {
   valueSelect.innerHTML = options.map((option) => `<option value="${option.value}">${option.label}</option>`).join('');
   valueSelect.value = options.some((option) => option.value === selected) ? selected : '';
   state.allocatedFilter.value = valueSelect.value;
+  state.allocatedFilter.status = status;
 }
 
 function getFilteredAllocateds() {
-  const { type, value } = state.allocatedFilter;
-  if (!type || !value) return state.allocateds;
+  const { type, value, status } = state.allocatedFilter;
+  let allocateds = state.allocateds;
+
+  if (status === 'active') {
+    allocateds = allocateds.filter((allocated) => allocated.active === true);
+  }
+
+  if (status === 'inactive') {
+    allocateds = allocateds.filter((allocated) => allocated.active !== true);
+  }
+
+  if (!type || !value) return allocateds;
 
   if (type === 'consultant') {
-    return state.allocateds.filter((allocated) => allocated.consultant === value);
+    return allocateds.filter((allocated) => allocated.consultant === value);
   }
 
   if (type === 'client') {
-    return state.allocateds.filter((allocated) => allocated.clientId === value);
+    return allocateds.filter((allocated) => allocated.clientId === value);
   }
 
-  return state.allocateds;
+  return allocateds;
 }
 
-function allocatedCsvRows() {
-  return getFilteredAllocateds().map((allocated) => {
+function updateAllocatedSelectionState(allocateds) {
+  const visibleIds = new Set(allocateds.map((allocated) => allocated.id));
+  state.selectedAllocatedIds = new Set([...state.selectedAllocatedIds].filter((id) => visibleIds.has(id)));
+
+  const selectedCount = state.selectedAllocatedIds.size;
+  const selectAll = $('#allocatedSelectAll');
+  const selectedCountElement = $('#allocatedSelectedCount');
+  if (selectAll) {
+    selectAll.checked = allocateds.length > 0 && selectedCount === allocateds.length;
+    selectAll.indeterminate = selectedCount > 0 && selectedCount < allocateds.length;
+    selectAll.disabled = allocateds.length === 0;
+  }
+  if (selectedCountElement) {
+    selectedCountElement.textContent = `${selectedCount} selecionado${selectedCount === 1 ? '' : 's'}`;
+  }
+}
+
+function allocatedCsvRows(rows = getFilteredAllocateds()) {
+  return rows.map((allocated) => {
     const client = state.clients.find((item) => item.id === allocated.clientId);
     return {
       ID: allocated.externalId || allocated.id,
-      Código: allocated.code || '',
+      'Codigo': allocated.code || '',
       Consultor: allocated.consultant || '',
       Skill: allocated.skill || '',
       Cliente: allocated.clientName || client?.customerName || '',
       'Valor Hora': formatCurrency(allocated.hourlyRate),
+      'Valor Venda Hora': formatCurrency(allocated.saleHourlyRate),
+      'Horas Mes': allocated.monthlyHours || '',
       Fone: allocated.phone || '',
       'Email Consultor': allocated.consultantEmail || '',
-      Início: allocated.startDate || '',
-      Ativo: allocated.active ? 'Sim' : 'Não',
-      Término: allocated.endDate || '',
+      'Inicio': allocated.startDate || '',
+      Ativo: allocated.active ? 'Sim' : 'Nao',
+      'Termino': allocated.endDate || '',
       Gestor: allocated.manager || '',
       'Email Gestor': allocated.managerEmail || '',
       'Fone Gestor': allocated.managerPhone || ''
@@ -2872,7 +2908,45 @@ function allocatedCsvRows() {
 }
 
 function exportAllocatedCsv() {
-  downloadCsv('alocados', allocatedCsvRows());
+  const allocateds = getFilteredAllocateds();
+  const selected = allocateds.filter((allocated) => state.selectedAllocatedIds.has(allocated.id));
+  const rows = selected.length ? selected : allocateds;
+  downloadCsv('alocados', allocatedCsvRows(rows));
+  toast(selected.length ? `${selected.length} alocado${selected.length === 1 ? '' : 's'} exportado${selected.length === 1 ? '' : 's'}.` : 'CSV gerado com o filtro atual.');
+}
+
+async function exportAllocatedDocuments(button) {
+  const allocatedIds = [...state.selectedAllocatedIds];
+  const templateId = $('#allocatedDocumentTemplate')?.value || 'all';
+
+  if (!allocatedIds.length) {
+    toast('Selecione ao menos um alocado para gerar os formul?rios.');
+    return;
+  }
+
+  const originalLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Gerando...';
+  }
+
+  try {
+    await apiDownload('/api/allocateds/export-documents', {
+      method: 'POST',
+      body: JSON.stringify({
+        allocatedIds,
+        templateIds: [templateId]
+      })
+    });
+    toast('Formul?rios gerados.');
+  } catch (error) {
+    toast(error.message || 'N?o foi poss?vel gerar os formul?rios.');
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalLabel;
+    }
+  }
 }
 
 function renderAllocateds() {
@@ -2881,18 +2955,22 @@ function renderAllocateds() {
   $('#allocatedTable').innerHTML = allocateds
     .map((allocated) => {
       const client = state.clients.find((item) => item.id === allocated.clientId);
+      const checked = state.selectedAllocatedIds.has(allocated.id) ? 'checked' : '';
       return `
         <tr class="clickable-row" data-edit-allocated="${allocated.id}">
+          <td><input type="checkbox" data-select-allocated="${allocated.id}" aria-label="Selecionar ${allocated.consultant || allocated.code || 'alocado'}" ${checked} /></td>
           <td>${allocated.externalId || allocated.id}</td>
           <td><strong>${allocated.code}</strong></td>
           <td>${allocated.consultant || '-'}</td>
           <td>${allocated.skill || '-'}</td>
           <td>${allocated.clientName || client?.customerName || '-'}</td>
           <td>${formatCurrency(allocated.hourlyRate)}</td>
+          <td>${formatCurrency(allocated.saleHourlyRate)}</td>
+          <td>${allocated.monthlyHours || '-'}</td>
           <td>${allocated.phone || '-'}</td>
           <td>${allocated.consultantEmail || '-'}</td>
           <td>${allocated.startDate || '-'}</td>
-          <td>${allocated.active ? 'Sim' : 'Não'}</td>
+          <td>${allocated.active ? 'Sim' : 'N?o'}</td>
           <td>${allocated.endDate || '-'}</td>
           <td>${allocated.manager || '-'}</td>
           <td>${allocated.managerEmail || '-'}</td>
@@ -2901,6 +2979,7 @@ function renderAllocateds() {
       `;
     })
     .join('');
+  updateAllocatedSelectionState(allocateds);
 }
 
 function rateCardMaximum(rate) {
@@ -3490,6 +3569,8 @@ function loadAllocatedForEdit(allocated) {
     skill: allocated.skill,
     clientId: allocated.clientId,
     hourlyRate: allocated.hourlyRate,
+    saleHourlyRate: allocated.saleHourlyRate,
+    monthlyHours: allocated.monthlyHours,
     phone: allocated.phone,
     consultantEmail: allocated.consultantEmail,
     startDate: allocated.startDate,
@@ -4419,7 +4500,8 @@ function bindAllocatedFilters() {
   $('#allocatedFilterType')?.addEventListener('change', (event) => {
     state.allocatedFilter = {
       type: event.currentTarget.value,
-      value: ''
+      value: '',
+      status: state.allocatedFilter.status || ''
     };
     renderAllocatedFilters();
     renderAllocateds();
@@ -4430,7 +4512,51 @@ function bindAllocatedFilters() {
     renderAllocateds();
   });
 
+  $('#allocatedActiveFilter')?.addEventListener('change', (event) => {
+    state.allocatedFilter.status = event.currentTarget.checked ? 'active' : '';
+    if (event.currentTarget.checked) {
+      const inactiveFilter = $('#allocatedInactiveFilter');
+      if (inactiveFilter) inactiveFilter.checked = false;
+    }
+    renderAllocatedFilters();
+    renderAllocateds();
+  });
+
+  $('#allocatedInactiveFilter')?.addEventListener('change', (event) => {
+    state.allocatedFilter.status = event.currentTarget.checked ? 'inactive' : '';
+    if (event.currentTarget.checked) {
+      const activeFilter = $('#allocatedActiveFilter');
+      if (activeFilter) activeFilter.checked = false;
+    }
+    renderAllocatedFilters();
+    renderAllocateds();
+  });
+
+  $('#allocatedSelectAll')?.addEventListener('change', (event) => {
+    const visibleAllocateds = getFilteredAllocateds();
+    if (event.currentTarget.checked) {
+      visibleAllocateds.forEach((allocated) => state.selectedAllocatedIds.add(allocated.id));
+    } else {
+      visibleAllocateds.forEach((allocated) => state.selectedAllocatedIds.delete(allocated.id));
+    }
+    renderAllocateds();
+  });
+
+  $('#allocatedTable')?.addEventListener('change', (event) => {
+    const checkbox = event.target.closest('[data-select-allocated]');
+    if (!checkbox) return;
+    if (checkbox.checked) {
+      state.selectedAllocatedIds.add(checkbox.dataset.selectAllocated);
+    } else {
+      state.selectedAllocatedIds.delete(checkbox.dataset.selectAllocated);
+    }
+    updateAllocatedSelectionState(getFilteredAllocateds());
+  });
+
   $('#allocatedCsvButton')?.addEventListener('click', exportAllocatedCsv);
+  $('#allocatedDocumentsButton')?.addEventListener('click', (event) => {
+    exportAllocatedDocuments(event.currentTarget);
+  });
 }
 
 function bindRateCardFilters() {
