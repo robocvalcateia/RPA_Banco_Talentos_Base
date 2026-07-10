@@ -228,6 +228,20 @@ function isSmtpAccountConfigured(config) {
   return Boolean(config?.host && config?.port && config?.user && config?.password && config?.from);
 }
 
+async function withTimeout(promise, timeoutMs, message) {
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function getApinfoCredentials() {
   const user = process.env.APINFO_USER || process.env.APINFO_CNPJ || '';
   const password = process.env.APINFO_PASSWORD || process.env.APINFO_SENHA || '';
@@ -1225,10 +1239,10 @@ async function handleApi(request, response) {
         const resetUrl = `${baseUrl}/?reset=${encodeURIComponent(rawToken)}`;
 
         try {
-          await sendMail({
+          await withTimeout(sendMail({
             to: user.email,
             subject: 'Alteracao de senha - Alcateia',
-            timeoutMs: 12000,
+            timeoutMs: 10000,
             text: [
               `Olá, ${user.name || user.email}.`,
               '',
@@ -1238,7 +1252,7 @@ async function handleApi(request, response) {
               'Se você não solicitou essa alteração, ignore este e-mail.'
             ].join('\n'),
             html: `<p>Olá, ${user.name || user.email}.</p><p>Use o link abaixo para alterar sua senha. O link é válido por 1 hora.</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>Se você não solicitou essa alteração, ignore este e-mail.</p>`
-          }, smtpConfig);
+          }, smtpConfig), 15000, 'Tempo esgotado no envio SMTP.');
         } catch (error) {
           delete user.passwordResetTokenHash;
           delete user.passwordResetExpiresAt;
