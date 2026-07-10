@@ -553,6 +553,59 @@ textarea {
   margin-left: auto;
 }
 
+.surface-window-actions {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  gap: 0;
+  overflow: hidden;
+}
+
+.surface-window-control {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-left: 0;
+  border-radius: 0;
+  color: #0b1720;
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 28px;
+  justify-content: center;
+  min-width: 39px;
+  padding: 0;
+  position: relative;
+}
+
+.surface-window-control:first-child {
+  border-left: 0;
+}
+
+.surface-window-control:hover {
+  background: rgb(11 23 32 / 8%);
+}
+
+.surface-window-control:focus-visible {
+  outline: 2px solid var(--alcateia-green);
+  outline-offset: -2px;
+}
+
+.surface-window-control::before,
+.surface-window-control::after {
+  content: "";
+  display: block;
+  position: absolute;
+}
+
+.surface-minimize-button::before {
+  background: currentColor;
+  height: 2px;
+  width: 10px;
+}
+
 .panel-heading-actions {
   align-items: center;
   display: flex;
@@ -567,63 +620,55 @@ textarea {
 }
 
 .panel-maximize-button {
-  align-items: center;
-  background: var(--surface);
-  border: 1px solid #d9e7e4;
-  border-radius: 6px;
-  box-sizing: border-box;
-  color: var(--ink);
-  cursor: pointer;
-  display: inline-flex;
-  flex: 0 0 104px;
-  font-size: 1rem;
-  font-weight: 400;
-  height: 36px;
-  justify-content: center;
-  line-height: 1;
-  max-height: 36px;
-  max-width: 104px;
-  min-height: 36px;
-  min-width: 104px;
-  padding: 0;
-  text-decoration: none;
-  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
-  width: 104px;
+  background: transparent;
 }
 
-.surface-close-button {
-  align-items: center;
-  background: var(--surface);
-  border: 1px solid #d9e7e4;
-  border-radius: 6px;
-  box-sizing: border-box;
-  color: var(--ink);
-  cursor: pointer;
-  display: inline-flex;
-  flex: 0 0 84px;
-  font-size: 1rem;
-  font-weight: 400;
-  height: 36px;
-  justify-content: center;
-  line-height: 1;
-  max-height: 36px;
-  max-width: 84px;
-  min-height: 36px;
-  min-width: 84px;
-  padding: 0;
-  text-decoration: none;
-  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
-  width: 84px;
+.panel-maximize-button:hover {
+  background: rgb(11 23 32 / 8%);
 }
 
-.panel-maximize-button:hover,
-.panel-maximize-button:focus-visible,
-.surface-close-button:hover,
-.surface-close-button:focus-visible {
-  background: #fff;
-  border-color: #b9cfca;
-  box-shadow: 0 0 0 3px rgb(0 191 166 / 10%);
-  outline: none;
+.panel-maximize-button::before {
+  border: 2px solid currentColor;
+  height: 8px;
+  width: 8px;
+}
+
+.panel-maximize-button[data-window-state="restore"]::before {
+  background: var(--surface);
+  height: 7px;
+  transform: translate(2px, -2px);
+  width: 7px;
+}
+
+.panel-maximize-button[data-window-state="restore"]:hover::before {
+  background: var(--surface);
+}
+
+.panel-maximize-button[data-window-state="restore"]::after {
+  border: 2px solid currentColor;
+  height: 7px;
+  transform: translate(-2px, 2px);
+  width: 7px;
+}
+
+.surface-close-button::before,
+.surface-close-button::after {
+  background: currentColor;
+  height: 2px;
+  width: 12px;
+}
+
+.surface-close-button::before {
+  transform: rotate(45deg);
+}
+
+.surface-close-button::after {
+  transform: rotate(-45deg);
+}
+
+.surface-close-button:hover {
+  background: rgb(11 23 32 / 8%);
+  color: #0b1720;
 }
 
 body.panel-is-maximized {
@@ -653,6 +698,24 @@ body.panel-is-maximized {
 .modal-panel.panel-maximized .table-wrap,
 .modal-card.panel-maximized .table-wrap {
   max-height: none;
+}
+
+.panel.surface-minimized,
+.modal-panel.surface-minimized,
+.modal-card.surface-minimized {
+  max-height: none;
+  overflow: hidden;
+}
+
+.modal-panel.surface-minimized,
+.modal-card.surface-minimized {
+  width: min(560px, 100%);
+}
+
+.panel.surface-minimized > :not(.panel-heading),
+.modal-panel.surface-minimized > :not(.modal-heading),
+.modal-card.surface-minimized > :not(.modal-heading) {
+  display: none !important;
 }
 
 .pie-wrap {
@@ -1019,34 +1082,6 @@ th {
   background: #ffffff;
   color: var(--ink);
   cursor: pointer;
-}
-
-.ghost-action.panel-maximize-button {
-  background: var(--surface);
-  border: 1px solid #d9e7e4;
-  border-radius: 6px;
-  flex-basis: 104px;
-  height: 36px;
-  max-height: 36px;
-  max-width: 104px;
-  min-height: 36px;
-  min-width: 104px;
-  padding: 0;
-  width: 104px;
-}
-
-.ghost-action.surface-close-button {
-  background: var(--surface);
-  border: 1px solid #d9e7e4;
-  border-radius: 6px;
-  flex-basis: 84px;
-  height: 36px;
-  max-height: 36px;
-  max-width: 84px;
-  min-height: 36px;
-  min-width: 84px;
-  padding: 0;
-  width: 84px;
 }
 
 .hero-panel {
