@@ -224,6 +224,10 @@ function getPublicBaseUrl() {
   return 'https://rpa-banco-talentos-5v5r.onrender.com';
 }
 
+function isSmtpAccountConfigured(config) {
+  return Boolean(config?.host && config?.port && config?.user && config?.password && config?.from);
+}
+
 function getApinfoCredentials() {
   const user = process.env.APINFO_USER || process.env.APINFO_CNPJ || '';
   const password = process.env.APINFO_PASSWORD || process.env.APINFO_SENHA || '';
@@ -1205,6 +1209,12 @@ async function handleApi(request, response) {
       const user = db.users.find((item) => String(item.email || '').toLowerCase() === email);
 
       if (user) {
+        const smtpConfig = getSmtpConfigFromEnv();
+        if (!isSmtpAccountConfigured(smtpConfig)) {
+          sendError(response, 500, 'Recuperacao de senha nao esta configurada para envio de e-mail. Configure SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD e SMTP_FROM.');
+          return;
+        }
+
         const rawToken = randomBytes(32).toString('hex');
         user.passwordResetTokenHash = hashPassword(rawToken);
         user.passwordResetExpiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
@@ -1213,7 +1223,6 @@ async function handleApi(request, response) {
 
         const baseUrl = getPublicBaseUrl();
         const resetUrl = `${baseUrl}/?reset=${encodeURIComponent(rawToken)}`;
-        const smtpConfig = getSmtpConfigFromEnv();
 
         try {
           await sendMail({
@@ -1233,7 +1242,8 @@ async function handleApi(request, response) {
           delete user.passwordResetTokenHash;
           delete user.passwordResetExpiresAt;
           await writeDatabase(db);
-          sendError(response, 500, `Senha SMTP retornou ${error.message}`);
+          console.error(`Falha ao enviar recuperacao de senha para ${user.email}: ${error.message}`);
+          sendError(response, 502, 'Nao foi possivel enviar o e-mail de recuperacao. Verifique as credenciais SMTP da caixa robocv e se o envio SMTP esta habilitado.');
           return;
         }
       }

@@ -4403,7 +4403,12 @@ function bindAuth() {
   async function handleLogin() {
     document.body.dataset.loginAttempted = 'true';
     const form = $('#loginForm');
+    const button = $('#loginButton');
     setAuthMessage('#loginError');
+    if (!form.reportValidity()) return;
+    if (button?.disabled) return;
+
+    const originalText = setSubmitButtonBusy(button, 'Entrando...');
 
     try {
       const payload = await api('/api/login', {
@@ -4422,6 +4427,8 @@ function bindAuth() {
       await refresh();
     } catch (error) {
       setAuthMessage('#loginError', error.message);
+    } finally {
+      restoreSubmitButton(button, originalText || 'Entrar');
     }
   }
 
@@ -4442,7 +4449,12 @@ function bindAuth() {
   async function handlePasswordChange() {
     document.body.dataset.passwordChangeAttempted = 'true';
     const form = $('#passwordChangeForm');
+    const button = $('#passwordChangeButton');
     setAuthMessage('#passwordChangeError');
+    if (!form.reportValidity()) return;
+    if (button?.disabled) return;
+
+    const originalText = setSubmitButtonBusy(button, 'Salvando...');
 
     try {
       const payload = await api('/api/change-password', {
@@ -4456,6 +4468,8 @@ function bindAuth() {
       await refresh();
     } catch (error) {
       setAuthMessage('#passwordChangeError', error.message);
+    } finally {
+      restoreSubmitButton(button, originalText || 'Salvar nova senha');
     }
   }
 
@@ -4475,7 +4489,12 @@ function bindAuth() {
 
   async function handlePasswordRecover() {
     const form = $('#passwordRecoverForm');
+    const button = $('#passwordRecoverButton');
     setAuthMessage('#passwordRecoverMessage');
+    if (!form.reportValidity()) return;
+    if (button?.disabled) return;
+
+    const originalText = setSubmitButtonBusy(button, 'Enviando...');
     try {
       await api('/api/request-password-reset', {
         method: 'POST',
@@ -4485,6 +4504,8 @@ function bindAuth() {
       setAuthMessage('#passwordRecoverMessage', 'Se o e-mail estiver cadastrado, enviaremos o link de alteração.');
     } catch (error) {
       setAuthMessage('#passwordRecoverMessage', error.message);
+    } finally {
+      restoreSubmitButton(button, originalText || 'Enviar link');
     }
   }
 
@@ -4504,7 +4525,12 @@ function bindAuth() {
 
   async function handlePasswordReset() {
     const form = $('#passwordResetForm');
+    const button = $('#passwordResetButton');
     setAuthMessage('#passwordResetError');
+    if (!form.reportValidity()) return;
+    if (button?.disabled) return;
+
+    const originalText = setSubmitButtonBusy(button, 'Alterando...');
     try {
       await api('/api/reset-password', {
         method: 'POST',
@@ -4519,6 +4545,8 @@ function bindAuth() {
       showLogin();
     } catch (error) {
       setAuthMessage('#passwordResetError', error.message);
+    } finally {
+      restoreSubmitButton(button, originalText || 'Alterar senha');
     }
   }
 
@@ -5472,7 +5500,9 @@ initPanelMaximizeControls();
 initSurfaceControlsObserver();
 document.body.dataset.appReady = 'true';
 
-if (session.token) {
+if (passwordResetTokenFromUrl()) {
+  showPasswordReset();
+} else if (session.token) {
   refresh().catch((error) => {
     toast(error.message);
     if (error.message.includes('senha')) {

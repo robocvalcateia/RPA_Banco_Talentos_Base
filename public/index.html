@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=20260710-window-controls-all" />
+    <link rel="stylesheet" href="/styles.css?v=20260710-auth-flow" />
   </head>
   <body class="auth-locked">
     <section class="auth-screen" id="authScreen">
@@ -1044,94 +1044,7 @@
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script>
-      document.addEventListener('DOMContentLoaded', function () {
-        var loginButton = document.getElementById('loginButton');
-        var loginForm = document.getElementById('loginForm');
-        var loginError = document.getElementById('loginError');
-        var passwordChangeButton = document.getElementById('passwordChangeButton');
-        var passwordChangeForm = document.getElementById('passwordChangeForm');
-        var passwordChangeError = document.getElementById('passwordChangeError');
-        var authScreen = document.getElementById('authScreen');
-        var passwordChangeScreen = document.getElementById('passwordChangeScreen');
-        var activeToken = '';
-
-        if (!loginButton || !loginForm) return;
-
-        loginButton.addEventListener('click', function () {
-          loginError.textContent = '';
-          var payload = Object.fromEntries(new FormData(loginForm).entries());
-
-          fetch('/api/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          })
-            .then(function (response) {
-              return response.json().then(function (body) {
-                if (!response.ok) throw new Error(body.error || 'Não foi possível entrar.');
-                return body;
-              });
-            })
-            .then(function (body) {
-              activeToken = body.token;
-              try {
-                localStorage.setItem('talentos_token', body.token);
-                localStorage.setItem('talentos_user', JSON.stringify(body.user));
-              } catch {}
-
-              loginForm.reset();
-
-              if (body.user && body.user.mustChangePassword) {
-                authScreen.classList.add('hidden');
-                passwordChangeScreen.classList.remove('hidden');
-                return;
-              }
-
-              window.location.reload();
-            })
-            .catch(function (error) {
-              loginError.textContent = error.message;
-            });
-        });
-
-        if (passwordChangeButton && passwordChangeForm) {
-          passwordChangeButton.addEventListener('click', function () {
-            passwordChangeError.textContent = '';
-            var payload = Object.fromEntries(new FormData(passwordChangeForm).entries());
-
-            try {
-              activeToken = activeToken || localStorage.getItem('talentos_token') || '';
-            } catch {}
-
-            fetch('/api/change-password', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: 'Bearer ' + activeToken
-              },
-              body: JSON.stringify(payload)
-            })
-              .then(function (response) {
-                return response.json().then(function (body) {
-                  if (!response.ok) throw new Error(body.error || 'Não foi possível trocar a senha.');
-                  return body;
-                });
-              })
-              .then(function (body) {
-                try {
-                  localStorage.setItem('talentos_user', JSON.stringify(body.user));
-                } catch {}
-                window.location.reload();
-              })
-              .catch(function (error) {
-                passwordChangeError.textContent = error.message;
-              });
-          });
-        }
-      });
-    </script>
-    <script src="/app.js?v=20260710-window-controls-all"></script>
+    <script src="/app.js?v=20260710-auth-flow"></script>
   </body>
 </html>
 
