@@ -518,6 +518,37 @@ export async function writeMongoAppDatabase(data) {
   return normalized;
 }
 
+export async function writeUserRecord(user, file = DATA_FILE) {
+  const cleanUser = stripMongoInternalFields(user);
+  const config = readMongoAppConfig();
+
+  if (shouldUseMongoAppDatabase(file)) {
+    try {
+      if (config.required || await hasMongoAppCollectionsData()) {
+        const client = await getMongoAppClient(config);
+        const mongoDb = client.db(config.dbName);
+        await mongoDb
+          .collection(mongoAppCollectionName('users', config))
+          .replaceOne({ id: cleanUser.id }, cleanUser, { upsert: true });
+        return cleanUser;
+      }
+    } catch (error) {
+      if (config.required) throw error;
+      console.warn(`[mongo-app] Falha ao gravar usuario no MongoDB. Usando data/database.json. Detalhe: ${error.message}`);
+    }
+  }
+
+  const data = await readLocalDatabase(file);
+  const index = data.users.findIndex((item) => item.id === cleanUser.id);
+  if (index >= 0) {
+    data.users[index] = cleanUser;
+  } else {
+    data.users.push(cleanUser);
+  }
+  await fs.writeFile(file, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+  return cleanUser;
+}
+
 export async function readDatabase(file = DATA_FILE) {
   const config = readMongoAppConfig();
   if (shouldUseMongoAppDatabase(file)) {

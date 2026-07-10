@@ -45,6 +45,7 @@ import {
   toISODate,
   verifyPassword,
   writeDatabase,
+  writeUserRecord,
   writeMongoAppDatabase
 } from './db.js';
 import { extractApinfoCandidateEmails, extractEmailsFromText, searchApinfoAndLinkedinCandidates } from './apinfo.js';
@@ -1233,7 +1234,7 @@ async function handleApi(request, response) {
         user.passwordResetTokenHash = hashPassword(rawToken);
         user.passwordResetExpiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
         user.updatedAt = toISODate();
-        await writeDatabase(db);
+        await withTimeout(writeUserRecord(user), 10000, 'Tempo esgotado ao gravar token de recuperacao.');
 
         const baseUrl = getPublicBaseUrl();
         const resetUrl = `${baseUrl}/?reset=${encodeURIComponent(rawToken)}`;
@@ -1256,7 +1257,7 @@ async function handleApi(request, response) {
         } catch (error) {
           delete user.passwordResetTokenHash;
           delete user.passwordResetExpiresAt;
-          await writeDatabase(db);
+          await withTimeout(writeUserRecord(user), 10000, 'Tempo esgotado ao limpar token de recuperacao.');
           console.error(`Falha ao enviar recuperacao de senha para ${user.email}: ${error.message}`);
           sendError(response, 502, 'Nao foi possivel enviar o e-mail de recuperacao. Verifique as credenciais SMTP da caixa robocv e se o envio SMTP esta habilitado.');
           return;
@@ -1297,7 +1298,7 @@ async function handleApi(request, response) {
       user.passwordChangedAt = toISODate();
       delete user.passwordResetTokenHash;
       delete user.passwordResetExpiresAt;
-      await writeDatabase(db);
+      await withTimeout(writeUserRecord(user), 10000, 'Tempo esgotado ao gravar nova senha.');
 
       sendJson(response, 200, { ok: true });
       return;
@@ -1338,7 +1339,7 @@ async function handleApi(request, response) {
       auth.user.passwordHash = hashPassword(newPassword);
       auth.user.mustChangePassword = false;
       auth.user.passwordChangedAt = toISODate();
-      await writeDatabase(auth.db);
+      await withTimeout(writeUserRecord(auth.user), 10000, 'Tempo esgotado ao gravar nova senha.');
 
       sendJson(response, 200, {
         user: sanitizeUser(auth.user)
