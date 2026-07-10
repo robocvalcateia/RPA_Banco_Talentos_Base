@@ -230,6 +230,19 @@ function isSmtpAccountConfigured(config) {
   return Boolean(config?.host && config?.port && config?.user && config?.password && config?.from);
 }
 
+function smtpSafeConfig(config) {
+  return {
+    host: config.host || '',
+    port: config.port || '',
+    secure: Boolean(config.secure),
+    user: config.user || '',
+    from: config.from || '',
+    testTo: config.testTo || '',
+    passwordConfigured: Boolean(config.password),
+    configured: isSmtpAccountConfigured(config)
+  };
+}
+
 async function withTimeout(promise, timeoutMs, message) {
   let timer;
   try {
@@ -1325,6 +1338,47 @@ async function handleApi(request, response) {
     if (request.method === 'POST' && pathname === '/api/logout') {
       sessions.delete(auth.token);
       sendJson(response, 200, { ok: true });
+      return;
+    }
+
+    if (request.method === 'POST' && pathname === '/api/admin/smtp-diagnostics') {
+      if (String(auth.user.role || '').toLowerCase() !== 'admin') {
+        sendError(response, 403, 'Apenas administradores podem testar SMTP.');
+        return;
+      }
+
+      const smtpConfig = getSmtpConfigFromEnv();
+      const safeConfig = smtpSafeConfig(smtpConfig);
+      if (!safeConfig.configured) {
+        sendJson(response, 200, {
+          ok: false,
+          config: safeConfig,
+          error: 'SMTP nao esta completamente configurado.'
+        });
+        return;
+      }
+
+      const startedAt = Date.now();
+      try {
+        await withTimeout(sendMail({
+          to: auth.user.email,
+          subject: 'Teste SMTP - Alcateia',
+          timeoutMs: 10000,
+          text: 'Teste tecnico de SMTP da recuperacao de senha.'
+        }, smtpConfig), 15000, 'Tempo esgotado no teste SMTP.');
+        sendJson(response, 200, {
+          ok: true,
+          elapsedMs: Date.now() - startedAt,
+          config: safeConfig
+        });
+      } catch (error) {
+        sendJson(response, 200, {
+          ok: false,
+          elapsedMs: Date.now() - startedAt,
+          config: safeConfig,
+          error: error.message || 'Falha no teste SMTP.'
+        });
+      }
       return;
     }
 
