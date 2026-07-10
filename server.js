@@ -77,6 +77,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
+const APP_VERSION = '20260710-auth-user-write-timeout';
 
 async function loadLocalEnv() {
   try {
@@ -1198,6 +1199,14 @@ async function handleApi(request, response) {
     : route.pathname;
 
   try {
+    if (request.method === 'GET' && pathname === '/api/health') {
+      sendJson(response, 200, {
+        ok: true,
+        version: APP_VERSION
+      });
+      return;
+    }
+
     if (request.method === 'POST' && pathname === '/api/login') {
       const payload = await readJsonBody(request);
       const db = await readDatabase();
