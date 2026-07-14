@@ -1797,6 +1797,47 @@ async function handleApi(request, response) {
       return;
     }
 
+    if (request.method === 'POST' && pathname === '/api/admin/reset-user-passwords') {
+      if (String(auth.user.role || '').toLowerCase() !== 'admin') {
+        sendError(response, 403, 'Apenas administradores podem resetar senhas.');
+        return;
+      }
+
+      const payload = await readJsonBody(request);
+      if (String(payload.confirm || '').trim() !== 'RESETAR_SENHAS_PROD') {
+        sendError(response, 422, 'Informe confirm=RESETAR_SENHAS_PROD para resetar as senhas.');
+        return;
+      }
+
+      const defaultPassword = String(payload.password || 'Alcateia123');
+      if (defaultPassword.length < 6) {
+        sendError(response, 422, 'A senha padrao deve ter pelo menos 6 caracteres.');
+        return;
+      }
+
+      const db = await readDatabase();
+      const timestamp = toISODate();
+      const updatedUsers = [];
+
+      for (const user of db.users) {
+        user.passwordHash = hashPassword(defaultPassword);
+        user.mustChangePassword = Boolean(payload.mustChangePassword);
+        user.passwordChangedAt = timestamp;
+        user.updatedAt = timestamp;
+        delete user.passwordResetTokenHash;
+        delete user.passwordResetExpiresAt;
+        await withTimeout(writeUserRecord(user), 10000, `Tempo esgotado ao gravar usuario ${user.email}.`);
+        updatedUsers.push(sanitizeUser(user));
+      }
+
+      sendJson(response, 200, {
+        ok: true,
+        updated: updatedUsers.length,
+        users: updatedUsers
+      });
+      return;
+    }
+
     if (request.method === 'GET' && pathname === '/api/bootstrap') {
       const curriculumBootstrap = await loadCurriculumsForBootstrap(auth.db);
       const responseDb = { ...auth.db, curriculums: curriculumBootstrap.curriculums };
@@ -2074,6 +2115,18 @@ async function handleApi(request, response) {
       user.name = String(payload.name).trim();
       user.email = email;
       user.role = 'Admin';
+      if (payload.resetPassword === true) {
+        const defaultPassword = String(payload.password || 'Alcateia123');
+        if (defaultPassword.length < 6) {
+          sendError(response, 422, 'A senha padrao deve ter pelo menos 6 caracteres.');
+          return;
+        }
+        user.passwordHash = hashPassword(defaultPassword);
+        user.mustChangePassword = Boolean(payload.mustChangePassword);
+        user.passwordChangedAt = toISODate();
+        delete user.passwordResetTokenHash;
+        delete user.passwordResetExpiresAt;
+      }
       user.updatedAt = toISODate();
       await writeDatabase(db);
       sendJson(response, 200, sanitizeUser(user));
