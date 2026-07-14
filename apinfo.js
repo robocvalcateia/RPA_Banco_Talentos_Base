@@ -74,6 +74,45 @@ function splitMandatorySkills(value = '') {
     .filter(Boolean);
 }
 
+function escapeRegex(value = '') {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function compactSkillText(value = '') {
+  return normalizeText(value).replace(/[\s.]+/g, '');
+}
+
+function textContainsSkill(normalizedText, compactText, skill) {
+  const normalizedSkill = normalizeText(skill);
+  if (!normalizedSkill) return true;
+
+  if (/^[a-z0-9]+$/.test(normalizedSkill)) {
+    return new RegExp(`(^| )${escapeRegex(normalizedSkill)}( |$)`).test(normalizedText);
+  }
+
+  const compactSkill = compactSkillText(skill);
+  return normalizedText.includes(normalizedSkill) || (compactSkill && compactText.includes(compactSkill));
+}
+
+function evaluateMandatorySkills(text, mandatorySkills) {
+  const skills = splitMandatorySkills(mandatorySkills);
+  if (!skills.length) {
+    return { accepted: true, required: [], hits: [], missing: [] };
+  }
+
+  const normalizedText = normalizeText(text);
+  const compactText = compactSkillText(text);
+  const hits = skills.filter((skill) => textContainsSkill(normalizedText, compactText, skill));
+  const missing = skills.filter((skill) => !textContainsSkill(normalizedText, compactText, skill));
+
+  return {
+    accepted: missing.length === 0,
+    required: skills,
+    hits,
+    missing
+  };
+}
+
 function calculateJobMatch(text, jobDescription) {
   const terms = extractTerms(jobDescription);
   if (!terms.length) {
@@ -140,6 +179,15 @@ function parseBrazilianDate(value = '') {
   return Date.UTC(year, month - 1, day);
 }
 
+function parseAnyDateTime(value = '') {
+  const text = String(value || '').trim();
+  if (!text) return 0;
+  const brazilian = parseBrazilianDate(text);
+  if (brazilian) return brazilian;
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
 function extractLastUpdated(text = '') {
   const match = String(text).match(/(?:Ultima atualizacao|Última atualização)\s*:?\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i);
   return match?.[1] ?? '';
@@ -165,24 +213,43 @@ function extractDetail(html, result) {
 }
 
 function filterAndScoreCandidate(detail, filter) {
+  const mandatory = evaluateMandatorySkills(detail.text, filter.mandatorySkills);
   const match = calculateJobMatch(detail.text, filter.jobDescription);
   const jobScore = match.score;
   const minimum = Number(filter.matchPercent || 0);
   const found = match.hits.slice(0, 8).join(', ') || 'nenhum termo forte encontrado';
   const missing = match.missing.slice(0, 8).join(', ') || 'sem lacunas relevantes';
+  const mandatoryFound = mandatory.hits.join(', ') || 'nenhuma habilidade obrigatoria informada';
+  const mandatoryMissing = mandatory.missing.join(', ') || 'nenhuma';
+
+  const base = {
+    score: jobScore,
+    matchedMandatorySkills: mandatory.hits,
+    missingMandatorySkills: mandatory.missing,
+    jobDescriptionHits: match.hits,
+    jobDescriptionMissing: match.missing
+  };
+
+  if (!mandatory.accepted) {
+    return {
+      ...base,
+      accepted: false,
+      reason: `Reprovado por habilidade obrigatoria ausente: ${mandatoryMissing}. Obrigatorias encontradas: ${mandatoryFound}. Aderencia da Job Description: ${jobScore}%.`
+    };
+  }
 
   if (jobScore < minimum) {
     return {
+      ...base,
       accepted: false,
-      score: jobScore,
-      reason: `Aderencia da Job Description ${jobScore}% abaixo do minimo ${minimum}%. Ficou de fora: ${missing}. Encontrado no CV: ${found}.`
+      reason: `Habilidades obrigatorias atendidas: ${mandatoryFound}. Aderencia da Job Description ${jobScore}% abaixo do minimo ${minimum}%. Ficou de fora: ${missing}. Encontrado no CV: ${found}.`
     };
   }
 
   return {
+    ...base,
     accepted: true,
-    score: jobScore,
-    observation: `Aderencia da Job Description: ${jobScore}%. Encontrado no CV: ${found}. Pontos nao evidentes: ${missing}.`
+    observation: `Habilidades obrigatorias atendidas: ${mandatoryFound}. Aderencia da Job Description: ${jobScore}%. Encontrado no CV: ${found}. Pontos nao evidentes: ${missing}.`
   };
 }
 
@@ -339,6 +406,12 @@ export async function searchLinkedinCandidates(filter, limit = 10) {
         source: 'LinkedIn/Google',
         link: profile.link,
         score: evaluation.score,
+        sourceUpdatedAt: '',
+        sourceUpdatedAtTime: 0,
+        matchedMandatorySkills: evaluation.matchedMandatorySkills,
+        missingMandatorySkills: evaluation.missingMandatorySkills,
+        jobDescriptionHits: evaluation.jobDescriptionHits,
+        jobDescriptionMissing: evaluation.jobDescriptionMissing,
         observation: `${evaluation.observation}. Analisado por busca ${search.provider}.`
       });
     } else {
@@ -347,6 +420,12 @@ export async function searchLinkedinCandidates(filter, limit = 10) {
         source: 'LinkedIn/Google',
         link: profile.link,
         score: evaluation.score,
+        sourceUpdatedAt: '',
+        sourceUpdatedAtTime: 0,
+        matchedMandatorySkills: evaluation.matchedMandatorySkills,
+        missingMandatorySkills: evaluation.missingMandatorySkills,
+        jobDescriptionHits: evaluation.jobDescriptionHits,
+        jobDescriptionMissing: evaluation.jobDescriptionMissing,
         observation: `${evaluation.reason || 'Reprovado pela regra de aderencia.'} Analisado por busca ${search.provider}.`
       });
     }
@@ -379,6 +458,21 @@ function sortByJobScore(rows) {
   return rows
     .slice()
     .sort((first, second) => Number(second.score || 0) - Number(first.score || 0));
+}
+
+function sortByFreshnessAndScore(rows) {
+  return rows
+    .slice()
+    .sort((first, second) => {
+      const firstTime = Number(first.sourceUpdatedAtTime || parseAnyDateTime(first.sourceUpdatedAt) || 0);
+      const secondTime = Number(second.sourceUpdatedAtTime || parseAnyDateTime(second.sourceUpdatedAt) || 0);
+      if (firstTime !== secondTime) return secondTime - firstTime;
+
+      const scoreDiff = Number(second.score || 0) - Number(first.score || 0);
+      if (scoreDiff) return scoreDiff;
+
+      return String(first.name || '').localeCompare(String(second.name || ''), 'pt-BR', { sensitivity: 'base' });
+    });
 }
 
 class ApinfoSession {
@@ -458,7 +552,7 @@ class ApinfoSession {
       tcv: '1',
       pag: String(page),
       keyw: buildKeyword(filter),
-      estado: filter.state || '',
+      estado: filter.state || 'SP',
       ...extraFields
     });
   }
@@ -527,6 +621,12 @@ export async function searchApinfoCandidates(filter, credentials, limit = 10) {
         source: 'APINFO',
         link: detail.link,
         score: evaluation.score,
+        sourceUpdatedAt: detail.lastUpdated,
+        sourceUpdatedAtTime: detail.lastUpdatedTime,
+        matchedMandatorySkills: evaluation.matchedMandatorySkills,
+        missingMandatorySkills: evaluation.missingMandatorySkills,
+        jobDescriptionHits: evaluation.jobDescriptionHits,
+        jobDescriptionMissing: evaluation.jobDescriptionMissing,
         observation: `${evaluation.observation}. Ultima atualizacao: ${detail.lastUpdated || 'nao informada'}`
       });
     } else {
@@ -535,6 +635,12 @@ export async function searchApinfoCandidates(filter, credentials, limit = 10) {
         source: 'APINFO',
         link: detail.link,
         score: evaluation.score,
+        sourceUpdatedAt: detail.lastUpdated,
+        sourceUpdatedAtTime: detail.lastUpdatedTime,
+        matchedMandatorySkills: evaluation.matchedMandatorySkills,
+        missingMandatorySkills: evaluation.missingMandatorySkills,
+        jobDescriptionHits: evaluation.jobDescriptionHits,
+        jobDescriptionMissing: evaluation.jobDescriptionMissing,
         observation: `${evaluation.reason || 'Reprovado pela regra de aderencia.'} Ultima atualizacao: ${detail.lastUpdated || 'nao informada'}`
       });
     }
@@ -556,6 +662,13 @@ export async function extractApinfoCandidateEmails(credentials, link) {
   await session.login();
   const detailResponse = await session.getDetail(link);
   return extractEmailsFromText(htmlToText(detailResponse.html));
+}
+
+export async function extractApinfoCandidateText(credentials, link) {
+  const session = new ApinfoSession(credentials);
+  await session.login();
+  const detailResponse = await session.getDetail(link);
+  return htmlToText(detailResponse.html);
 }
 
 export async function searchApinfoAndLinkedinCandidates(filter, credentials, limit = 10) {
@@ -594,7 +707,54 @@ export async function searchApinfoAndLinkedinCandidates(filter, credentials, lim
     linkedinFound: linkedin.totalFound,
     linkedinProvider: linkedin.provider || ((process.env.SERPAPI_KEY || process.env.SERPAPI_API_KEY) ? 'SerpAPI' : 'Google direto'),
     linkedinError: linkedin.error || '',
-    results: sortByJobScore(mergeCandidateRows(apinfo.results, linkedin.results, requestedLimit)).slice(0, requestedLimit),
-    rejectedResults: sortByJobScore(mergeCandidateRows(apinfo.rejectedResults, linkedin.rejectedResults, requestedLimit)).slice(0, requestedLimit)
+    results: sortByFreshnessAndScore(mergeCandidateRows(apinfo.results, linkedin.results, requestedLimit)).slice(0, requestedLimit),
+    rejectedResults: sortByFreshnessAndScore(mergeCandidateRows(apinfo.rejectedResults, linkedin.rejectedResults, requestedLimit)).slice(0, requestedLimit)
   };
+}
+
+export function evaluateInternalCandidateForFilter(curriculum, filter) {
+  const text = [
+    curriculum.nome,
+    curriculum.email,
+    curriculum.telefone,
+    curriculum.endereco,
+    curriculum.linkedin,
+    curriculum.skills,
+    curriculum.formacao_academica,
+    curriculum.nivel_ingles,
+    curriculum.nivel_espanhol,
+    curriculum.cursos_certificacoes,
+    curriculum.conhecimento_tecnico,
+    curriculum.experiencia_profissional,
+    curriculum.cargo_alvo,
+    curriculum.observacoes_entrevista,
+    curriculum.fonte,
+    curriculum.id_controle
+  ].filter(Boolean).join('\n');
+  const evaluation = filterAndScoreCandidate({ text }, filter);
+  const sourceUpdatedAt = curriculum.data_atualizacao || curriculum.data_criacao || '';
+
+  return {
+    accepted: evaluation.accepted,
+    row: {
+      id: `alcateia_${curriculum.id || curriculum.id_controle || curriculum.mongoId || curriculum.nome}`,
+      name: curriculum.nome,
+      source: 'ALCATEIA',
+      link: curriculum.linkedin || '',
+      score: evaluation.score,
+      sourceUpdatedAt,
+      sourceUpdatedAtTime: parseAnyDateTime(sourceUpdatedAt),
+      matchedMandatorySkills: evaluation.matchedMandatorySkills,
+      missingMandatorySkills: evaluation.missingMandatorySkills,
+      jobDescriptionHits: evaluation.jobDescriptionHits,
+      jobDescriptionMissing: evaluation.jobDescriptionMissing,
+      observation: evaluation.accepted
+        ? `${evaluation.observation}. Banco interno atualizado em ${sourceUpdatedAt || 'data nao informada'}.`
+        : `${evaluation.reason || 'Reprovado pela regra de aderencia.'} Banco interno atualizado em ${sourceUpdatedAt || 'data nao informada'}.`
+    }
+  };
+}
+
+export function sortCandidateRowsByFreshnessAndScore(rows) {
+  return sortByFreshnessAndScore(rows);
 }

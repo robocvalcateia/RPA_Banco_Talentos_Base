@@ -20,6 +20,7 @@ import {
   moveCandidateStage,
   hashPassword,
   normalizeCandidate,
+  normalizeContactClient,
   normalizeCurriculum,
   normalizeCurriculumObservation,
   normalizeCvFilter,
@@ -48,7 +49,13 @@ import {
   writeUserRecord,
   writeMongoAppDatabase
 } from './db.js';
-import { extractApinfoCandidateEmails, extractEmailsFromText, searchApinfoAndLinkedinCandidates } from './apinfo.js';
+import {
+  extractApinfoCandidateEmails,
+  extractApinfoCandidateText,
+  extractEmailsFromText,
+  searchApinfoAndLinkedinCandidates,
+  sortCandidateRowsByFreshnessAndScore
+} from './apinfo.js';
 import { getSmtpConfigFromEnv, sendMail } from './smtp.js';
 import {
   buildDttZip,
@@ -77,7 +84,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260710-auth-user-write-timeout';
+const APP_VERSION = '20260714-contact-client-messaging';
 
 async function loadLocalEnv() {
   try {
@@ -287,53 +294,164 @@ async function fetchPublicText(url) {
   return new TextDecoder('utf-8').decode(buffer);
 }
 
-async function extractCandidateEmails(candidate, credentials) {
-  if (!candidate.link) return [];
+function normalizeLookupText(value = '') {
+  return String(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function findCurriculumForSelectedCandidate(candidate, db) {
+  const candidateName = normalizeLookupText(candidate.name);
+  return db.curriculums.find((curriculum) => (
+    candidate.curriculumId
+    && (curriculum.id === candidate.curriculumId || curriculum.id_controle === candidate.curriculumId)
+  )) || db.curriculums.find((curriculum) => normalizeLookupText(curriculum.nome) === candidateName);
+}
+
+function uniqueEmails(values = []) {
+  return Array.from(new Set(
+    values
+      .flatMap((value) => extractEmailsFromText(value))
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean)
+  ));
+}
+
+function normalizeWhatsappPhone(value = '') {
+  let digits = String(value || '').replace(/\D/g, '');
+  if (!digits) return '';
+
+  digits = digits.replace(/^0+/, '');
+  if (digits.length === 10 || digits.length === 11) {
+    digits = `55${digits}`;
+  }
+
+  if (!/^55\d{10,11}$/.test(digits) && !/^\d{11,15}$/.test(digits)) return '';
+  return digits;
+}
+
+function extractPhonesFromText(value = '') {
+  const text = String(value ?? '');
+  const matches = text.match(/(?:\+?\d[\d\s().-]{8,}\d)/g) || [];
+  return matches
+    .map(normalizeWhatsappPhone)
+    .filter(Boolean);
+}
+
+function uniquePhones(values = []) {
+  return Array.from(new Set(values.flatMap((value) => {
+    if (Array.isArray(value)) return value.flatMap((item) => extractPhonesFromText(item));
+    return extractPhonesFromText(value);
+  })));
+}
+
+async function extractCandidateEmails(candidate, credentials, db) {
+  const curriculum = findCurriculumForSelectedCandidate(candidate, db);
+  const candidateEmails = uniqueEmails([
+    candidate.email,
+    candidate.emails,
+    candidate.consultantEmail,
+    candidate.candidateEmail,
+    candidate.observation,
+    candidate.candidateMessage,
+    candidate.link,
+    curriculum?.email,
+    curriculum?.observacoes_entrevista
+  ]);
+
+  if (!candidate.link) return candidateEmails;
 
   try {
+    let linkEmails = [];
     if (/apinfo2?\.com/i.test(candidate.link) && credentials.configured) {
-      return extractApinfoCandidateEmails(credentials, candidate.link);
+      linkEmails = await extractApinfoCandidateEmails(credentials, candidate.link);
+    } else {
+      const text = await fetchPublicText(candidate.link);
+      linkEmails = extractEmailsFromText(text);
     }
 
-    const text = await fetchPublicText(candidate.link);
-    return extractEmailsFromText(text);
+    return uniqueEmails([...candidateEmails, ...linkEmails]);
   } catch {
-    return [];
+    return candidateEmails;
   }
 }
 
-function buildCandidateEmailBody(rows, missingRows, candidateMessage = '') {
-  const lines = [
-    'Teste de envio de e-mails dos candidatos selecionados.',
-    ''
-  ];
+async function extractCandidatePhones(candidate, credentials, db) {
+  const curriculum = findCurriculumForSelectedCandidate(candidate, db);
+  const candidatePhones = uniquePhones([
+    candidate.phone,
+    candidate.phones,
+    candidate.telefone,
+    candidate.whatsapp,
+    candidate.observation,
+    candidate.candidateMessage,
+    curriculum?.telefone,
+    curriculum?.phone,
+    curriculum?.whatsapp,
+    curriculum?.observacoes_entrevista,
+    curriculum?.experiencia_profissional
+  ]);
 
-  if (candidateMessage) {
-    lines.push('Mensagem ao candidato:', candidateMessage, '');
+  if (!candidate.link) return candidatePhones;
+
+  try {
+    let linkText = '';
+    if (/apinfo2?\.com/i.test(candidate.link) && credentials.configured) {
+      linkText = await extractApinfoCandidateText(credentials, candidate.link);
+    } else {
+      linkText = await fetchPublicText(candidate.link);
+    }
+    return uniquePhones([...candidatePhones, linkText]);
+  } catch {
+    return candidatePhones;
   }
+}
 
-  lines.push(
-    'E-mails encontrados:'
-  );
-
-  if (rows.length) {
-    rows.forEach((row) => {
-      lines.push(`- ${row.name}: ${row.emails.join(', ')}`);
-    });
-  } else {
-    lines.push('- Nenhum e-mail encontrado.');
-  }
-
-  if (missingRows.length) {
-    lines.push('', 'Candidatos sem e-mail encontrado:');
-    missingRows.forEach((row) => lines.push(`- ${row.name} (${row.link || 'sem link'})`));
-  }
-
-  return lines.join('\n');
+function buildCandidateEmailBody(rows, candidateMessage = '') {
+  const names = rows.map((row) => row.name).filter(Boolean);
+  const greetingName = names.length === 1 ? names[0] : names.join(', ');
+  return [
+    `Olá, ${greetingName || 'candidato'}.`,
+    '',
+    candidateMessage || ''
+  ].join('\n').trim();
 }
 
 function buildCandidateMailto(to, subject, body) {
-  return `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  const recipients = (Array.isArray(to) ? to : String(to ?? '').split(/[;,]/))
+    .map((item) => String(item).trim())
+    .filter(Boolean);
+  const addressList = recipients
+    .map((email) => encodeURIComponent(email).replace(/%40/g, '@'))
+    .join(',');
+  return `mailto:${addressList}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
+function opportunityLabelForCandidate(candidate, db) {
+  const opportunity = db.opportunities.find((item) => item.id === candidate.opportunityId);
+  return [
+    candidate.opportunityCode || opportunity?.opportunityCode,
+    candidate.opportunityName || opportunity?.opportunity
+  ].filter(Boolean).join(' - ') || 'uma oportunidade';
+}
+
+function buildCandidateWhatsappBody(candidate, db, user, candidateMessage = '') {
+  return [
+    `Olá, ${candidate.name || 'candidato'}.`,
+    '',
+    `Sou ${user?.name || 'Alcateia'} da Alcateia. Temos uma oportunidade de ${opportunityLabelForCandidate(candidate, db)}.`,
+    '',
+    candidateMessage || candidate.candidateMessage || '',
+    '',
+    'Se preferir não receber oportunidades por WhatsApp, responda SAIR.'
+  ].filter((line, index, lines) => line || lines[index - 1]).join('\n').trim();
+}
+
+function buildWhatsappLink(phone, message) {
+  return `https://wa.me/${encodeURIComponent(phone)}?text=${encodeURIComponent(message)}`;
 }
 
 
@@ -1685,6 +1803,7 @@ async function handleApi(request, response) {
       const curriculumTemplates = await listCurriculumTemplates().catch(() => []);
       sendJson(response, 200, {
         clients: responseDb.clients,
+        contactClients: responseDb.contactClients,
         opportunities: responseDb.opportunities,
         faturamento: responseDb.faturamento,
         cvFilters: responseDb.cvFilters.map((filter) => enrichCvFilter(filter, responseDb)),
@@ -2013,6 +2132,80 @@ async function handleApi(request, response) {
       return;
     }
 
+    if (request.method === 'POST' && pathname === '/api/contact-clients') {
+      const payload = await readJsonBody(request);
+      const db = await readDatabase();
+      const contact = normalizeContactClient({
+        id: createId('contact_client', payload.name || payload.email),
+        ...payload,
+        createdAt: toISODate()
+      });
+
+      if (!contact.clientId || !db.clients.some((client) => client.id === contact.clientId)) {
+        sendError(response, 422, 'Selecione um cliente valido para o contato.');
+        return;
+      }
+      if (!contact.name) {
+        sendError(response, 422, 'Informe o nome do contato.');
+        return;
+      }
+
+      db.contactClients.push(contact);
+      await writeDatabase(db);
+      sendJson(response, 201, contact);
+      return;
+    }
+
+    if (request.method === 'PATCH' && /^\/api\/contact-clients\/[^/]+$/.test(pathname)) {
+      const contactId = pathname.split('/').at(-1);
+      const payload = await readJsonBody(request);
+      const db = await readDatabase();
+      const contact = db.contactClients.find((item) => item.id === contactId);
+
+      if (!contact) {
+        sendError(response, 404, 'Contato de cliente nao encontrado.');
+        return;
+      }
+
+      const updated = normalizeContactClient({
+        ...contact,
+        ...payload,
+        id: contact.id,
+        createdAt: contact.createdAt,
+        updatedAt: toISODate()
+      });
+
+      if (!updated.clientId || !db.clients.some((client) => client.id === updated.clientId)) {
+        sendError(response, 422, 'Selecione um cliente valido para o contato.');
+        return;
+      }
+      if (!updated.name) {
+        sendError(response, 422, 'Informe o nome do contato.');
+        return;
+      }
+
+      Object.assign(contact, updated);
+      await writeDatabase(db);
+      sendJson(response, 200, contact);
+      return;
+    }
+
+    if (request.method === 'DELETE' && /^\/api\/contact-clients\/[^/]+$/.test(pathname)) {
+      const contactId = pathname.split('/').at(-1);
+      const db = await readDatabase();
+      const initialLength = db.contactClients.length;
+      db.contactClients = db.contactClients.filter((contact) => contact.id !== contactId);
+
+      if (db.contactClients.length === initialLength) {
+        sendError(response, 404, 'Contato de cliente nao encontrado.');
+        return;
+      }
+
+      await writeDatabase(db);
+      sendJson(response, 200, { ok: true });
+      return;
+    }
+
     if (request.method === 'POST' && pathname === '/api/opportunities') {
       const payload = await readJsonBody(request);
       const db = await readDatabase();
@@ -2020,6 +2213,7 @@ async function handleApi(request, response) {
       const opportunity = {
         id: createId('opp', payload.opportunity),
         clientId: String(payload.clientId ?? ''),
+        contactClientId: String(payload.contactClientId ?? '').trim(),
         opportunity: String(payload.opportunity ?? '').trim(),
         opportunityCode: String(payload.opportunityCode ?? '').trim(),
         status: normalizeOpportunityStatus(payload.status || 'Open'),
@@ -2037,6 +2231,13 @@ async function handleApi(request, response) {
 
       if (!opportunity.clientId || !db.clients.some((client) => client.id === opportunity.clientId)) {
         sendError(response, 422, 'Selecione um cliente valido.');
+        return;
+      }
+      if (
+        opportunity.contactClientId
+        && !db.contactClients.some((contact) => contact.id === opportunity.contactClientId && contact.clientId === opportunity.clientId)
+      ) {
+        sendError(response, 422, 'Selecione um contato valido para o cliente da oportunidade.');
         return;
       }
       if (!opportunity.opportunity) {
@@ -2080,6 +2281,7 @@ async function handleApi(request, response) {
       }
 
       opportunity.clientId = String(payload.clientId ?? '');
+      opportunity.contactClientId = String(payload.contactClientId ?? '').trim();
       opportunity.opportunity = String(payload.opportunity ?? '').trim();
       opportunity.opportunityCode = String(payload.opportunityCode ?? '').trim();
       opportunity.status = normalizeOpportunityStatus(payload.status || 'Open');
@@ -2093,6 +2295,14 @@ async function handleApi(request, response) {
       opportunity.contractValue = Number(payload.contractValue ?? 0);
       opportunity.observation = String(payload.observation ?? '').trim();
       opportunity.updatedAt = toISODate();
+
+      if (
+        opportunity.contactClientId
+        && !db.contactClients.some((contact) => contact.id === opportunity.contactClientId && contact.clientId === opportunity.clientId)
+      ) {
+        sendError(response, 422, 'Selecione um contato valido para o cliente da oportunidade.');
+        return;
+      }
 
       syncCandidatesWithOpportunityClosures(db);
       await writeDatabase(db);
@@ -2364,8 +2574,8 @@ async function handleApi(request, response) {
           `Regra: ${ruleSummary}.`
         ].join(' ');
 
-        searchResponse.searchResults = mergedResults;
-        searchResponse.searchRejectedResults = mergedRejectedResults;
+        searchResponse.searchResults = sortCandidateRowsByFreshnessAndScore(mergedResults).slice(0, requestedLimit);
+        searchResponse.searchRejectedResults = sortCandidateRowsByFreshnessAndScore(mergedRejectedResults).slice(0, requestedLimit);
       }
 
       sendJson(response, 200, searchResponse);
@@ -2417,6 +2627,64 @@ async function handleApi(request, response) {
       return;
     }
 
+    if (request.method === 'POST' && pathname === '/api/selected-candidates/whatsapp') {
+      const payload = await readJsonBody(request);
+      const db = await readDatabase();
+      const ids = Array.isArray(payload.ids) ? payload.ids.map((id) => String(id)) : [];
+      const candidates = db.selectedCandidates.filter((candidate) => ids.includes(candidate.id));
+      const credentials = getApinfoCredentials();
+      const candidateMessage = String(payload.candidateMessage ?? candidates[0]?.candidateMessage ?? '').trim();
+
+      if (!candidates.length) {
+        sendError(response, 422, 'Selecione pelo menos um candidato para abrir no WhatsApp.');
+        return;
+      }
+
+      const foundRows = [];
+      const missingRows = [];
+      const links = [];
+
+      for (const candidate of candidates) {
+        const phones = await extractCandidatePhones(candidate, credentials, db);
+        if (phones.length) {
+          const message = buildCandidateWhatsappBody(candidate, db, auth.user, candidateMessage);
+          const row = {
+            id: candidate.id,
+            name: candidate.name,
+            link: candidate.link,
+            phones
+          };
+          foundRows.push(row);
+          for (const phone of phones) {
+            links.push({
+              id: candidate.id,
+              name: candidate.name,
+              phone,
+              url: buildWhatsappLink(phone, message)
+            });
+          }
+        } else {
+          missingRows.push({
+            id: candidate.id,
+            name: candidate.name,
+            link: candidate.link
+          });
+        }
+      }
+
+      if (!links.length) {
+        sendError(response, 422, 'Nenhum telefone/WhatsApp foi encontrado para os candidatos selecionados.');
+        return;
+      }
+
+      sendJson(response, 200, {
+        found: foundRows,
+        missing: missingRows,
+        links
+      });
+      return;
+    }
+
     if (
       request.method === 'POST'
       && (
@@ -2440,7 +2708,7 @@ async function handleApi(request, response) {
       const missingRows = [];
 
       for (const candidate of candidates) {
-        const emails = await extractCandidateEmails(candidate, credentials);
+        const emails = await extractCandidateEmails(candidate, credentials, db);
         if (emails.length) {
           foundRows.push({
             id: candidate.id,
@@ -2457,33 +2725,25 @@ async function handleApi(request, response) {
         }
       }
 
-      const subject = 'Teste de envio - candidatos selecionados';
-      const body = buildCandidateEmailBody(foundRows, missingRows, candidateMessage);
-      const smtpConfig = getSmtpConfigFromEnv();
-      const mailto = buildCandidateMailto(smtpConfig.testTo, subject, body);
-
-      if (smtpConfig.configured) {
-        await sendMail({
-          host: smtpConfig.host,
-          port: smtpConfig.port,
-          secure: smtpConfig.secure,
-          user: smtpConfig.user,
-          password: smtpConfig.password,
-          from: smtpConfig.from,
-          to: smtpConfig.testTo,
-          subject,
-          text: body
-        });
+      if (!foundRows.length) {
+        sendError(response, 422, 'Nenhum e-mail foi encontrado para os candidatos selecionados.');
+        return;
       }
 
+      const subject = 'Oportunidade Alocação de Profissional - Alcateia';
+      const body = buildCandidateEmailBody(foundRows, candidateMessage);
+      const recipients = Array.from(new Set(foundRows.flatMap((row) => row.emails)));
+      const mailto = buildCandidateMailto(recipients, subject, body);
+
       sendJson(response, 200, {
-        to: smtpConfig.testTo,
+        to: recipients.join(', '),
+        fromAccountHint: auth.user.email,
         found: foundRows,
         missing: missingRows,
         mailto,
-        sent: smtpConfig.configured,
-        delivery: smtpConfig.configured ? 'smtp' : 'mailto',
-        smtpConfigured: smtpConfig.configured
+        sent: false,
+        delivery: 'mailto',
+        smtpConfigured: false
       });
       return;
     }

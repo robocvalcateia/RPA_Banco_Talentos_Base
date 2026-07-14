@@ -880,6 +880,21 @@ label.full,
   align-items: end;
 }
 
+.selected-candidate-filter-bar {
+  grid-template-columns: 240px 280px 180px;
+  align-items: end;
+  justify-content: start;
+}
+
+.selected-candidate-filter-field {
+  width: 280px;
+}
+
+.selected-candidate-filter-field input,
+.selected-candidate-filter-field select {
+  width: 100%;
+}
+
 .allocated-filter-bar label {
   min-width: 0;
 }
@@ -944,6 +959,19 @@ th {
 
 .clickable-row:hover td {
   background: var(--surface-soft);
+}
+
+.table-action {
+  min-height: 34px;
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+
+.row-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .bar-list {
@@ -1145,6 +1173,16 @@ th {
   overflow: auto;
   padding: 22px;
   width: min(760px, 100%);
+}
+
+.modal-panel-wide {
+  width: min(1040px, 100%);
+}
+
+.modal-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin: 14px 0;
 }
 
 .modal-copy {

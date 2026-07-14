@@ -1,5 +1,6 @@
 ﻿const state = {
   clients: [],
+  contactClients: [],
   opportunities: [],
   faturamento: [],
   cvFilters: [],
@@ -29,6 +30,7 @@
   dashboardModel: '',
   dashboardAnalyticsCsvUrl: '',
   selectedCandidateFilter: { type: '', value: '' },
+  whatsappQueue: [],
   allocatedFilter: { type: '', value: '', status: '' },
   selectedAllocatedIds: new Set(),
   huntingFilter: { type: '', value: '' },
@@ -42,6 +44,7 @@
   curriculumActiveTab: 'list',
   editing: {
     clientId: '',
+    contactClientId: '',
     faturamentoId: '',
     opportunityId: '',
     cvFilterId: '',
@@ -533,6 +536,26 @@ function renderOptions() {
     select.innerHTML = ufOptions;
   });
 
+  updateOpportunityContactOptions();
+}
+
+function contactClientLabel(contact) {
+  return [contact.name, contact.area, contact.role].filter(Boolean).join(' - ') || contact.id;
+}
+
+function updateOpportunityContactOptions(selectedValue = $('#opportunityForm select[name="contactClientId"]')?.value || '') {
+  const form = $('#opportunityForm');
+  const contactSelect = form?.elements.contactClientId;
+  if (!contactSelect) return;
+
+  const clientId = form.elements.clientId?.value || '';
+  const contacts = state.contactClients
+    .filter((contact) => contact.clientId === clientId)
+    .sort((first, second) => String(first.name || '').localeCompare(String(second.name || ''), 'pt-BR', { sensitivity: 'base' }));
+  const options = contacts.map((contact) => `<option value="${contact.id}">${escapeHtml(contactClientLabel(contact))}</option>`).join('');
+  contactSelect.innerHTML = `<option value="">${clientId ? 'Selecione' : 'Selecione um cliente'}</option>${options}`;
+  contactSelect.disabled = !clientId || !contacts.length;
+  contactSelect.value = contacts.some((contact) => contact.id === selectedValue) ? selectedValue : '';
 }
 
 function monthKeyFromValue(value) {
@@ -1441,15 +1464,157 @@ function renderClients() {
     .map(
       (client) => `
         <tr class="clickable-row" data-edit-client="${client.id}">
-          <td><strong>${client.customerName}</strong></td>
-          <td>${client.primaryContactName || '-'}</td>
-          <td>${client.primaryContactEmail || '-'}</td>
-          <td>${client.primaryContactPhone || '-'}</td>
-          <td>${client.observation || '-'}</td>
+          <td><strong>${escapeHtml(client.customerName)}</strong></td>
+          <td>${escapeHtml(client.primaryContactName || '-')}</td>
+          <td>${escapeHtml(client.primaryContactEmail || '-')}</td>
+          <td>${escapeHtml(client.primaryContactPhone || '-')}</td>
+          <td>${escapeHtml(client.observation || '-')}</td>
+          <td>
+            <div class="row-actions">
+              <button class="primary-action table-action" type="button" data-contact-client-for="${client.id}">
+                Cadastrar contato
+              </button>
+              <button class="primary-action table-action" type="button" data-consult-contact-client-for="${client.id}">
+                Consultar contatos
+              </button>
+            </div>
+          </td>
         </tr>
       `
     )
     .join('');
+}
+
+function selectedClientForContacts() {
+  return state.clients.find((client) => client.id === state.editing.clientId) || null;
+}
+
+function openContactClientModal(contact = null) {
+  const client = selectedClientForContacts();
+  if (!client) {
+    toast('Salve ou selecione um cliente antes de cadastrar contatos.');
+    return;
+  }
+
+  const modal = $('#contactClientModal');
+  const context = $('#contactClientModalContext');
+  const title = $('#contactClientModalTitle');
+  const form = $('#contactClientForm');
+  if (!modal || !form) return;
+
+  if (contact) {
+    state.editing.contactClientId = contact.id;
+    fillForm('#contactClientForm', {
+      clientId: contact.clientId,
+      name: contact.name,
+      area: contact.area,
+      role: contact.role,
+      phone: contact.phone,
+      email: contact.email
+    }, 'Atualizar contato');
+    if (title) title.textContent = 'Atualizar contato';
+  } else {
+    clearEditing(form, 'contactClientId', 'Cadastrar contato');
+    form.elements.clientId.value = client.id;
+    if (title) title.textContent = 'Cadastrar contato';
+  }
+
+  if (context) context.textContent = `Cliente: ${client.customerName}`;
+  modal.classList.remove('hidden');
+  form.elements.name?.focus();
+}
+
+function closeContactClientModal() {
+  $('#contactClientModal')?.classList.add('hidden');
+}
+
+function renderContactClientListModal() {
+  const client = selectedClientForContacts();
+  const table = $('#contactClientListModalTable');
+  const context = $('#contactClientListModalContext');
+  if (!table || !context) return;
+
+  if (!client) {
+    context.textContent = 'Cliente não selecionado';
+    table.innerHTML = '<tr><td colspan="6">Selecione um cliente para consultar contatos.</td></tr>';
+    return;
+  }
+
+  const contacts = state.contactClients
+    .filter((contact) => contact.clientId === client.id)
+    .sort((first, second) => String(first.name || '').localeCompare(String(second.name || ''), 'pt-BR', { sensitivity: 'base' }));
+
+  context.textContent = `Cliente: ${client.customerName} · ${contacts.length} contato(s)`;
+  table.innerHTML = contacts.length
+    ? contacts.map((contact) => `
+      <tr>
+        <td><strong>${escapeHtml(contact.name || '-')}</strong></td>
+        <td>${escapeHtml(contact.area || '-')}</td>
+        <td>${escapeHtml(contact.role || '-')}</td>
+        <td>${escapeHtml(contact.phone || '-')}</td>
+        <td>${escapeHtml(contact.email || '-')}</td>
+        <td>
+          <div class="row-actions">
+            <button class="primary-action table-action" type="button" data-modal-edit-contact-client="${contact.id}">Alterar</button>
+            <button class="ghost-action table-action" type="button" data-modal-delete-contact-client="${contact.id}">Excluir</button>
+          </div>
+        </td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="6">Nenhum contato cadastrado para este cliente.</td></tr>';
+}
+
+function openContactClientListModal(client) {
+  if (!client) {
+    toast('Cliente não encontrado.');
+    return;
+  }
+
+  state.editing.clientId = client.id;
+  state.editing.contactClientId = '';
+  closeContactClientModal();
+  renderContactClients();
+  renderContactClientListModal();
+  $('#contactClientListModal')?.classList.remove('hidden');
+}
+
+function closeContactClientListModal() {
+  $('#contactClientListModal')?.classList.add('hidden');
+}
+
+function renderContactClients() {
+  const client = selectedClientForContacts();
+  const contacts = client
+    ? state.contactClients.filter((contact) => contact.clientId === client.id)
+    : [];
+  const table = $('#contactClientTable');
+  const count = $('#contactClientCount');
+  const context = $('#contactClientContext');
+
+  if (!table || !count || !context) return;
+
+  count.textContent = contacts.length;
+  context.textContent = client
+    ? `Cliente: ${client.customerName}`
+    : 'Selecione um cliente para cadastrar contatos';
+
+  if (!client) {
+    table.innerHTML = '<tr><td colspan="6">Selecione um cliente para visualizar contatos.</td></tr>';
+    return;
+  }
+
+  table.innerHTML = contacts.length
+    ? contacts.map((contact) => `
+      <tr class="clickable-row" data-edit-contact-client="${contact.id}">
+        <td><strong>${escapeHtml(contact.name || '-')}</strong></td>
+        <td>${escapeHtml(contact.area || '-')}</td>
+        <td>${escapeHtml(contact.role || '-')}</td>
+        <td>${escapeHtml(contact.phone || '-')}</td>
+        <td>${escapeHtml(contact.email || '-')}</td>
+        <td><button class="ghost-action" type="button" data-delete-contact-client="${contact.id}" aria-label="Excluir contato">Excluir</button></td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="6">Nenhum contato cadastrado para este cliente.</td></tr>';
 }
 
 function formatFaturamentoMonth(monthYear) {
@@ -1554,11 +1719,13 @@ function renderOpportunities() {
   $('#opportunityTable').innerHTML = opportunities
     .map((opportunity) => {
       const client = state.clients.find((item) => item.id === opportunity.clientId);
+      const contact = state.contactClients.find((item) => item.id === opportunity.contactClientId);
       return `
         <tr class="clickable-row" data-edit-opportunity="${opportunity.id}">
           <td><strong>${opportunity.opportunity}</strong></td>
           <td>${opportunity.opportunityCode || '-'}</td>
           <td>${client?.customerName || 'Cliente nao encontrado'}</td>
+          <td>${contact ? escapeHtml(contactClientLabel(contact)) : '-'}</td>
           <td>${opportunity.status}</td>
           <td>${opportunity.openingDate || '-'}</td>
           <td>${opportunity.closingDate || '-'}</td>
@@ -3253,11 +3420,15 @@ function renderCandidates() {
 
 function getFilteredSelectedCandidates() {
   const type = state.selectedCandidateFilter.type || $('#selectedCandidateFilterType')?.value || '';
-  const value = state.selectedCandidateFilter.value || $('#selectedCandidateFilterValue')?.value || '';
+  const value = state.selectedCandidateFilter.value
+    || $('#selectedCandidateFilterClientValue')?.value
+    || $('#selectedCandidateFilterOpportunityValue')?.value
+    || $('#selectedCandidateFilterValue')?.value
+    || '';
   const normalizedValue = normalizeText(value);
 
   return state.selectedCandidates.filter((candidate) => {
-    if (!type || !normalizedValue) return true;
+    if (!type || !value) return true;
 
     const opportunity = state.opportunities.find((item) => item.id === candidate.opportunityId);
     const client = state.clients.find((item) => item.id === opportunity?.clientId);
@@ -3267,16 +3438,11 @@ function getFilteredSelectedCandidates() {
     }
 
     if (type === 'client') {
-      return normalizeText(client?.customerName).includes(normalizedValue);
+      return client?.id === value;
     }
 
     if (type === 'opportunity') {
-      return normalizeText([
-        candidate.opportunityName,
-        candidate.opportunityCode,
-        opportunity?.opportunity,
-        opportunity?.opportunityCode
-      ].filter(Boolean).join(' ')).includes(normalizedValue);
+      return candidate.opportunityId === value;
     }
 
     return true;
@@ -3284,10 +3450,9 @@ function getFilteredSelectedCandidates() {
 }
 
 function selectedCandidateFilterForOpportunity(opportunityId) {
-  const opportunity = state.opportunities.find((item) => item.id === opportunityId);
   return {
     type: 'opportunity',
-    value: opportunityLabel(opportunity || { opportunity: opportunityId })
+    value: opportunityId || ''
   };
 }
 
@@ -3299,16 +3464,40 @@ function uniqueOpportunityIdFromSelectedCandidates(candidates) {
 function renderSelectedCandidates() {
   const typeSelect = $('#selectedCandidateFilterType');
   const valueInput = $('#selectedCandidateFilterValue');
+  const clientSelect = $('#selectedCandidateFilterClientValue');
+  const opportunitySelect = $('#selectedCandidateFilterOpportunityValue');
   const form = $('#selectedCandidateMessageForm');
   const table = $('#selectedCandidateTable');
   const count = $('#selectedCandidateCount');
-  if (!typeSelect || !valueInput || !table || !count) return;
+  if (!typeSelect || !valueInput || !clientSelect || !opportunitySelect || !table || !count) return;
 
   const type = state.selectedCandidateFilter.type || '';
   typeSelect.value = type;
-  valueInput.disabled = !type;
+  const clientOptions = '<option value="">Todos</option>' + state.clients
+    .slice()
+    .sort((first, second) => String(first.customerName || '').localeCompare(String(second.customerName || ''), 'pt-BR', { sensitivity: 'base' }))
+    .map((client) => `<option value="${client.id}">${escapeHtml(client.customerName || client.id)}</option>`)
+    .join('');
+  clientSelect.innerHTML = clientOptions;
+  const opportunityOptions = '<option value="">Todos</option>' + state.opportunities
+    .slice()
+    .sort(byOpportunityCode)
+    .map((opportunity) => `<option value="${opportunity.id}">${escapeHtml(opportunityLabel(opportunity))}</option>`)
+    .join('');
+  opportunitySelect.innerHTML = opportunityOptions;
+
+  const isClientFilter = type === 'client';
+  const isOpportunityFilter = type === 'opportunity';
+  valueInput.classList.toggle('hidden', isClientFilter || isOpportunityFilter);
+  clientSelect.classList.toggle('hidden', !isClientFilter);
+  opportunitySelect.classList.toggle('hidden', !isOpportunityFilter);
+  valueInput.disabled = !type || isClientFilter || isOpportunityFilter;
+  clientSelect.disabled = !isClientFilter;
+  opportunitySelect.disabled = !isOpportunityFilter;
   valueInput.placeholder = type ? 'Digite para filtrar' : 'Todos';
-  valueInput.value = type ? state.selectedCandidateFilter.value : '';
+  valueInput.value = type && !isClientFilter && !isOpportunityFilter ? state.selectedCandidateFilter.value : '';
+  clientSelect.value = isClientFilter ? state.selectedCandidateFilter.value : '';
+  opportunitySelect.value = isOpportunityFilter ? state.selectedCandidateFilter.value : '';
 
   const candidates = getFilteredSelectedCandidates();
   count.textContent = candidates.length;
@@ -3389,6 +3578,7 @@ function render() {
   renderAllocatedPie();
   renderAverageTable();
   renderClients();
+  renderContactClients();
   renderFaturamento();
   renderOpportunityFilters();
   renderOpportunities();
@@ -3498,6 +3688,7 @@ function clearEditing(form, key, submitLabel) {
 
 function loadClientForEdit(client) {
   state.editing.clientId = client.id;
+  state.editing.contactClientId = '';
   fillForm('#clientForm', {
     customerName: client.customerName,
     primaryContactName: client.primaryContactName,
@@ -3505,7 +3696,14 @@ function loadClientForEdit(client) {
     primaryContactPhone: client.primaryContactPhone,
     observation: client.observation
   }, 'Atualizar cliente');
+  closeContactClientModal();
+  renderContactClients();
   toast('Cliente carregado para atualização.');
+}
+
+function loadContactClientForEdit(contact) {
+  openContactClientModal(contact);
+  toast('Contato carregado para atualização.');
 }
 
 function loadFaturamentoForEdit(item) {
@@ -3526,6 +3724,7 @@ function loadOpportunityForEdit(opportunity) {
     opportunity: opportunity.opportunity,
     opportunityCode: opportunity.opportunityCode,
     clientId: opportunity.clientId,
+    contactClientId: opportunity.contactClientId || '',
     status: opportunity.status,
     openingDate: opportunity.openingDate,
     closingDate: opportunity.closingDate,
@@ -3536,6 +3735,7 @@ function loadOpportunityForEdit(opportunity) {
     contractValue: opportunity.contractValue,
     observation: opportunity.observation
   }, 'Atualizar oportunidade');
+  updateOpportunityContactOptions(opportunity.contactClientId || '');
   toast('Oportunidade carregada para atualização.');
 }
 
@@ -4020,6 +4220,57 @@ function bindForms() {
     }
   });
 
+  $('#contactClientForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const client = selectedClientForContacts();
+    if (!client) {
+      toast('Selecione um cliente antes de cadastrar contatos.');
+      return;
+    }
+
+    const editingId = state.editing.contactClientId;
+    const payload = {
+      ...formPayload(event.currentTarget),
+      clientId: client.id
+    };
+
+    try {
+      await api(editingId ? `/api/contact-clients/${editingId}` : '/api/contact-clients', {
+        method: editingId ? 'PATCH' : 'POST',
+        body: JSON.stringify(payload)
+      });
+      clearEditing(event.currentTarget, 'contactClientId', 'Cadastrar contato');
+      state.editing.clientId = client.id;
+      closeContactClientModal();
+      toast(editingId ? 'Contato atualizado.' : 'Contato cadastrado.');
+      await refresh();
+      state.editing.clientId = client.id;
+      renderContactClients();
+      renderContactClientListModal();
+    } catch (error) {
+      toast(error.message || 'Não foi possível salvar o contato.');
+    }
+  });
+
+  $('#addContactFromListButton')?.addEventListener('click', () => {
+    closeContactClientListModal();
+    openContactClientModal();
+  });
+
+  $('#closeContactClientListModal')?.addEventListener('click', closeContactClientListModal);
+  $('#contactClientListModal')?.addEventListener('click', (event) => {
+    if (event.target.id === 'contactClientListModal') {
+      closeContactClientListModal();
+    }
+  });
+
+  $('#closeContactClientModal')?.addEventListener('click', closeContactClientModal);
+  $('#contactClientModal')?.addEventListener('click', (event) => {
+    if (event.target.id === 'contactClientModal') {
+      closeContactClientModal();
+    }
+  });
+
   $('#faturamentoForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -4285,6 +4536,10 @@ function bindForms() {
     } finally {
       restoreSubmitButton(submitButton, state.editing.candidatePoolId ? (originalText || 'Atualizar candidato') : 'Salvar candidato');
     }
+  });
+
+  $('#opportunityForm select[name="clientId"]')?.addEventListener('change', () => {
+    updateOpportunityContactOptions('');
   });
 
   $('#huntingForm')?.addEventListener('submit', async (event) => {
@@ -4639,9 +4894,21 @@ function bindSelectedCandidateFilters() {
     renderSelectedCandidates();
   });
 
+  ['#selectedCandidateFilterClientValue', '#selectedCandidateFilterOpportunityValue'].forEach((selector) => {
+    $(selector)?.addEventListener('change', (event) => {
+      state.selectedCandidateFilter.value = event.currentTarget.value;
+      renderSelectedCandidates();
+    });
+  });
+
   $('#selectedCandidateSearchButton')?.addEventListener('click', () => {
-    state.selectedCandidateFilter.type = $('#selectedCandidateFilterType')?.value || '';
-    state.selectedCandidateFilter.value = $('#selectedCandidateFilterValue')?.value || '';
+    const type = $('#selectedCandidateFilterType')?.value || '';
+    state.selectedCandidateFilter.type = type;
+    state.selectedCandidateFilter.value = type === 'client'
+      ? $('#selectedCandidateFilterClientValue')?.value || ''
+      : type === 'opportunity'
+        ? $('#selectedCandidateFilterOpportunityValue')?.value || ''
+        : $('#selectedCandidateFilterValue')?.value || '';
     renderSelectedCandidates();
   });
 }
@@ -5084,6 +5351,23 @@ function selectedCandidateIdsForSending() {
   return $$('[data-send-selected-candidate]:checked').map((checkbox) => checkbox.dataset.sendSelectedCandidate);
 }
 
+function openNextWhatsappLink() {
+  const next = state.whatsappQueue.shift();
+  if (!next) return false;
+
+  window.open(next.url, '_blank', 'noopener');
+  const button = $('#openSelectedCandidateWhatsappButton');
+  if (button) {
+    button.textContent = state.whatsappQueue.length
+      ? `Enviar próximo WhatsApp (${state.whatsappQueue.length})`
+      : 'Enviar WhatsApp';
+  }
+  toast(state.whatsappQueue.length
+    ? `WhatsApp aberto para ${next.name || next.phone}. Restam ${state.whatsappQueue.length}.`
+    : `WhatsApp aberto para ${next.name || next.phone}.`);
+  return true;
+}
+
 function bindSelectedCandidateActions() {
   $('#selectedCandidateTable')?.addEventListener('click', async (event) => {
     const advanceButton = event.target.closest('[data-advance-selected-candidate]');
@@ -5168,7 +5452,7 @@ function bindSelectedCandidateActions() {
         toast(`E-mail enviado para ${result.to} com ${result.found.length} candidato(s) com e-mail encontrado.`);
       } else if (result.mailto) {
         window.location.href = result.mailto;
-        toast(`SMTP não configurado. E-mail preparado com ${result.found.length} candidato(s) com e-mail encontrado.`);
+        toast(`E-mail aberto para ${result.found.length} candidato(s) com endereço encontrado.`);
       } else {
         toast('Envio preparado, mas nenhuma forma de entrega foi configurada.');
       }
@@ -5177,7 +5461,47 @@ function bindSelectedCandidateActions() {
     } finally {
       if (button) {
         button.disabled = false;
-        button.textContent = 'Enviar mensagem';
+        button.textContent = 'Enviar email';
+      }
+    }
+  });
+
+  $('#openSelectedCandidateWhatsappButton')?.addEventListener('click', async () => {
+    if (state.whatsappQueue.length && openNextWhatsappLink()) return;
+
+    const ids = selectedCandidateIdsForSending();
+    if (!ids.length) {
+      toast('Marque ao menos um candidato com Enviar.');
+      return;
+    }
+
+    const button = $('#openSelectedCandidateWhatsappButton');
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Preparando WhatsApp...';
+    }
+
+    try {
+      const result = await api('/api/selected-candidates/whatsapp', {
+        method: 'POST',
+        body: JSON.stringify({
+          ids,
+          candidateMessage: $('#selectedCandidateMessageForm')?.elements.candidateMessage.value || ''
+        })
+      });
+      state.whatsappQueue = Array.isArray(result.links) ? result.links.slice() : [];
+      if (result.missing?.length) {
+        toast(`${result.missing.length} candidato(s) sem telefone/WhatsApp encontrado.`);
+      }
+      openNextWhatsappLink();
+    } catch (error) {
+      toast(error.message || 'Não foi possível preparar o WhatsApp.');
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = state.whatsappQueue.length
+          ? `Enviar próximo WhatsApp (${state.whatsappQueue.length})`
+          : 'Enviar WhatsApp';
       }
     }
   });
@@ -5185,10 +5509,87 @@ function bindSelectedCandidateActions() {
 
 function bindEditableRows() {
   $('#clientTable').addEventListener('click', (event) => {
+    const contactButton = event.target.closest('[data-contact-client-for]');
+    if (contactButton) {
+      const client = state.clients.find((item) => item.id === contactButton.dataset.contactClientFor);
+      if (!client) return;
+      state.editing.clientId = client.id;
+      state.editing.contactClientId = '';
+      renderContactClients();
+      openContactClientModal();
+      return;
+    }
+
+    const consultContactButton = event.target.closest('[data-consult-contact-client-for]');
+    if (consultContactButton) {
+      const client = state.clients.find((item) => item.id === consultContactButton.dataset.consultContactClientFor);
+      openContactClientListModal(client);
+      return;
+    }
+
     if (event.target.closest('button, a, input, select, textarea')) return;
     const row = event.target.closest('[data-edit-client]');
     const client = state.clients.find((item) => item.id === row?.dataset.editClient);
     if (client) loadClientForEdit(client);
+  });
+
+  $('#contactClientTable')?.addEventListener('click', async (event) => {
+    const deleteButton = event.target.closest('[data-delete-contact-client]');
+    if (deleteButton) {
+      const contact = state.contactClients.find((item) => item.id === deleteButton.dataset.deleteContactClient);
+      if (!contact) return;
+      if (!window.confirm(`Excluir contato ${contact.name || 'selecionado'}?`)) return;
+
+      try {
+        await api(`/api/contact-clients/${contact.id}`, { method: 'DELETE' });
+        state.contactClients = state.contactClients.filter((item) => item.id !== contact.id);
+        if (state.editing.contactClientId === contact.id) {
+          clearEditing($('#contactClientForm'), 'contactClientId', 'Cadastrar contato');
+        }
+        renderContactClients();
+        toast('Contato excluído.');
+      } catch (error) {
+        toast(error.message || 'Não foi possível excluir o contato.');
+      }
+      return;
+    }
+
+    if (event.target.closest('button, a, input, select, textarea')) return;
+    const row = event.target.closest('[data-edit-contact-client]');
+    const contact = state.contactClients.find((item) => item.id === row?.dataset.editContactClient);
+    if (contact) loadContactClientForEdit(contact);
+  });
+
+  $('#contactClientListModalTable')?.addEventListener('click', async (event) => {
+    const editButton = event.target.closest('[data-modal-edit-contact-client]');
+    if (editButton) {
+      const contact = state.contactClients.find((item) => item.id === editButton.dataset.modalEditContactClient);
+      if (!contact) return;
+      state.editing.clientId = contact.clientId;
+      closeContactClientListModal();
+      loadContactClientForEdit(contact);
+      return;
+    }
+
+    const deleteButton = event.target.closest('[data-modal-delete-contact-client]');
+    if (!deleteButton) return;
+
+    const contact = state.contactClients.find((item) => item.id === deleteButton.dataset.modalDeleteContactClient);
+    if (!contact) return;
+    if (!window.confirm(`Excluir contato ${contact.name || 'selecionado'}?`)) return;
+
+    try {
+      await api(`/api/contact-clients/${contact.id}`, { method: 'DELETE' });
+      state.contactClients = state.contactClients.filter((item) => item.id !== contact.id);
+      if (state.editing.contactClientId === contact.id) {
+        clearEditing($('#contactClientForm'), 'contactClientId', 'Cadastrar contato');
+      }
+      renderContactClients();
+      renderContactClientListModal();
+      toast('Contato excluído.');
+    } catch (error) {
+      toast(error.message || 'Não foi possível excluir o contato.');
+    }
   });
 
   $('#faturamentoTable')?.addEventListener('click', (event) => {

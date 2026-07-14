@@ -104,10 +104,17 @@ class EmailReader:
                     continue
 
                 url = f"{self.base_url}/users/{self.email}/mailFolders/{folder_id}/messages"
-                response = requests.get(url, headers=headers, params=params)
-                response.raise_for_status()
+                folder_emails = []
+                request_params = dict(params)
 
-                folder_emails = response.json().get('value', [])
+                while url:
+                    response = requests.get(url, headers=headers, params=request_params)
+                    response.raise_for_status()
+                    payload = response.json()
+                    folder_emails.extend(payload.get('value', []))
+                    url = payload.get('@odata.nextLink')
+                    request_params = None
+
                 logger.info(f" {len(folder_emails)} e-mails encontrados em {folder_name}")
                 emails.extend(folder_emails)
 

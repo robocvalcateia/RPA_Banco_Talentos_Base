@@ -77,6 +77,7 @@ const REQUIRED_COLLECTIONS = [
   'allocateds',
   'rateCards',
   'candidatePool',
+  'contactClients',
   'cvFilters',
   'curriculumObservations',
   'selectedCandidates'
@@ -427,6 +428,7 @@ export function normalizeDatabase(data = {}) {
 
   data.opportunities = data.opportunities.map((opportunity) => ({
     ...opportunity,
+    contactClientId: String(opportunity.contactClientId ?? opportunity.contatoClienteId ?? '').trim(),
     status: normalizeOpportunityStatus(LEGACY_OPPORTUNITY_STATUS_MAP[opportunity.status] ?? opportunity.status ?? 'Open'),
     model: normalizeOpportunityModel(opportunity.model ?? 'Alocação')
   }));
@@ -440,6 +442,7 @@ export function normalizeDatabase(data = {}) {
   ensureDefaultRateCards(data);
   data.candidatePool = data.candidatePool.map((item) => normalizeCandidatePool(item));
   ensureDefaultCandidatePool(data);
+  data.contactClients = data.contactClients.map((contact) => normalizeContactClient(contact));
   data.cvFilters = data.cvFilters.map((filter) => normalizeCvFilter(filter));
   data.curriculumObservations = data.curriculumObservations.map((observation) => normalizeCurriculumObservation(observation));
   data.selectedCandidates = data.selectedCandidates.map((candidate) => normalizeSelectedCandidate(candidate));
@@ -742,6 +745,23 @@ export function normalizeCurriculum(curriculum) {
       ?? ''
     ).trim(),
     id_controle: idControle || id
+  };
+}
+
+export function normalizeContactClient(contact) {
+  const name = String(contact.name ?? contact.nome ?? '').trim();
+  const clientId = String(contact.clientId ?? contact.client_id ?? '').trim();
+
+  return {
+    id: String(contact.id ?? createId('contact_client', name || clientId || 'contato')).trim(),
+    clientId,
+    name,
+    area: String(contact.area ?? '').trim(),
+    role: String(contact.role ?? contact.cargo ?? '').trim(),
+    phone: String(contact.phone ?? contact.telefone ?? '').trim(),
+    email: String(contact.email ?? '').trim(),
+    createdAt: String(contact.createdAt ?? toISODate()).trim(),
+    updatedAt: String(contact.updatedAt ?? '').trim()
   };
 }
 
