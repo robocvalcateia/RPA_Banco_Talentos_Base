@@ -212,6 +212,25 @@ function buildLegacySyncQuery(doc = {}) {
   return or.length ? { $or: or } : null;
 }
 
+async function findLegacySyncTarget(collection, doc = {}) {
+  const hash = String(doc.hash_documento || '').trim();
+  const email = String(doc.email || '').trim().toLowerCase();
+  const telefone = String(doc.telefone || '').trim();
+  const linkedin = String(doc.linkedin || '').trim();
+
+  for (const query of [
+    hash ? { hash_documento: hash } : null,
+    email ? { email } : null,
+    telefone ? { telefone } : null,
+    linkedin ? { linkedin } : null
+  ].filter(Boolean)) {
+    const existing = await collection.findOne(query);
+    if (existing) return existing;
+  }
+
+  return null;
+}
+
 function legacyCandidateDocumentToCurriculumDoc(doc = {}) {
   const curriculum = mongoCandidateToCurriculum(doc);
   const { _id, ...rawFields } = doc;
@@ -276,7 +295,7 @@ export async function syncLegacyCandidatesIntoCurriculums() {
     }
 
     const query = buildLegacySyncQuery(payload);
-    const existing = query ? await target.findOne(query) : null;
+    const existing = query ? await findLegacySyncTarget(target, payload) : null;
     const now = new Date().toISOString();
     const payloadToSave = { ...payload };
 
