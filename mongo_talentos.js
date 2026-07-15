@@ -278,28 +278,33 @@ export async function syncLegacyCandidatesIntoCurriculums() {
     const query = buildLegacySyncQuery(payload);
     const existing = query ? await target.findOne(query) : null;
     const now = new Date().toISOString();
+    const payloadToSave = { ...payload };
+
+    if (!String(payloadToSave.email || '').trim()) {
+      delete payloadToSave.email;
+    }
 
     if (existing) {
-      payload.id_controle = existing.id_controle || payload.id_controle || existing.id || '';
-      payload.id = existing.id || payload.id_controle || payload.id || '';
-      payload.data_criacao = existing.data_criacao || payload.data_criacao || now;
-      payload.data_atualizacao = payload.data_atualizacao || now;
+      payloadToSave.id_controle = existing.id_controle || payloadToSave.id_controle || existing.id || '';
+      payloadToSave.id = existing.id || payloadToSave.id_controle || payloadToSave.id || '';
+      payloadToSave.data_criacao = existing.data_criacao || payloadToSave.data_criacao || now;
+      payloadToSave.data_atualizacao = payloadToSave.data_atualizacao || now;
 
       await target.updateOne(
         { _id: existing._id },
-        { $set: payload }
+        { $set: payloadToSave }
       );
       updated += 1;
       continue;
     }
 
-    payload.id_controle = String(await getNextIdControle(target));
-    payload.id = payload.id_controle;
-    payload.data_criacao = payload.data_criacao || now;
-    payload.data_atualizacao = payload.data_atualizacao || now;
+    payloadToSave.id_controle = String(await getNextIdControle(target));
+    payloadToSave.id = payloadToSave.id_controle;
+    payloadToSave.data_criacao = payloadToSave.data_criacao || now;
+    payloadToSave.data_atualizacao = payloadToSave.data_atualizacao || now;
 
     try {
-      await target.insertOne(payload);
+      await target.insertOne(payloadToSave);
       inserted += 1;
     } catch (error) {
       if (error?.code === 11000) {

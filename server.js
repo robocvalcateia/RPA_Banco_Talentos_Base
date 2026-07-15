@@ -660,6 +660,22 @@ function clipLogs(value, maxLength = 12000) {
   return text.length > maxLength ? text.slice(text.length - maxLength) : text;
 }
 
+function buildGraphLogRecipients(options = {}) {
+  const configured = Array.isArray(options.logRecipients)
+    ? options.logRecipients.join(',')
+    : String(options.logRecipients || options.graphEmailTo || process.env.GRAPH_EMAIL_TO || process.env.GRAPH_EMAIL || '').trim();
+  const recipients = configured
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (!recipients.includes('bruno@alcateiaconsulting.com.br')) {
+    recipients.push('bruno@alcateiaconsulting.com.br');
+  }
+
+  return Array.from(new Set(recipients)).join(',');
+}
+
 function parseLegacyProcessResult(output) {
   const lines = String(output || '').split(/\r?\n/).reverse();
   const marker = '__RESULT_JSON__=';
@@ -704,7 +720,8 @@ function startLegacyEmailProcessing(options = {}) {
       ...process.env,
       PYTHONIOENCODING: 'utf-8',
       EMAIL_SUBJECT_FILTER: subjectFilter,
-      EMAIL_FOLDERS: emailFolders
+      EMAIL_FOLDERS: emailFolders,
+      GRAPH_EMAIL_TO: buildGraphLogRecipients(options)
     },
     windowsHide: true
   });
@@ -738,7 +755,6 @@ function startLegacyEmailProcessing(options = {}) {
 
   child.on('close', async (code) => {
     const result = parseLegacyProcessResult(combinedOutput);
-    emailProcessing.running = false;
     emailProcessing.finishedAt = formatDateTimeBR();
 
     if (result) {
@@ -775,6 +791,8 @@ function startLegacyEmailProcessing(options = {}) {
         total_candidatos: 0
       };
     }
+
+    emailProcessing.running = false;
   });
 
   return jobId;
@@ -1834,6 +1852,35 @@ async function handleApi(request, response) {
         ok: true,
         updated: updatedUsers.length,
         users: updatedUsers
+      });
+      return;
+    }
+
+    if (request.method === 'POST' && pathname === '/api/admin/sync-legacy-curriculums') {
+      if (String(auth.user.role || '').toLowerCase() !== 'admin') {
+        sendError(response, 403, 'Apenas administradores podem sincronizar curriculos.');
+        return;
+      }
+
+      const payload = await readJsonBody(request);
+      if (String(payload.confirm || '').trim() !== 'SINCRONIZAR_CURRICULOS') {
+        sendError(response, 422, 'Informe confirm=SINCRONIZAR_CURRICULOS para executar a sincronizacao.');
+        return;
+      }
+      if (!isMongoTalentosConfigured()) {
+        sendError(response, 500, 'MongoDB de talentos nao esta configurado neste ambiente.');
+        return;
+      }
+
+      const sync = await withTimeout(
+        syncLegacyCandidatesIntoCurriculums(),
+        120000,
+        'Tempo esgotado ao sincronizar curriculos legados.'
+      );
+
+      sendJson(response, 200, {
+        ok: true,
+        sync
       });
       return;
     }
