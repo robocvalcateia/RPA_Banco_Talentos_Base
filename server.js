@@ -1874,7 +1874,7 @@ async function handleApi(request, response) {
 
       const sync = await withTimeout(
         syncLegacyCandidatesIntoCurriculums(),
-        120000,
+        600000,
         'Tempo esgotado ao sincronizar curriculos legados.'
       );
 

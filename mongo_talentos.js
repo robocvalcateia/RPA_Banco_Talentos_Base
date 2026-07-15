@@ -231,6 +231,28 @@ async function findLegacySyncTarget(collection, doc = {}) {
   return null;
 }
 
+async function recoverLegacySyncDuplicate(collection, payload = {}) {
+  const existing = await findLegacySyncTarget(collection, payload);
+  if (!existing) return false;
+
+  const now = new Date().toISOString();
+  const payloadToSave = { ...payload };
+  if (!String(payloadToSave.email || '').trim()) {
+    delete payloadToSave.email;
+  }
+
+  payloadToSave.id_controle = existing.id_controle || payloadToSave.id_controle || existing.id || '';
+  payloadToSave.id = existing.id || payloadToSave.id_controle || payloadToSave.id || '';
+  payloadToSave.data_criacao = existing.data_criacao || payloadToSave.data_criacao || now;
+  payloadToSave.data_atualizacao = payloadToSave.data_atualizacao || now;
+
+  await collection.updateOne(
+    { _id: existing._id },
+    { $set: payloadToSave }
+  );
+  return true;
+}
+
 function legacyCandidateDocumentToCurriculumDoc(doc = {}) {
   const curriculum = mongoCandidateToCurriculum(doc);
   const { _id, ...rawFields } = doc;
@@ -309,10 +331,18 @@ export async function syncLegacyCandidatesIntoCurriculums() {
       payloadToSave.data_criacao = existing.data_criacao || payloadToSave.data_criacao || now;
       payloadToSave.data_atualizacao = payloadToSave.data_atualizacao || now;
 
-      await target.updateOne(
-        { _id: existing._id },
-        { $set: payloadToSave }
-      );
+      try {
+        await target.updateOne(
+          { _id: existing._id },
+          { $set: payloadToSave }
+        );
+      } catch (error) {
+        if (error?.code === 11000 && await recoverLegacySyncDuplicate(target, payloadToSave)) {
+          updated += 1;
+          continue;
+        }
+        throw error;
+      }
       updated += 1;
       continue;
     }
@@ -327,7 +357,11 @@ export async function syncLegacyCandidatesIntoCurriculums() {
       inserted += 1;
     } catch (error) {
       if (error?.code === 11000) {
-        skipped += 1;
+        if (await recoverLegacySyncDuplicate(target, payloadToSave)) {
+          updated += 1;
+        } else {
+          skipped += 1;
+        }
         continue;
       }
       throw error;
