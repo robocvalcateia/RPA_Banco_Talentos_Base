@@ -689,6 +689,19 @@ function parseLegacyProcessResult(output) {
   }
 }
 
+export function shouldSyncLegacyAfterProcessing(result) {
+  if (!result?.success) return false;
+
+  const stats = result.stats || {};
+  return [
+    stats.arquivos_baixados,
+    stats.arquivos_processados,
+    stats.novos_candidatos,
+    stats.candidatos_atualizados,
+    stats.sem_mudancas
+  ].some((value) => Number(value) > 0);
+}
+
 function startLegacyEmailProcessing(options = {}) {
   const jobId = randomBytes(12).toString('hex');
   const subjectFilter = String(options.subjectFilter || options.query || '').trim();
@@ -763,7 +776,7 @@ function startLegacyEmailProcessing(options = {}) {
       emailProcessing.status = result.success ? 'finalizado' : 'erro';
       emailProcessing.erro = result.success ? '' : (result.message || `Processamento finalizado com codigo ${code}.`);
 
-      if (result.success && isMongoTalentosConfigured()) {
+      if (shouldSyncLegacyAfterProcessing(result) && isMongoTalentosConfigured()) {
         try {
           const sync = await syncLegacyCandidatesIntoCurriculums();
           emailProcessing.resultado = {

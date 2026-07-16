@@ -5,6 +5,7 @@ import {
   findCurriculumForCandidateResult,
   findUserByName,
   resolveCandidateCurriculum,
+  shouldSyncLegacyAfterProcessing,
   syncApprovedCandidatePlacement
 } from '../server.js';
 
@@ -141,6 +142,33 @@ test('vinculo de candidato aceita curriculo resolvido fora do cache local', asyn
 
   assert.equal(curriculum?.id_controle, '1921');
   assert.equal(curriculum?.nome, 'Márcio Ribeiro');
+});
+
+test('processamento de emails vazio nao dispara sincronizacao completa', () => {
+  assert.equal(shouldSyncLegacyAfterProcessing({
+    success: true,
+    stats: {
+      emails_processados: 0,
+      arquivos_baixados: 0,
+      arquivos_processados: 0,
+      novos_candidatos: 0,
+      candidatos_atualizados: 0,
+      sem_mudancas: 0
+    }
+  }), false);
+});
+
+test('processamento de emails com arquivo dispara sincronizacao', () => {
+  assert.equal(shouldSyncLegacyAfterProcessing({
+    success: true,
+    stats: {
+      arquivos_baixados: 1,
+      arquivos_processados: 1,
+      novos_candidatos: 0,
+      candidatos_atualizados: 0,
+      sem_mudancas: 1
+    }
+  }), true);
 });
 
 test('candidato selecionado avanca para entrevistados sem duplicar', () => {
