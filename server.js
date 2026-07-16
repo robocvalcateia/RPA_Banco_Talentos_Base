@@ -721,6 +721,7 @@ function startLegacyEmailProcessing(options = {}) {
       PYTHONIOENCODING: 'utf-8',
       EMAIL_SUBJECT_FILTER: subjectFilter,
       EMAIL_FOLDERS: emailFolders,
+      MONGODB_COLLECTION: process.env.MONGODB_CURRICULUM_COLLECTION || 'curriculums',
       GRAPH_EMAIL_TO: buildGraphLogRecipients(options)
     },
     windowsHide: true

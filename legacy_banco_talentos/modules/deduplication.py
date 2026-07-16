@@ -3,7 +3,7 @@ Mdulo para deduplicao e controle de registros duplicados
 """
 import logging
 from datetime import datetime
-from config.mongodb import get_mongodb
+from config.mongodb import get_candidate_collection_name, get_mongodb
 from utils.validators import Validators
 from pymongo import ReturnDocument
 
@@ -15,7 +15,8 @@ class DeduplicationHandler:
     def __init__(self):
         """Inicializa o gerenciador de deduplicao"""
         self.db = get_mongodb().get_db()
-        self.collection = self.db['candidatos']
+        self.collection_name = get_candidate_collection_name()
+        self.collection = self.db[self.collection_name]
     
     def gerar_id_controle(self):
         """
@@ -23,7 +24,7 @@ class DeduplicationHandler:
         Exemplo: 01, 02, 03...
         """
         contador = self.db["contadores"].find_one_and_update(
-            {"_id": "candidatos_id_controle"},
+            {"_id": f"{self.collection_name}_id_controle"},
             {"$inc": {"seq": 1}},
             upsert=True,
             return_document=ReturnDocument.AFTER

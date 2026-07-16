@@ -12,6 +12,14 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+def get_candidate_collection_name():
+    """Retorna a collection ativa do Banco de Talentos."""
+    return (
+        os.getenv('MONGODB_CURRICULUM_COLLECTION')
+        or os.getenv('MONGODB_COLLECTION')
+        or 'curriculums'
+    )
+
 class MongoDBConfig:
     """Gerencia a conexo com MongoDB"""
     
@@ -59,7 +67,7 @@ class MongoDBConfig:
     def _create_indexes(self):
         """Cria Indices na coleo de candidatos"""
         try:
-            collection = self._db['candidatos']
+            collection = self._db[get_candidate_collection_name()]
             
             # ndice nico para email
             # Remover índice antigo de email, se existir
@@ -97,9 +105,9 @@ class MongoDBConfig:
             self.connect()
         return self._db
     
-    def get_collection(self, collection_name='candidatos'):
+    def get_collection(self, collection_name=None):
         """Retorna uma coleo especfica"""
-        return self.get_db()[collection_name]
+        return self.get_db()[collection_name or get_candidate_collection_name()]
     
     def close(self):
         """Fecha a conexo com MongoDB"""

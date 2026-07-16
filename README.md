@@ -383,11 +383,12 @@ Copie `.env.example` para `.env` e preencha:
 ```env
 MONGODB_URL=mongodb+srv://...
 MONGODB_DB=Banco_de_Talentos
-MONGODB_COLLECTION=candidatos
+MONGODB_CURRICULUM_COLLECTION=curriculums
+MONGODB_LEGACY_CURRICULUM_COLLECTION=candidatos
 MONGODB_CURRICULUM_LIMIT=5000
 ```
 
-Com `MONGODB_URL` preenchido, o endpoint `/api/bootstrap` carrega os currículos da collection `candidatos`. Se a conexão falhar, a tela usa `data/database.json` como fallback e mostra o erro na própria aba.
+Com `MONGODB_URL` preenchido, o endpoint `/api/bootstrap` carrega os currículos da collection `curriculums`. A rotina antiga de leitura de e-mails também grava e conta essa mesma collection, mantendo o total do e-mail de log igual ao total exibido na tela de talentos. Se a conexão falhar, a tela usa `data/database.json` como fallback e mostra o erro na própria aba.
 
 ### Rotina antiga de leitura de e-mails
 

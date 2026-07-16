@@ -2,7 +2,7 @@
 Mdulo para operaes no MongoDB
 """
 import logging
-from config.mongodb import get_mongodb
+from config.mongodb import get_candidate_collection_name, get_mongodb
 from bson import ObjectId
 
 logger = logging.getLogger(__name__)
@@ -186,7 +186,7 @@ class MongoDBHandler:
     def __init__(self):
         """Inicializa o gerenciador MongoDB"""
         self.db = get_mongodb().get_db()
-        self.collection = self.db['candidatos']
+        self.collection = self.db[get_candidate_collection_name()]
         self.ensure_indexes()
     
     def get_all_candidates(self, limit=None):

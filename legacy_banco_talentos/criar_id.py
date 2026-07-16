@@ -5,10 +5,7 @@ import re
 # Permite importar os módulos do projeto
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from config.mongodb import get_mongodb
-
-
-COUNTER_ID = "candidatos_id_controle"
+from config.mongodb import get_candidate_collection_name, get_mongodb
 
 
 def extrair_numero_id_controle(valor):
@@ -25,8 +22,10 @@ def extrair_numero_id_controle(valor):
 
 def main():
     db = get_mongodb().get_db()
-    candidatos = db["candidatos"]
+    collection_name = get_candidate_collection_name()
+    candidatos = db[collection_name]
     contadores = db["contadores"]
+    counter_id = f"{collection_name}_id_controle"
 
     print("Iniciando geração dos IDs de controle...")
 
@@ -86,7 +85,7 @@ def main():
 
     # Atualiza o contador para os próximos registros
     contadores.update_one(
-        {"_id": COUNTER_ID},
+        {"_id": counter_id},
         {"$max": {"seq": sequencial}},
         upsert=True
     )
