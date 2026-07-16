@@ -197,33 +197,31 @@ export async function getMongoTalentStats() {
   };
 }
 
-function buildLegacySyncQuery(doc = {}) {
-  const or = [];
-  const hash = String(doc.hash_documento || '').trim();
-  const email = String(doc.email || '').trim().toLowerCase();
-  const telefone = String(doc.telefone || '').trim();
-  const linkedin = String(doc.linkedin || '').trim();
+const LEGACY_SYNC_IDENTITY_FIELDS = ['hash_documento', 'email', 'id_controle', 'telefone', 'linkedin'];
 
-  if (hash) or.push({ hash_documento: hash });
-  if (email) or.push({ email });
-  if (telefone) or.push({ telefone });
-  if (linkedin) or.push({ linkedin });
+function normalizeLegacySyncIdentityValue(field, value) {
+  const text = String(value || '').trim();
+  return field === 'email' ? text.toLowerCase() : text;
+}
+
+function buildLegacySyncIdentityQueries(doc = {}) {
+  const or = [];
+  for (const field of LEGACY_SYNC_IDENTITY_FIELDS) {
+    const value = normalizeLegacySyncIdentityValue(field, doc[field]);
+    if (value) or.push({ [field]: value });
+  }
+
+  return or;
+}
+
+function buildLegacySyncQuery(doc = {}) {
+  const or = buildLegacySyncIdentityQueries(doc);
 
   return or.length ? { $or: or } : null;
 }
 
 async function findLegacySyncTarget(collection, doc = {}) {
-  const hash = String(doc.hash_documento || '').trim();
-  const email = String(doc.email || '').trim().toLowerCase();
-  const telefone = String(doc.telefone || '').trim();
-  const linkedin = String(doc.linkedin || '').trim();
-
-  for (const query of [
-    hash ? { hash_documento: hash } : null,
-    email ? { email } : null,
-    telefone ? { telefone } : null,
-    linkedin ? { linkedin } : null
-  ].filter(Boolean)) {
+  for (const query of buildLegacySyncIdentityQueries(doc)) {
     const existing = await collection.findOne(query);
     if (existing) return existing;
   }
@@ -231,26 +229,98 @@ async function findLegacySyncTarget(collection, doc = {}) {
   return null;
 }
 
-async function recoverLegacySyncDuplicate(collection, payload = {}) {
-  const existing = await findLegacySyncTarget(collection, payload);
-  if (!existing) return false;
-
-  const now = new Date().toISOString();
+function normalizeLegacySyncPayload(payload = {}) {
   const payloadToSave = { ...payload };
-  if (!String(payloadToSave.email || '').trim()) {
-    delete payloadToSave.email;
+  for (const field of ['email', 'telefone', 'linkedin', 'hash_documento']) {
+    const value = normalizeLegacySyncIdentityValue(field, payloadToSave[field]);
+    if (value) {
+      payloadToSave[field] = value;
+    } else {
+      delete payloadToSave[field];
+    }
   }
+  return payloadToSave;
+}
 
+function prepareLegacySyncUpdatePayload(payload = {}, existing = {}, now = new Date().toISOString()) {
+  const payloadToSave = normalizeLegacySyncPayload(payload);
   payloadToSave.id_controle = existing.id_controle || payloadToSave.id_controle || existing.id || '';
   payloadToSave.id = existing.id || payloadToSave.id_controle || payloadToSave.id || '';
   payloadToSave.data_criacao = existing.data_criacao || payloadToSave.data_criacao || now;
   payloadToSave.data_atualizacao = payloadToSave.data_atualizacao || now;
+  return payloadToSave;
+}
 
-  await collection.updateOne(
-    { _id: existing._id },
-    { $set: payloadToSave }
-  );
-  return true;
+function sameMongoDocumentId(left, right) {
+  return normalizeMongoId(left) === normalizeMongoId(right);
+}
+
+async function removeConflictingLegacyIdentityFields(collection, payload = {}, currentId = '') {
+  const removed = [];
+
+  for (const field of LEGACY_SYNC_IDENTITY_FIELDS) {
+    const value = normalizeLegacySyncIdentityValue(field, payload[field]);
+    if (!value) continue;
+
+    const conflicting = await collection.findOne({ [field]: value });
+    if (conflicting && !sameMongoDocumentId(conflicting._id, currentId)) {
+      delete payload[field];
+      removed.push(field);
+    }
+  }
+
+  return removed;
+}
+
+function duplicateKeyQueryFromError(error = {}) {
+  const keyValue = error?.keyValue && typeof error.keyValue === 'object' ? error.keyValue : null;
+  if (!keyValue) return null;
+
+  const query = {};
+  for (const [field, rawValue] of Object.entries(keyValue)) {
+    const value = normalizeLegacySyncIdentityValue(field, rawValue);
+    if (!value) return null;
+    query[field] = value;
+  }
+
+  return Object.keys(query).length ? query : null;
+}
+
+async function findDuplicateKeyTarget(collection, error) {
+  const query = duplicateKeyQueryFromError(error);
+  return query ? collection.findOne(query) : null;
+}
+
+async function writeLegacySyncUpdate(collection, existing, payload) {
+  const payloadToSave = prepareLegacySyncUpdatePayload(payload, existing);
+  const removed = await removeConflictingLegacyIdentityFields(collection, payloadToSave, existing._id);
+
+  try {
+    await collection.updateOne(
+      { _id: existing._id },
+      { $set: payloadToSave }
+    );
+    return { updated: true, conflicts: removed };
+  } catch (error) {
+    if (error?.code !== 11000) throw error;
+
+    const retryPayload = { ...payloadToSave };
+    const retryRemoved = await removeConflictingLegacyIdentityFields(collection, retryPayload, existing._id);
+    if (!retryRemoved.length) throw error;
+
+    await collection.updateOne(
+      { _id: existing._id },
+      { $set: retryPayload }
+    );
+    return { updated: true, conflicts: [...removed, ...retryRemoved] };
+  }
+}
+
+async function recoverLegacySyncDuplicate(collection, payload = {}, error = null) {
+  const existing = await findDuplicateKeyTarget(collection, error) || await findLegacySyncTarget(collection, payload);
+  if (!existing) return { updated: false, conflicts: [] };
+
+  return writeLegacySyncUpdate(collection, existing, payload);
 }
 
 function legacyCandidateDocumentToCurriculumDoc(doc = {}) {
@@ -307,6 +377,7 @@ export async function syncLegacyCandidatesIntoCurriculums() {
   let inserted = 0;
   let updated = 0;
   let skipped = 0;
+  let conflicts = 0;
   const cursor = source.find({});
 
   for await (const legacyDoc of cursor) {
@@ -319,34 +390,15 @@ export async function syncLegacyCandidatesIntoCurriculums() {
     const query = buildLegacySyncQuery(payload);
     const existing = query ? await findLegacySyncTarget(target, payload) : null;
     const now = new Date().toISOString();
-    const payloadToSave = { ...payload };
-
-    if (!String(payloadToSave.email || '').trim()) {
-      delete payloadToSave.email;
-    }
 
     if (existing) {
-      payloadToSave.id_controle = existing.id_controle || payloadToSave.id_controle || existing.id || '';
-      payloadToSave.id = existing.id || payloadToSave.id_controle || payloadToSave.id || '';
-      payloadToSave.data_criacao = existing.data_criacao || payloadToSave.data_criacao || now;
-      payloadToSave.data_atualizacao = payloadToSave.data_atualizacao || now;
-
-      try {
-        await target.updateOne(
-          { _id: existing._id },
-          { $set: payloadToSave }
-        );
-      } catch (error) {
-        if (error?.code === 11000 && await recoverLegacySyncDuplicate(target, payloadToSave)) {
-          updated += 1;
-          continue;
-        }
-        throw error;
-      }
+      const result = await writeLegacySyncUpdate(target, existing, payload);
+      conflicts += result.conflicts.length;
       updated += 1;
       continue;
     }
 
+    const payloadToSave = normalizeLegacySyncPayload(payload);
     payloadToSave.id_controle = String(await getNextIdControle(target));
     payloadToSave.id = payloadToSave.id_controle;
     payloadToSave.data_criacao = payloadToSave.data_criacao || now;
@@ -357,7 +409,9 @@ export async function syncLegacyCandidatesIntoCurriculums() {
       inserted += 1;
     } catch (error) {
       if (error?.code === 11000) {
-        if (await recoverLegacySyncDuplicate(target, payloadToSave)) {
+        const result = await recoverLegacySyncDuplicate(target, payloadToSave, error);
+        if (result.updated) {
+          conflicts += result.conflicts.length;
           updated += 1;
         } else {
           skipped += 1;
@@ -376,9 +430,19 @@ export async function syncLegacyCandidatesIntoCurriculums() {
     inserted,
     updated,
     skipped,
-    message: `Sincronizacao legado -> curriculums: ${inserted} novo(s), ${updated} atualizado(s), ${skipped} ignorado(s).`
+    conflicts,
+    message: `Sincronizacao legado -> curriculums: ${inserted} novo(s), ${updated} atualizado(s), ${skipped} ignorado(s), ${conflicts} conflito(s) de identificador tratado(s).`
   };
 }
+
+export const __mongoTalentosTest = {
+  buildLegacySyncQuery,
+  findLegacySyncTarget,
+  normalizeLegacySyncPayload,
+  removeConflictingLegacyIdentityFields,
+  writeLegacySyncUpdate,
+  duplicateKeyQueryFromError
+};
 
 function buildCandidateIdentifierQuery(identifier) {
   const value = String(identifier || '').trim();
