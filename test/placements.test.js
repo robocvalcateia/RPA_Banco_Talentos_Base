@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { advanceSelectedCandidateToInterview, findCurriculumForCandidateResult, findUserByName, syncApprovedCandidatePlacement } from '../server.js';
+import {
+  advanceSelectedCandidateToInterview,
+  findCurriculumForCandidateResult,
+  findUserByName,
+  resolveCandidateCurriculum,
+  syncApprovedCandidatePlacement
+} from '../server.js';
 
 function buildDb() {
   return {
@@ -119,6 +125,22 @@ test('resultado com curriculo interno encontra a base antes de link externo', ()
   });
 
   assert.equal(curriculum?.id_controle, '1001');
+});
+
+test('vinculo de candidato aceita curriculo resolvido fora do cache local', async () => {
+  const db = buildDb();
+  db.curriculums = [];
+
+  const curriculum = await resolveCandidateCurriculum(db, '1921', async (_db, identifier) => ({
+    id: '1921',
+    id_controle: identifier,
+    nome: 'Márcio Ribeiro',
+    email: 'marcio@example.com',
+    telefone: '11999999999'
+  }));
+
+  assert.equal(curriculum?.id_controle, '1921');
+  assert.equal(curriculum?.nome, 'Márcio Ribeiro');
 });
 
 test('candidato selecionado avanca para entrevistados sem duplicar', () => {

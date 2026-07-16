@@ -956,6 +956,25 @@ async function getCurriculumByIdentifier(db, identifier) {
   return findLocalCurriculum(db, identifier);
 }
 
+export async function resolveCandidateCurriculum(db, identifier, lookup = getCurriculumByIdentifier) {
+  const value = String(identifier || '').trim();
+  if (!value) return null;
+  return findLocalCurriculum(db, value) || await lookup(db, value);
+}
+
+function curriculumIdentifierForCandidate(curriculum, fallback = '') {
+  return String(curriculum?.id_controle || curriculum?.id || curriculum?.mongoId || fallback || '').trim();
+}
+
+function databaseWithResolvedCurriculum(db, curriculum) {
+  if (!curriculum) return db;
+  if (findLocalCurriculum(db, curriculumIdentifierForCandidate(curriculum))) return db;
+  return {
+    ...db,
+    curriculums: [...db.curriculums, curriculum]
+  };
+}
+
 async function updateCurriculumByIdentifier(db, identifier, payload) {
   const normalized = buildCurriculumPayload(payload);
   if (!normalized.nome) {
@@ -3131,11 +3150,15 @@ async function handleApi(request, response) {
       const db = await readDatabase();
       const timestamp = toISODate();
       const stage = normalizeStage(payload.stage || 'Triagem');
-      const curriculum = db.curriculums.find((item) => item.id === String(payload.curriculumId ?? '') || item.id_controle === String(payload.curriculumId ?? ''));
+      const requestedCurriculumId = String(payload.curriculumId ?? payload.idNome ?? '').trim();
+      const curriculum = requestedCurriculumId
+        ? await resolveCandidateCurriculum(db, requestedCurriculumId)
+        : null;
+      const candidateDb = databaseWithResolvedCurriculum(db, curriculum);
       const candidate = {
         id: createId('cand', payload.name || curriculum?.nome),
         name: String(payload.name ?? curriculum?.nome ?? '').trim(),
-        curriculumId: String(payload.curriculumId ?? payload.idNome ?? '').trim(),
+        curriculumId: curriculumIdentifierForCandidate(curriculum, requestedCurriculumId),
         opportunityId: String(payload.opportunityId ?? '').trim(),
         hourlyRate: Number(payload.hourlyRate ?? 0),
         observation: String(payload.observation ?? '').trim(),
@@ -3160,7 +3183,7 @@ async function handleApi(request, response) {
         sendError(response, 422, 'Informe o nome do candidato.');
         return;
       }
-      if (candidate.curriculumId && !curriculum) {
+      if (requestedCurriculumId && !curriculum) {
         sendError(response, 422, 'Selecione um curriculo valido.');
         return;
       }
@@ -3170,10 +3193,11 @@ async function handleApi(request, response) {
       }
 
       db.candidates.push(candidate);
-      const placement = syncApprovedCandidatePlacement(candidate, db);
+      candidateDb.candidates = db.candidates;
+      const placement = syncApprovedCandidatePlacement(candidate, candidateDb);
       await writeDatabase(db);
       sendJson(response, 201, {
-        ...enrichCandidate(candidate, db),
+        ...enrichCandidate(candidate, candidateDb),
         placement
       });
       return;
@@ -3440,14 +3464,16 @@ async function handleApi(request, response) {
         return;
       }
 
+      let candidateDb = db;
       if (payload.curriculumId !== undefined && String(payload.curriculumId ?? '').trim()) {
         const curriculumId = String(payload.curriculumId ?? '').trim();
-        const curriculum = db.curriculums.find((item) => item.id === curriculumId || item.id_controle === curriculumId);
+        const curriculum = await resolveCandidateCurriculum(db, curriculumId);
         if (!curriculum) {
           sendError(response, 422, 'Selecione um curriculo valido.');
           return;
         }
-        candidate.curriculumId = curriculumId;
+        candidateDb = databaseWithResolvedCurriculum(db, curriculum);
+        candidate.curriculumId = curriculumIdentifierForCandidate(curriculum, curriculumId);
         candidate.name = String(payload.name ?? curriculum?.nome ?? candidate.name).trim();
       } else if (payload.name !== undefined) {
         candidate.name = String(payload.name ?? '').trim();
@@ -3485,11 +3511,12 @@ async function handleApi(request, response) {
         candidate.approved = true;
       }
       candidate.updatedAt = toISODate();
-      const placement = syncApprovedCandidatePlacement(candidate, db);
+      candidateDb.candidates = db.candidates;
+      const placement = syncApprovedCandidatePlacement(candidate, candidateDb);
 
       await writeDatabase(db);
       sendJson(response, 200, {
-        ...enrichCandidate(candidate, db),
+        ...enrichCandidate(candidate, candidateDb),
         placement
       });
       return;
