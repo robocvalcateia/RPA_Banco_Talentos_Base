@@ -135,7 +135,7 @@ async function seedUsersFromEnv() {
 
   const db = await readDatabase();
 
-  const resetPasswords = process.env.RESET_ENV_USER_PASSWORDS === 'true';
+  const resetPasswords = shouldResetEnvUserPasswords(process.env);
   const forceChangePassword = process.env.SEED_USERS_FORCE_CHANGE !== 'false';
 
   let changed = false;
@@ -179,6 +179,11 @@ async function seedUsersFromEnv() {
 }
 
 await seedUsersFromEnv();
+
+export function shouldResetEnvUserPasswords(env = process.env) {
+  return env.RESET_ENV_USER_PASSWORDS === 'true'
+    && env.ALLOW_ENV_USER_PASSWORD_RESET === 'CONFIRMO_RESETAR_SENHAS';
+}
 
 const PORT = Number(process.env.PORT || 3000);
 const sessions = new Map();

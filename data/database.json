@@ -313,11 +313,11 @@
       "name": "Gerson Scholz",
       "email": "gerson@alcateiaconsulting.com.br",
       "role": "Admin",
-      "passwordHash": "scrypt:c132f28dcbee52b22dec643ebb80eb53:39ac375d6b78d199e652eff24d305ef1c365a61d8f3ce65a1a711e01af7a0837",
+      "passwordHash": "scrypt:1c2a8845142a29d5b2f8820c8f0b2960:44cba033de3e8fae440d363104dad06924e9a72517528d2cb3b73dca55ba1bc2",
       "mustChangePassword": false,
       "createdAt": "2026-05-21T10:00:00.000Z",
-      "passwordChangedAt": "2026-05-21T14:11:45.273Z",
-      "updatedAt": "2026-06-19T00:39:19.415Z"
+      "passwordChangedAt": "2026-07-16T19:36:32.376Z",
+      "updatedAt": "2026-07-16T19:36:32.376Z"
     },
     {
       "id": "user_bruno_stefani",

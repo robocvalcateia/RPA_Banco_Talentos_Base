@@ -73,6 +73,12 @@ SMTP_SECURE=false
 SMTP_TO_TESTE=
 ```
 
+Usuarios podem ser criados a partir de `APP_USER_01_*` quando
+`SEED_USERS_FROM_ENV=true`. Por seguranca, senhas de usuarios existentes nao
+sao sobrescritas em deploy normal. Mesmo que `RESET_ENV_USER_PASSWORDS=true`
+esteja configurado por engano, o reset so ocorre com a confirmacao adicional
+`ALLOW_ENV_USER_PASSWORD_RESET=CONFIRMO_RESETAR_SENHAS`.
+
 ### Observacao Sobre Office 365
 
 O envio SMTP depende de o Microsoft 365 permitir SMTP autenticado para a caixa

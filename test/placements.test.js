@@ -6,6 +6,7 @@ import {
   findUserByName,
   resolveCandidateCurriculum,
   shouldSyncLegacyAfterProcessing,
+  shouldResetEnvUserPasswords,
   syncApprovedCandidatePlacement
 } from '../server.js';
 
@@ -168,6 +169,16 @@ test('processamento de emails com arquivo dispara sincronizacao', () => {
       candidatos_atualizados: 0,
       sem_mudancas: 1
     }
+  }), true);
+});
+
+test('seed de ambiente nao reseta senha sem confirmacao explicita', () => {
+  assert.equal(shouldResetEnvUserPasswords({
+    RESET_ENV_USER_PASSWORDS: 'true'
+  }), false);
+  assert.equal(shouldResetEnvUserPasswords({
+    RESET_ENV_USER_PASSWORDS: 'true',
+    ALLOW_ENV_USER_PASSWORD_RESET: 'CONFIRMO_RESETAR_SENHAS'
   }), true);
 });
 
