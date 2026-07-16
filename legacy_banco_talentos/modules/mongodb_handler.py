@@ -15,7 +15,7 @@ class MongoDBHandler:
             self.collection.create_index([("data_criacao", -1)])
             self.collection.create_index([("id_controle", 1)], unique=True, sparse=True)
             self.collection.create_index([("nome", 1)])
-            self.collection.create_index([("email", 1)])
+            self.collection.create_index([("email", 1)], unique=True, sparse=True)
 
             logger.info("Índices do MongoDB verificados/criados com sucesso.")
 
