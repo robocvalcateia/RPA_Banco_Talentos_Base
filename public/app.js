@@ -1693,19 +1693,55 @@ function renderFaturamento() {
 
 function renderOpportunityFilters() {
   const typeSelect = $('#opportunityFilterType');
-  const valueInput = $('#opportunityFilterValue');
+  const valueSelect = $('#opportunityFilterValue');
   const statusSelect = $('#opportunityStatusFilter');
   const closingMonthInput = $('#opportunityClosingMonthFilter');
-  if (!typeSelect || !valueInput) return;
+  if (!typeSelect || !valueSelect) return;
 
   const type = state.opportunityFilter.type || typeSelect.value;
+  const selectedValue = state.opportunityFilter.value || valueSelect.value || '';
   const selectedStatus = state.opportunityFilter.status || statusSelect?.value || '';
+  let valueOptions = [{ value: '', label: 'Todos' }];
 
   typeSelect.value = type;
-  valueInput.disabled = !type;
-  valueInput.placeholder = type ? 'Digite para filtrar' : 'Todos';
-  valueInput.value = type ? state.opportunityFilter.value : '';
-  state.opportunityFilter.value = valueInput.value;
+  if (type === 'client') {
+    const clientIds = new Set(state.opportunities.map((opportunity) => opportunity.clientId).filter(Boolean));
+    valueOptions = valueOptions.concat(
+      state.clients
+        .filter((client) => clientIds.has(client.id))
+        .slice()
+        .sort((first, second) => first.customerName.localeCompare(second.customerName, 'pt-BR', { sensitivity: 'base' }))
+        .map((client) => ({ value: client.id, label: client.customerName }))
+    );
+  }
+
+  if (type === 'name') {
+    const owners = [...new Set(state.opportunities.map((opportunity) => String(opportunity.owner || '').trim()).filter(Boolean))];
+    valueOptions = valueOptions.concat(
+      owners
+        .sort((first, second) => first.localeCompare(second, 'pt-BR', { sensitivity: 'base' }))
+        .map((owner) => ({ value: owner, label: owner }))
+    );
+  }
+
+  if (type === 'opportunity') {
+    valueOptions = valueOptions.concat(
+      state.opportunities
+        .slice()
+        .sort(byOpportunityCode)
+        .map((opportunity) => ({
+          value: opportunity.id,
+          label: opportunityLabel(opportunity)
+        }))
+    );
+  }
+
+  valueSelect.disabled = !type;
+  valueSelect.innerHTML = valueOptions
+    .map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`)
+    .join('');
+  valueSelect.value = type && valueOptions.some((option) => option.value === selectedValue) ? selectedValue : '';
+  state.opportunityFilter.value = valueSelect.value;
 
   if (statusSelect) {
     const statusOptions = [{ value: '', label: 'Todos' }].concat(
@@ -1730,14 +1766,22 @@ function getFilteredOpportunities() {
     opportunities = opportunities.filter((opportunity) => {
       if (!normalizedValue) return true;
       const client = state.clients.find((item) => item.id === opportunity.clientId);
-      return normalizeText(client?.customerName).includes(normalizedValue);
+      return opportunity.clientId === value || normalizeText(client?.customerName).includes(normalizedValue);
+    });
+  }
+
+  if (type === 'name') {
+    opportunities = opportunities.filter((opportunity) => {
+      if (!normalizedValue) return true;
+      return normalizeText(opportunity.owner).includes(normalizedValue);
     });
   }
 
   if (type === 'opportunity') {
     opportunities = opportunities.filter((opportunity) => {
       if (!normalizedValue) return true;
-      return normalizeText(`${opportunity.opportunity || ''} ${opportunity.opportunityCode || ''}`).includes(normalizedValue);
+      return opportunity.id === value
+        || normalizeText(`${opportunity.opportunity || ''} ${opportunity.opportunityCode || ''}`).includes(normalizedValue);
     });
   }
 
@@ -4984,7 +5028,7 @@ function bindOpportunityFilters() {
     renderOpportunities();
   });
 
-  $('#opportunityFilterValue')?.addEventListener('input', (event) => {
+  $('#opportunityFilterValue')?.addEventListener('change', (event) => {
     state.opportunityFilter.value = event.currentTarget.value;
     renderOpportunities();
   });
