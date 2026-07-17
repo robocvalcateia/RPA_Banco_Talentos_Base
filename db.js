@@ -205,6 +205,7 @@ const DEFAULT_CANDIDATE_POOL = [
 let mongoAppClient = null;
 let mongoAppClientUrl = '';
 let MongoClientCtor = null;
+const mongoAppCollectionsDataCache = new Map();
 
 async function loadMongoDriver() {
   if (MongoClientCtor) return { MongoClient: MongoClientCtor };
@@ -510,9 +511,16 @@ export async function readMongoAppCollections(collections = MONGO_APP_COLLECTION
 
 async function hasMongoAppCollectionsData() {
   const config = readMongoAppConfig();
+  const cacheKey = `${config.url}::${config.dbName}::${config.prefix}`;
+  if (mongoAppCollectionsDataCache.has(cacheKey)) {
+    return mongoAppCollectionsDataCache.get(cacheKey);
+  }
+
   const client = await getMongoAppClient(config);
   const mongoDb = client.db(config.dbName);
-  return (await mongoDb.collection(mongoAppCollectionName('users', config)).countDocuments({})) > 0;
+  const hasData = (await mongoDb.collection(mongoAppCollectionName('users', config)).countDocuments({})) > 0;
+  mongoAppCollectionsDataCache.set(cacheKey, hasData);
+  return hasData;
 }
 
 export function buildMongoAppBulkWrite(rows = [], label = 'item') {
@@ -562,6 +570,39 @@ async function writeMongoAppCollections(data, collections = MONGO_APP_COLLECTION
   }));
 
   return normalized;
+}
+
+async function writeMongoAppDocument(collection, item) {
+  if (!MONGO_APP_COLLECTIONS.includes(collection)) {
+    throw new Error(`Colecao operacional invalida para MongoDB: ${collection}`);
+  }
+
+  const config = readMongoAppConfig();
+  const client = await getMongoAppClient(config);
+  const mongoDb = client.db(config.dbName);
+  const cleanItem = stripMongoInternalFields(item);
+  if (!cleanItem.id) {
+    cleanItem.id = createId(collection, cleanItem.name || cleanItem.customerName || cleanItem.opportunity || cleanItem.monthYear);
+  }
+
+  await mongoDb
+    .collection(mongoAppCollectionName(collection, config))
+    .replaceOne({ id: cleanItem.id }, cleanItem, { upsert: true });
+
+  return cleanItem;
+}
+
+async function deleteMongoAppDocument(collection, id) {
+  if (!MONGO_APP_COLLECTIONS.includes(collection)) {
+    throw new Error(`Colecao operacional invalida para MongoDB: ${collection}`);
+  }
+
+  const config = readMongoAppConfig();
+  const client = await getMongoAppClient(config);
+  const mongoDb = client.db(config.dbName);
+  await mongoDb
+    .collection(mongoAppCollectionName(collection, config))
+    .deleteOne({ id });
 }
 
 export async function writeMongoAppDatabase(data) {
@@ -694,6 +735,60 @@ export async function writeDatabaseCollections(data, collections = [], file = DA
   const mergedData = normalizeDatabase(currentData);
   await fs.writeFile(file, `${JSON.stringify(mergedData, null, 2)}\n`, 'utf8');
   return mergedData;
+}
+
+export async function writeDatabaseDocument(collection, item, file = DATA_FILE) {
+  if (!REQUIRED_COLLECTIONS.includes(collection)) {
+    return item;
+  }
+
+  const config = readMongoAppConfig();
+  if (shouldUseMongoAppDatabase(file)) {
+    try {
+      if (config.required || await hasMongoAppCollectionsData()) {
+        return await writeMongoAppDocument(collection, item);
+      }
+    } catch (error) {
+      if (config.required) throw error;
+      console.warn(`[mongo-app] Falha ao gravar documento no MongoDB. Usando data/database.json. Detalhe: ${error.message}`);
+    }
+  }
+
+  const data = await readLocalDatabase(file);
+  const collectionRows = Array.isArray(data[collection]) ? data[collection] : [];
+  const index = collectionRows.findIndex((row) => row.id === item.id);
+  if (index >= 0) {
+    collectionRows[index] = item;
+  } else {
+    collectionRows.push(item);
+  }
+  data[collection] = collectionRows;
+  await writeDatabaseCollections(data, [collection], file);
+  return item;
+}
+
+export async function deleteDatabaseDocument(collection, id, file = DATA_FILE) {
+  if (!REQUIRED_COLLECTIONS.includes(collection)) {
+    return;
+  }
+
+  const config = readMongoAppConfig();
+  if (shouldUseMongoAppDatabase(file)) {
+    try {
+      if (config.required || await hasMongoAppCollectionsData()) {
+        await deleteMongoAppDocument(collection, id);
+        return;
+      }
+    } catch (error) {
+      if (config.required) throw error;
+      console.warn(`[mongo-app] Falha ao excluir documento no MongoDB. Usando data/database.json. Detalhe: ${error.message}`);
+    }
+  }
+
+  const data = await readLocalDatabase(file);
+  data[collection] = (Array.isArray(data[collection]) ? data[collection] : [])
+    .filter((row) => row.id !== id);
+  await writeDatabaseCollections(data, [collection], file);
 }
 
 export function createId(prefix, label = '') {

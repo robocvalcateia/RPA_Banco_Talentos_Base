@@ -48,6 +48,8 @@ import {
   verifyPassword,
   writeDatabase,
   writeDatabaseCollections,
+  writeDatabaseDocument,
+  deleteDatabaseDocument,
   writeUserRecord,
   writeMongoAppDatabase
 } from './db.js';
@@ -2291,7 +2293,7 @@ async function handleApi(request, response) {
       }
 
       db.contactClients.push(contact);
-      await writeDatabaseCollections(db, ['contactClients']);
+      await writeDatabaseDocument('contactClients', contact);
       sendJson(response, 201, contact);
       return;
     }
@@ -2325,7 +2327,7 @@ async function handleApi(request, response) {
       }
 
       Object.assign(contact, updated);
-      await writeDatabaseCollections(db, ['contactClients']);
+      await writeDatabaseDocument('contactClients', contact);
       sendJson(response, 200, contact);
       return;
     }
@@ -2341,7 +2343,7 @@ async function handleApi(request, response) {
         return;
       }
 
-      await writeDatabaseCollections(db, ['contactClients']);
+      await deleteDatabaseDocument('contactClients', contactId);
       sendJson(response, 200, { ok: true });
       return;
     }
@@ -2893,7 +2895,7 @@ async function handleApi(request, response) {
       const db = await readDatabaseCollections(['selectedCandidates', 'opportunities', 'candidates']);
       const candidate = advanceSelectedCandidateToInterview(db, candidateId);
 
-      await writeDatabaseCollections(db, ['candidates']);
+      await writeDatabaseDocument('candidates', candidate);
       sendJson(response, 200, enrichCandidate(candidate, db));
       return;
     }

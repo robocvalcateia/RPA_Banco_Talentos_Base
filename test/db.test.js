@@ -33,7 +33,9 @@ import {
   sanitizeUser,
   syncCandidatesWithOpportunityClosures,
   verifyPassword,
-  writeDatabaseCollections
+  writeDatabaseCollections,
+  writeDatabaseDocument,
+  deleteDatabaseDocument
 } from '../db.js';
 
 function sampleDb() {
@@ -651,12 +653,18 @@ test('gravacao parcial em JSON preserva colecoes fora do alvo', async () => {
     });
 
     await writeDatabaseCollections(partial, ['contactClients'], file);
+    await writeDatabaseDocument('contactClients', {
+      id: 'contact_2',
+      clientId: 'client_1',
+      name: 'Contato Documento'
+    }, file);
+    await deleteDatabaseDocument('contactClients', 'contact_1', file);
     const saved = JSON.parse(await readFile(file, 'utf8'));
 
     assert.equal(saved.clients.some((client) => client.customerName === 'Cliente Original'), true);
     assert.equal(saved.curriculums.some((curriculum) => curriculum.nome === 'Curriculo Original'), true);
     assert.equal(saved.contactClients.length, 1);
-    assert.equal(saved.contactClients[0].name, 'Contato Teste');
+    assert.equal(saved.contactClients[0].name, 'Contato Documento');
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
