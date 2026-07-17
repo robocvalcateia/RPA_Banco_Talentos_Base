@@ -472,14 +472,14 @@ export async function readMongoAppDatabase() {
   const mongoDb = client.db(config.dbName);
   const data = Object.fromEntries(REQUIRED_COLLECTIONS.map((collection) => [collection, []]));
 
-  for (const collection of MONGO_APP_COLLECTIONS) {
+  await Promise.all(MONGO_APP_COLLECTIONS.map(async (collection) => {
     data[collection] = await mongoDb
       .collection(mongoAppCollectionName(collection, config))
       .find({})
       .sort({ createdAt: 1, id: 1, _id: 1 })
       .toArray()
       .then((docs) => docs.map(stripMongoInternalFields));
-  }
+  }));
 
   return normalizeDatabase(data);
 }
@@ -491,24 +491,42 @@ async function hasMongoAppCollectionsData() {
   return (await mongoDb.collection(mongoAppCollectionName('users', config)).countDocuments({})) > 0;
 }
 
+export function buildMongoAppBulkWrite(rows = [], label = 'item') {
+  const ids = [];
+  const operations = [];
+
+  for (const row of rows) {
+    const cleanRow = stripMongoInternalFields(row);
+    if (!cleanRow.id) {
+      cleanRow.id = createId(label, cleanRow.name || cleanRow.customerName || cleanRow.opportunity || cleanRow.monthYear);
+    }
+
+    ids.push(cleanRow.id);
+    operations.push({
+      replaceOne: {
+        filter: { id: cleanRow.id },
+        replacement: cleanRow,
+        upsert: true
+      }
+    });
+  }
+
+  return { ids, operations };
+}
+
 export async function writeMongoAppDatabase(data) {
   const config = readMongoAppConfig();
   const client = await getMongoAppClient(config);
   const mongoDb = client.db(config.dbName);
   const normalized = normalizeDatabase({ ...data, curriculums: [] });
 
-  for (const collection of MONGO_APP_COLLECTIONS) {
+  await Promise.all(MONGO_APP_COLLECTIONS.map(async (collection) => {
     const mongoCollection = mongoDb.collection(mongoAppCollectionName(collection, config));
     const rows = Array.isArray(normalized[collection]) ? normalized[collection] : [];
-    const ids = [];
+    const { ids, operations } = buildMongoAppBulkWrite(rows, collection);
 
-    for (const row of rows) {
-      const cleanRow = stripMongoInternalFields(row);
-      if (!cleanRow.id) {
-        cleanRow.id = createId(collection, cleanRow.name || cleanRow.customerName || cleanRow.opportunity || cleanRow.monthYear);
-      }
-      ids.push(cleanRow.id);
-      await mongoCollection.replaceOne({ id: cleanRow.id }, cleanRow, { upsert: true });
+    if (operations.length) {
+      await mongoCollection.bulkWrite(operations, { ordered: false });
     }
 
     if (ids.length) {
@@ -516,7 +534,7 @@ export async function writeMongoAppDatabase(data) {
     } else {
       await mongoCollection.deleteMany({});
     }
-  }
+  }));
 
   return normalized;
 }

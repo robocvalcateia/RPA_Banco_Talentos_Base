@@ -4,6 +4,7 @@ import {
   calculateIndicators,
   BRAZIL_UFS,
   CANDIDATE_STAGES,
+  buildMongoAppBulkWrite,
   enrichAllocated,
   enrichCandidate,
   enrichCandidatePool,
@@ -606,4 +607,22 @@ test('usuario sanitizado nao expoe passwordHash', () => {
     role: 'Admin',
     mustChangePassword: true
   });
+});
+
+test('bulk write do Mongo app agrupa updates por documento', () => {
+  const { ids, operations } = buildMongoAppBulkWrite([
+    { _id: 'mongo-interno', id: 'client_a', customerName: 'Cliente A' },
+    { id: 'client_b', customerName: 'Cliente B' }
+  ], 'clients');
+
+  assert.deepEqual(ids, ['client_a', 'client_b']);
+  assert.equal(operations.length, 2);
+  assert.deepEqual(operations[0], {
+    replaceOne: {
+      filter: { id: 'client_a' },
+      replacement: { id: 'client_a', customerName: 'Cliente A' },
+      upsert: true
+    }
+  });
+  assert.equal('_id' in operations[0].replaceOne.replacement, false);
 });
