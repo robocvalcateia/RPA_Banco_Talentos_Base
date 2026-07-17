@@ -1402,6 +1402,34 @@ export function enrichSelectedCandidate(candidate, db) {
   };
 }
 
+function comparableNameTokens(value) {
+  return comparableName(value).split(' ').filter((token) => token.length > 1);
+}
+
+function namesLikelyReferToSamePerson(firstName, secondName) {
+  const firstTokens = comparableNameTokens(firstName);
+  const secondTokens = comparableNameTokens(secondName);
+  if (!firstTokens.length || !secondTokens.length) return false;
+
+  const first = firstTokens.join(' ');
+  const second = secondTokens.join(' ');
+  if (first === second) return true;
+
+  const firstSet = new Set(firstTokens);
+  const secondSet = new Set(secondTokens);
+  const firstContainedInSecond = firstTokens.every((token) => secondSet.has(token));
+  const secondContainedInFirst = secondTokens.every((token) => firstSet.has(token));
+  return firstContainedInSecond || secondContainedInFirst;
+}
+
+function isAllocatedAlsoActiveInCandidatePool(allocated, db) {
+  return (db.candidatePool ?? []).some((poolItem) => (
+    poolItem.active === true
+    && poolItem.clientId === allocated.clientId
+    && namesLikelyReferToSamePerson(allocated.consultant, poolItem.candidateName)
+  ));
+}
+
 export function calculateIndicators(db, now = new Date()) {
   const openOpportunities = db.opportunities.filter((opportunity) => opportunity.status === 'Open').length;
   const currentMonth = monthYearFromDate(now);
@@ -1443,7 +1471,10 @@ export function calculateIndicators(db, now = new Date()) {
     opportunitiesByStatus[opportunity.status] = (opportunitiesByStatus[opportunity.status] ?? 0) + 1;
   }
 
-  const activeAllocateds = db.allocateds.filter((allocated) => allocated.active === true);
+  const activeAllocateds = db.allocateds.filter((allocated) => (
+    allocated.active === true
+    && !isAllocatedAlsoActiveInCandidatePool(allocated, db)
+  ));
   const allocatedsByClient = Object.fromEntries(db.clients.map((client) => [client.customerName, 0]));
   for (const allocated of activeAllocateds) {
     const client = db.clients.find((item) => item.id === allocated.clientId);

@@ -198,6 +198,24 @@ test('calcula indicadores basicos do MVP', () => {
   assert.equal(indicators.totals.averageAderencia, 87.5);
 });
 
+test('indicadores nao contam bolsao ativo como alocado ativo', () => {
+  const db = sampleDb();
+  db.allocateds[0].consultant = 'Carlos Alberto Silva';
+  db.candidatePool = [
+    {
+      id: 'pool_1',
+      clientId: 'client_1',
+      candidateName: 'Carlos Silva',
+      active: true
+    }
+  ];
+
+  const indicators = calculateIndicators(db, new Date('2026-05-21T00:00:00.000Z'));
+
+  assert.equal(indicators.totals.activeAllocateds, 1);
+  assert.equal(indicators.allocatedsByClient['Cliente Teste'], 1);
+});
+
 test('move candidato e preserva historico de etapas', () => {
   const candidate = sampleDb().candidates[0];
   moveCandidateStage(candidate, 'Entrevista Alcateia', new Date('2026-05-04T12:00:00.000Z'));

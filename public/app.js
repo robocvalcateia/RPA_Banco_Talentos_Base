@@ -1420,9 +1420,29 @@ function getAllocatedsByClient() {
   const serverTotal = Object.values(serverValues).reduce((sum, value) => sum + Number(value || 0), 0);
   if (serverTotal > 0) return serverValues;
 
+  const comparablePersonTokens = (value) => normalizeText(value).split(' ').filter((token) => token.length > 1);
+  const namesLikelyReferToSamePerson = (firstName, secondName) => {
+    const firstTokens = comparablePersonTokens(firstName);
+    const secondTokens = comparablePersonTokens(secondName);
+    if (!firstTokens.length || !secondTokens.length) return false;
+
+    const first = firstTokens.join(' ');
+    const second = secondTokens.join(' ');
+    if (first === second) return true;
+
+    const firstSet = new Set(firstTokens);
+    const secondSet = new Set(secondTokens);
+    return firstTokens.every((token) => secondSet.has(token))
+      || secondTokens.every((token) => firstSet.has(token));
+  };
+  const isAllocatedAlsoActiveInCandidatePool = (allocated) => state.candidatePool.some((poolItem) => (
+    poolItem.active === true
+    && poolItem.clientId === allocated.clientId
+    && namesLikelyReferToSamePerson(allocated.consultant, poolItem.candidateName)
+  ));
   const values = Object.fromEntries(state.clients.map((client) => [client.customerName, 0]));
   state.allocateds
-    .filter((allocated) => allocated.active === true)
+    .filter((allocated) => allocated.active === true && !isAllocatedAlsoActiveInCandidatePool(allocated))
     .forEach((allocated) => {
       const client = state.clients.find((item) => item.id === allocated.clientId);
       const clientName = client?.customerName || allocated.clientName || 'Sem cliente';
