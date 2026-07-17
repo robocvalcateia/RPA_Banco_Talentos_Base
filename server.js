@@ -1046,7 +1046,7 @@ async function authenticateRequest(request, response) {
     return null;
   }
 
-  const db = await readDatabase();
+  const db = await readDatabaseCollections(['users']);
   const user = db.users.find((item) => item.id === session.userId);
 
   if (!user) {
@@ -1056,6 +1056,11 @@ async function authenticateRequest(request, response) {
   }
 
   return { db, token, user };
+}
+
+async function ensureAuthDatabase(auth) {
+  auth.db = await readDatabase();
+  return auth.db;
 }
 
 async function readJsonBody(request) {
@@ -1643,6 +1648,7 @@ async function handleApi(request, response) {
         sendError(response, 403, 'Apenas administradores podem limpar dados operacionais.');
         return;
       }
+      await ensureAuthDatabase(auth);
 
       const payload = await readJsonBody(request);
       const allowedCollections = new Set(['opportunities', 'candidates', 'allocateds']);
@@ -1688,6 +1694,7 @@ async function handleApi(request, response) {
         sendError(response, 403, 'Apenas administradores podem importar dados operacionais.');
         return;
       }
+      await ensureAuthDatabase(auth);
 
       const payload = await readJsonBody(request);
       if (String(payload.confirm || '').trim() !== 'IMPORTAR_MIGRACAO_PROD') {
@@ -1928,6 +1935,7 @@ async function handleApi(request, response) {
     }
 
     if (request.method === 'GET' && pathname === '/api/bootstrap') {
+      await ensureAuthDatabase(auth);
       const curriculumBootstrap = await loadCurriculumsForBootstrap(auth.db);
       const responseDb = { ...auth.db, curriculums: curriculumBootstrap.curriculums };
       const curriculumTemplates = await listCurriculumTemplates().catch(() => []);
@@ -1970,6 +1978,7 @@ async function handleApi(request, response) {
     }
 
     if (request.method === 'GET' && /^\/api\/curriculums\/[^/]+\/observations$/.test(pathname)) {
+      await ensureAuthDatabase(auth);
       const curriculumId = decodeURIComponent(pathname.split('/').at(-2));
       const curriculum = await getCurriculumByIdentifier(auth.db, curriculumId).catch(() => null);
       const curriculumAliases = new Set([
@@ -1995,6 +2004,7 @@ async function handleApi(request, response) {
     }
 
     if (request.method === 'POST' && /^\/api\/curriculums\/[^/]+\/observations$/.test(pathname)) {
+      await ensureAuthDatabase(auth);
       const curriculumId = decodeURIComponent(pathname.split('/').at(-2));
       const payload = await readJsonBody(request);
       const observationText = String(payload.observation ?? payload.observacoes ?? '').trim();
@@ -2029,6 +2039,7 @@ async function handleApi(request, response) {
     }
 
     if (request.method === 'PATCH' && /^\/api\/curriculums\/[^/]+$/.test(pathname)) {
+      await ensureAuthDatabase(auth);
       const curriculumId = pathname.split('/').at(-1);
       const payload = await readJsonBody(request);
       const updated = await updateCurriculumByIdentifier(auth.db, curriculumId, payload);
@@ -2043,6 +2054,7 @@ async function handleApi(request, response) {
     }
 
     if (request.method === 'POST' && /^\/api\/curriculums\/[^/]+\/export-template$/.test(pathname)) {
+      await ensureAuthDatabase(auth);
       const parts = pathname.split('/');
       const curriculumId = parts.at(-2);
       const payload = await readJsonBody(request);
