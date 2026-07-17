@@ -514,13 +514,14 @@ export function buildMongoAppBulkWrite(rows = [], label = 'item') {
   return { ids, operations };
 }
 
-export async function writeMongoAppDatabase(data) {
+async function writeMongoAppCollections(data, collections = MONGO_APP_COLLECTIONS) {
   const config = readMongoAppConfig();
   const client = await getMongoAppClient(config);
   const mongoDb = client.db(config.dbName);
   const normalized = normalizeDatabase({ ...data, curriculums: [] });
+  const targetCollections = collections.filter((collection) => MONGO_APP_COLLECTIONS.includes(collection));
 
-  await Promise.all(MONGO_APP_COLLECTIONS.map(async (collection) => {
+  await Promise.all(targetCollections.map(async (collection) => {
     const mongoCollection = mongoDb.collection(mongoAppCollectionName(collection, config));
     const rows = Array.isArray(normalized[collection]) ? normalized[collection] : [];
     const { ids, operations } = buildMongoAppBulkWrite(rows, collection);
@@ -537,6 +538,10 @@ export async function writeMongoAppDatabase(data) {
   }));
 
   return normalized;
+}
+
+export async function writeMongoAppDatabase(data) {
+  return writeMongoAppCollections(data, MONGO_APP_COLLECTIONS);
 }
 
 export async function writeUserRecord(user, file = DATA_FILE) {
@@ -600,6 +605,28 @@ export async function writeDatabase(data, file = DATA_FILE) {
     } catch (error) {
       if (config.required) throw error;
       console.warn(`[mongo-app] Falha ao gravar MongoDB. Usando data/database.json. Detalhe: ${error.message}`);
+    }
+  }
+
+  await fs.writeFile(file, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+  return data;
+}
+
+export async function writeDatabaseCollections(data, collections = [], file = DATA_FILE) {
+  const targetCollections = Array.from(new Set(collections)).filter(Boolean);
+  if (!targetCollections.length) {
+    return writeDatabase(data, file);
+  }
+
+  const config = readMongoAppConfig();
+  if (shouldUseMongoAppDatabase(file)) {
+    try {
+      if (config.required || await hasMongoAppCollectionsData()) {
+        return await writeMongoAppCollections(data, targetCollections);
+      }
+    } catch (error) {
+      if (config.required) throw error;
+      console.warn(`[mongo-app] Falha ao gravar colecoes no MongoDB. Usando data/database.json. Detalhe: ${error.message}`);
     }
   }
 

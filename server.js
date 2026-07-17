@@ -46,6 +46,7 @@ import {
   toISODate,
   verifyPassword,
   writeDatabase,
+  writeDatabaseCollections,
   writeUserRecord,
   writeMongoAppDatabase
 } from './db.js';
@@ -2019,7 +2020,7 @@ async function handleApi(request, response) {
       });
 
       auth.db.curriculumObservations.push(observation);
-      await writeDatabase(auth.db);
+      await writeDatabaseCollections(auth.db, ['curriculumObservations']);
       sendJson(response, 201, observation);
       return;
     }
@@ -2172,7 +2173,7 @@ async function handleApi(request, response) {
       }
 
       db.users.push(user);
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['users']);
       sendJson(response, 201, sanitizeUser(user));
       return;
     }
@@ -2213,7 +2214,7 @@ async function handleApi(request, response) {
         delete user.passwordResetExpiresAt;
       }
       user.updatedAt = toISODate();
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['users']);
       sendJson(response, 200, sanitizeUser(user));
       return;
     }
@@ -2237,7 +2238,7 @@ async function handleApi(request, response) {
       }
 
       db.clients.push(client);
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['clients']);
       sendJson(response, 201, client);
       return;
     }
@@ -2265,7 +2266,7 @@ async function handleApi(request, response) {
         return;
       }
 
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['clients']);
       sendJson(response, 200, client);
       return;
     }
@@ -2289,7 +2290,7 @@ async function handleApi(request, response) {
       }
 
       db.contactClients.push(contact);
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['contactClients']);
       sendJson(response, 201, contact);
       return;
     }
@@ -2323,7 +2324,7 @@ async function handleApi(request, response) {
       }
 
       Object.assign(contact, updated);
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['contactClients']);
       sendJson(response, 200, contact);
       return;
     }
@@ -2339,7 +2340,7 @@ async function handleApi(request, response) {
         return;
       }
 
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['contactClients']);
       sendJson(response, 200, { ok: true });
       return;
     }
@@ -2389,7 +2390,7 @@ async function handleApi(request, response) {
 
       db.opportunities.push(opportunity);
       syncCandidatesWithOpportunityClosures(db);
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['opportunities', 'candidates']);
       sendJson(response, 201, opportunity);
       return;
     }
@@ -2443,7 +2444,7 @@ async function handleApi(request, response) {
       }
 
       syncCandidatesWithOpportunityClosures(db);
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['opportunities', 'candidates']);
       sendJson(response, 200, opportunity);
       return;
     }
@@ -2463,7 +2464,7 @@ async function handleApi(request, response) {
       }
 
       db.faturamento.push(faturamento);
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['faturamento']);
       sendJson(response, 201, faturamento);
       return;
     }
@@ -2493,7 +2494,7 @@ async function handleApi(request, response) {
       }
 
       Object.assign(faturamento, updated);
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['faturamento']);
       sendJson(response, 200, faturamento);
       return;
     }
@@ -2519,7 +2520,7 @@ async function handleApi(request, response) {
 
       db.opportunities.push(opportunity);
       db.candidates.push(candidate);
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['opportunities', 'candidates']);
       sendJson(response, 201, { opportunity, candidate: enrichCandidate(candidate, db) });
       return;
     }
@@ -2556,7 +2557,7 @@ async function handleApi(request, response) {
       if (candidate) Object.assign(candidate, updatedCandidate);
       else db.candidates.push(updatedCandidate);
 
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['opportunities', 'candidates']);
       sendJson(response, 200, {
         opportunity,
         candidate: enrichCandidate(candidate ?? updatedCandidate, db)
@@ -2583,7 +2584,7 @@ async function handleApi(request, response) {
       }
 
       db.cvFilters.push(filter);
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['cvFilters']);
       sendJson(response, 201, enrichCvFilter(filter, db));
       return;
     }
@@ -2734,7 +2735,7 @@ async function handleApi(request, response) {
       db.selectedCandidates = db.selectedCandidates.map((candidate) => (
         candidate.cvFilterId === filterId ? { ...candidate, cvFilterId: '', updatedAt: toISODate() } : candidate
       ));
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['cvFilters', 'selectedCandidates']);
       sendJson(response, 200, { ok: true });
       return;
     }
@@ -2760,7 +2761,7 @@ async function handleApi(request, response) {
         candidate.updatedAt = toISODate();
       }
 
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['selectedCandidates']);
       sendJson(response, 200, candidates.map((candidate) => enrichSelectedCandidate(candidate, db)));
       return;
     }
@@ -2891,7 +2892,7 @@ async function handleApi(request, response) {
       const db = await readDatabase();
       const candidate = advanceSelectedCandidateToInterview(db, candidateId);
 
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['candidates']);
       sendJson(response, 200, enrichCandidate(candidate, db));
       return;
     }
@@ -2907,7 +2908,7 @@ async function handleApi(request, response) {
         return;
       }
 
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['selectedCandidates']);
       sendJson(response, 200, { ok: true });
       return;
     }
@@ -2942,7 +2943,7 @@ async function handleApi(request, response) {
       }
 
       db.candidatePool.push(item);
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['candidatePool']);
       sendJson(response, 201, enrichCandidatePool(item, db));
       return;
     }
@@ -2988,7 +2989,7 @@ async function handleApi(request, response) {
       }
 
       Object.assign(item, updated);
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['candidatePool']);
       sendJson(response, 200, enrichCandidatePool(item, db));
       return;
     }
@@ -3069,7 +3070,7 @@ async function handleApi(request, response) {
         }
       }
 
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['selectedCandidates']);
 
       const responsePayload = saved.map((candidate, index) => {
         const enriched = enrichSelectedCandidate(candidate, db);
@@ -3116,7 +3117,7 @@ async function handleApi(request, response) {
       }
 
       Object.assign(filter, updated);
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['cvFilters']);
       sendJson(response, 200, enrichCvFilter(filter, db));
       return;
     }
@@ -3159,7 +3160,7 @@ async function handleApi(request, response) {
       }
 
       db.curriculums.push(curriculum);
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['curriculums']);
       sendJson(response, 201, curriculum);
       return;
     }
@@ -3214,7 +3215,7 @@ async function handleApi(request, response) {
       db.candidates.push(candidate);
       candidateDb.candidates = db.candidates;
       const placement = syncApprovedCandidatePlacement(candidate, candidateDb);
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['candidates', 'allocateds', 'opportunities']);
       sendJson(response, 201, {
         ...enrichCandidate(candidate, candidateDb),
         placement
@@ -3277,7 +3278,7 @@ async function handleApi(request, response) {
       candidate.updatedAt = toISODate();
 
       db.allocateds.push(allocated);
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['candidates', 'allocateds']);
       sendJson(response, 201, {
         candidate: enrichCandidate(candidate, db),
         allocated: enrichAllocated(allocated, db)
@@ -3308,7 +3309,7 @@ async function handleApi(request, response) {
       }
 
       db.allocateds.push(allocated);
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['allocateds']);
       sendJson(response, 201, enrichAllocated(allocated, db));
       return;
     }
@@ -3346,7 +3347,7 @@ async function handleApi(request, response) {
       }
 
       Object.assign(allocated, updated);
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['allocateds']);
       sendJson(response, 200, enrichAllocated(allocated, db));
       return;
     }
@@ -3421,7 +3422,7 @@ async function handleApi(request, response) {
       }
 
       db.rateCards.push(rateCard);
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['rateCards']);
       sendJson(response, 201, enrichRateCard(rateCard, db));
       return;
     }
@@ -3467,7 +3468,7 @@ async function handleApi(request, response) {
       }
 
       Object.assign(rateCard, updated);
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['rateCards']);
       sendJson(response, 200, enrichRateCard(rateCard, db));
       return;
     }
@@ -3533,7 +3534,7 @@ async function handleApi(request, response) {
       candidateDb.candidates = db.candidates;
       const placement = syncApprovedCandidatePlacement(candidate, candidateDb);
 
-      await writeDatabase(db);
+      await writeDatabaseCollections(db, ['candidates', 'allocateds', 'opportunities']);
       sendJson(response, 200, {
         ...enrichCandidate(candidate, candidateDb),
         placement
