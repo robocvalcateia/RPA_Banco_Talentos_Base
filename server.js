@@ -40,6 +40,7 @@ import {
   OPPORTUNITY_STATUSES,
   MONGO_APP_COLLECTIONS,
   readDatabase,
+  readDatabaseCollections,
   readLocalDatabase,
   sanitizeUser,
   syncCandidatesWithOpportunityClosures,
@@ -2151,7 +2152,7 @@ async function handleApi(request, response) {
 
     if (request.method === 'POST' && pathname === '/api/users') {
       const payload = await readJsonBody(request);
-      const db = await readDatabase();
+      const db = await readDatabaseCollections(['users']);
       const email = String(payload.email ?? '').trim().toLowerCase();
       const user = {
         id: createId('user', payload.name || email),
@@ -2181,7 +2182,7 @@ async function handleApi(request, response) {
     if (request.method === 'PATCH' && pathname.startsWith('/api/users/')) {
       const userId = pathname.split('/').at(-1);
       const payload = await readJsonBody(request);
-      const db = await readDatabase();
+      const db = await readDatabaseCollections(['users']);
       const user = db.users.find((item) => item.id === userId);
       const email = String(payload.email ?? '').trim().toLowerCase();
 
@@ -2221,7 +2222,7 @@ async function handleApi(request, response) {
 
     if (request.method === 'POST' && pathname === '/api/clients') {
       const payload = await readJsonBody(request);
-      const db = await readDatabase();
+      const db = await readDatabaseCollections(['clients']);
       const client = {
         id: createId('client', payload.customerName),
         customerName: String(payload.customerName ?? '').trim(),
@@ -2246,7 +2247,7 @@ async function handleApi(request, response) {
     if (request.method === 'PATCH' && pathname.startsWith('/api/clients/')) {
       const clientId = pathname.split('/').at(-1);
       const payload = await readJsonBody(request);
-      const db = await readDatabase();
+      const db = await readDatabaseCollections(['clients']);
       const client = db.clients.find((item) => item.id === clientId);
 
       if (!client) {
@@ -2273,7 +2274,7 @@ async function handleApi(request, response) {
 
     if (request.method === 'POST' && pathname === '/api/contact-clients') {
       const payload = await readJsonBody(request);
-      const db = await readDatabase();
+      const db = await readDatabaseCollections(['clients', 'contactClients']);
       const contact = normalizeContactClient({
         id: createId('contact_client', payload.name || payload.email),
         ...payload,
@@ -2298,7 +2299,7 @@ async function handleApi(request, response) {
     if (request.method === 'PATCH' && /^\/api\/contact-clients\/[^/]+$/.test(pathname)) {
       const contactId = pathname.split('/').at(-1);
       const payload = await readJsonBody(request);
-      const db = await readDatabase();
+      const db = await readDatabaseCollections(['clients', 'contactClients']);
       const contact = db.contactClients.find((item) => item.id === contactId);
 
       if (!contact) {
@@ -2331,7 +2332,7 @@ async function handleApi(request, response) {
 
     if (request.method === 'DELETE' && /^\/api\/contact-clients\/[^/]+$/.test(pathname)) {
       const contactId = pathname.split('/').at(-1);
-      const db = await readDatabase();
+      const db = await readDatabaseCollections(['contactClients']);
       const initialLength = db.contactClients.length;
       db.contactClients = db.contactClients.filter((contact) => contact.id !== contactId);
 
@@ -2451,7 +2452,7 @@ async function handleApi(request, response) {
 
     if (request.method === 'POST' && pathname === '/api/faturamento') {
       const payload = await readJsonBody(request);
-      const db = await readDatabase();
+      const db = await readDatabaseCollections(['faturamento']);
       const faturamento = normalizeFaturamento({
         id: createId('faturamento', payload.monthYear),
         ...payload,
@@ -2472,7 +2473,7 @@ async function handleApi(request, response) {
     if (request.method === 'PATCH' && pathname.startsWith('/api/faturamento/')) {
       const faturamentoId = pathname.split('/').at(-1);
       const payload = await readJsonBody(request);
-      const db = await readDatabase();
+      const db = await readDatabaseCollections(['faturamento']);
       const faturamento = db.faturamento.find((item) => item.id === faturamentoId);
 
       if (!faturamento) {
@@ -2889,7 +2890,7 @@ async function handleApi(request, response) {
 
     if (request.method === 'POST' && /^\/api\/selected-candidates\/[^/]+\/advance$/.test(pathname)) {
       const candidateId = pathname.split('/').at(-2);
-      const db = await readDatabase();
+      const db = await readDatabaseCollections(['selectedCandidates', 'opportunities', 'candidates']);
       const candidate = advanceSelectedCandidateToInterview(db, candidateId);
 
       await writeDatabaseCollections(db, ['candidates']);
@@ -2915,7 +2916,7 @@ async function handleApi(request, response) {
 
     if (request.method === 'POST' && pathname === '/api/candidate-pool') {
       const payload = await readJsonBody(request);
-      const db = await readDatabase();
+      const db = await readDatabaseCollections(['clients', 'candidatePool']);
       const item = normalizeCandidatePool({
         id: createId('pool', payload.candidateName || payload.clientId),
         ...payload,
@@ -2951,7 +2952,7 @@ async function handleApi(request, response) {
     if (request.method === 'PATCH' && pathname.startsWith('/api/candidate-pool/')) {
       const itemId = pathname.split('/').at(-1);
       const payload = await readJsonBody(request);
-      const db = await readDatabase();
+      const db = await readDatabaseCollections(['clients', 'candidatePool']);
       const item = db.candidatePool.find((candidatePoolItem) => candidatePoolItem.id === itemId);
 
       if (!item) {
@@ -3288,7 +3289,7 @@ async function handleApi(request, response) {
 
     if (request.method === 'POST' && pathname === '/api/allocateds') {
       const payload = await readJsonBody(request);
-      const db = await readDatabase();
+      const db = await readDatabaseCollections(['clients', 'allocateds']);
       const allocated = normalizeAllocated({
         id: createId('alloc', payload.code || payload.consultant),
         ...payload,
@@ -3317,7 +3318,7 @@ async function handleApi(request, response) {
     if (request.method === 'PATCH' && pathname.startsWith('/api/allocateds/')) {
       const allocatedId = decodeURIComponent(pathname.split('/').at(-1));
       const payload = await readJsonBody(request);
-      const db = await readDatabase();
+      const db = await readDatabaseCollections(['clients', 'allocateds']);
       const allocated = db.allocateds.find((item) => item.id === allocatedId);
 
       if (!allocated) {
@@ -3397,7 +3398,7 @@ async function handleApi(request, response) {
 
     if (request.method === 'POST' && pathname === '/api/rate-cards') {
       const payload = await readJsonBody(request);
-      const db = await readDatabase();
+      const db = await readDatabaseCollections(['clients', 'rateCards']);
       const rateCard = normalizeRateCard({
         id: createId('ratecard', payload.skill || payload.clientId),
         ...payload,
@@ -3430,7 +3431,7 @@ async function handleApi(request, response) {
     if (request.method === 'PATCH' && pathname.startsWith('/api/rate-cards/')) {
       const rateCardId = pathname.split('/').at(-1);
       const payload = await readJsonBody(request);
-      const db = await readDatabase();
+      const db = await readDatabaseCollections(['clients', 'rateCards']);
       const rateCard = db.rateCards.find((item) => item.id === rateCardId);
 
       if (!rateCard) {

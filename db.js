@@ -85,6 +85,10 @@ const REQUIRED_COLLECTIONS = [
 
 export const MONGO_APP_COLLECTIONS = REQUIRED_COLLECTIONS.filter((collection) => collection !== 'curriculums');
 
+function emptyDatabase() {
+  return Object.fromEntries(REQUIRED_COLLECTIONS.map((collection) => [collection, []]));
+}
+
 const DEFAULT_RATE_CARD_CLIENT_NAME = 'Totvs';
 const DEFAULT_RATE_CARDS = [
   ['PROTHEUS', 113],
@@ -457,7 +461,7 @@ export async function readLocalDatabase(file = DATA_FILE) {
     content = await fs.readFile(file, 'utf8');
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
-    const initialData = Object.fromEntries(REQUIRED_COLLECTIONS.map((collection) => [collection, []]));
+    const initialData = emptyDatabase();
     await fs.mkdir(path.dirname(file), { recursive: true });
     await fs.writeFile(file, `${JSON.stringify(initialData, null, 2)}\n`, 'utf8');
     content = JSON.stringify(initialData);
@@ -470,9 +474,29 @@ export async function readMongoAppDatabase() {
   const config = readMongoAppConfig();
   const client = await getMongoAppClient(config);
   const mongoDb = client.db(config.dbName);
-  const data = Object.fromEntries(REQUIRED_COLLECTIONS.map((collection) => [collection, []]));
+  const data = emptyDatabase();
 
   await Promise.all(MONGO_APP_COLLECTIONS.map(async (collection) => {
+    data[collection] = await mongoDb
+      .collection(mongoAppCollectionName(collection, config))
+      .find({})
+      .sort({ createdAt: 1, id: 1, _id: 1 })
+      .toArray()
+      .then((docs) => docs.map(stripMongoInternalFields));
+  }));
+
+  return normalizeDatabase(data);
+}
+
+export async function readMongoAppCollections(collections = MONGO_APP_COLLECTIONS) {
+  const config = readMongoAppConfig();
+  const client = await getMongoAppClient(config);
+  const mongoDb = client.db(config.dbName);
+  const data = emptyDatabase();
+  const targetCollections = Array.from(new Set(collections))
+    .filter((collection) => MONGO_APP_COLLECTIONS.includes(collection));
+
+  await Promise.all(targetCollections.map(async (collection) => {
     data[collection] = await mongoDb
       .collection(mongoAppCollectionName(collection, config))
       .find({})
@@ -595,6 +619,36 @@ export async function readDatabase(file = DATA_FILE) {
   return readLocalDatabase(file);
 }
 
+export async function readDatabaseCollections(collections = [], file = DATA_FILE) {
+  const targetCollections = Array.from(new Set(collections))
+    .filter((collection) => REQUIRED_COLLECTIONS.includes(collection));
+  if (!targetCollections.length) {
+    return readDatabase(file);
+  }
+
+  const config = readMongoAppConfig();
+  if (shouldUseMongoAppDatabase(file)) {
+    try {
+      if (config.required || await hasMongoAppCollectionsData()) {
+        return await readMongoAppCollections(targetCollections);
+      }
+      if (config.required) {
+        throw new Error('Colecoes operacionais do MongoDB ainda nao possuem usuarios migrados.');
+      }
+    } catch (error) {
+      if (config.required) throw error;
+      console.warn(`[mongo-app] Falha ao ler colecoes do MongoDB. Usando data/database.json. Detalhe: ${error.message}`);
+    }
+  }
+
+  const data = await readLocalDatabase(file);
+  const partialData = emptyDatabase();
+  for (const collection of targetCollections) {
+    partialData[collection] = data[collection];
+  }
+  return normalizeDatabase(partialData);
+}
+
 export async function writeDatabase(data, file = DATA_FILE) {
   const config = readMongoAppConfig();
   if (shouldUseMongoAppDatabase(file)) {
@@ -630,8 +684,16 @@ export async function writeDatabaseCollections(data, collections = [], file = DA
     }
   }
 
-  await fs.writeFile(file, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
-  return data;
+  const currentData = await readLocalDatabase(file);
+  const normalized = normalizeDatabase(data);
+  for (const collection of targetCollections) {
+    if (REQUIRED_COLLECTIONS.includes(collection)) {
+      currentData[collection] = normalized[collection] ?? [];
+    }
+  }
+  const mergedData = normalizeDatabase(currentData);
+  await fs.writeFile(file, `${JSON.stringify(mergedData, null, 2)}\n`, 'utf8');
+  return mergedData;
 }
 
 export function createId(prefix, label = '') {

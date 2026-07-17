@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import {
   calculateIndicators,
   BRAZIL_UFS,
@@ -26,9 +29,11 @@ import {
   normalizeOpportunityModel,
   OPPORTUNITY_MODELS,
   OPPORTUNITY_STATUSES,
+  readDatabaseCollections,
   sanitizeUser,
   syncCandidatesWithOpportunityClosures,
-  verifyPassword
+  verifyPassword,
+  writeDatabaseCollections
 } from '../db.js';
 
 function sampleDb() {
@@ -625,4 +630,34 @@ test('bulk write do Mongo app agrupa updates por documento', () => {
     }
   });
   assert.equal('_id' in operations[0].replaceOne.replacement, false);
+});
+
+test('gravacao parcial em JSON preserva colecoes fora do alvo', async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'talentos-db-'));
+  const file = path.join(directory, 'database.json');
+
+  try {
+    await writeFile(file, `${JSON.stringify({
+      clients: [{ id: 'client_1', customerName: 'Cliente Original' }],
+      curriculums: [{ id: 'curr_1', id_controle: 'curr_1', nome: 'Curriculo Original' }],
+      contactClients: []
+    })}\n`, 'utf8');
+
+    const partial = await readDatabaseCollections(['clients', 'contactClients'], file);
+    partial.contactClients.push({
+      id: 'contact_1',
+      clientId: 'client_1',
+      name: 'Contato Teste'
+    });
+
+    await writeDatabaseCollections(partial, ['contactClients'], file);
+    const saved = JSON.parse(await readFile(file, 'utf8'));
+
+    assert.equal(saved.clients.some((client) => client.customerName === 'Cliente Original'), true);
+    assert.equal(saved.curriculums.some((curriculum) => curriculum.nome === 'Curriculo Original'), true);
+    assert.equal(saved.contactClients.length, 1);
+    assert.equal(saved.contactClients[0].name, 'Contato Teste');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
