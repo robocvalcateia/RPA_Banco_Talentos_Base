@@ -298,6 +298,78 @@ function comparableClientName(value) {
     .replace(/[^a-z0-9]+/g, '');
 }
 
+function mergeClientTextField(target, source, field) {
+  const current = String(target[field] ?? '').trim();
+  const incoming = String(source[field] ?? '').trim();
+  if (!incoming) return;
+  if (!current) {
+    target[field] = incoming;
+    return;
+  }
+
+  const currentParts = current.split('|').map((part) => part.trim()).filter(Boolean);
+  if (!currentParts.some((part) => part.toLowerCase() === incoming.toLowerCase())) {
+    target[field] = `${current} | ${incoming}`;
+  }
+}
+
+function clientReferenceCount(data, clientId) {
+  const referencedCollections = ['opportunities', 'contactClients', 'allocateds', 'rateCards', 'candidatePool'];
+  return referencedCollections.reduce((total, collection) => (
+    total + (data[collection] ?? []).filter((item) => item.clientId === clientId).length
+  ), 0);
+}
+
+function mergeDuplicateClients(data) {
+  const clientGroups = new Map();
+  const clientsWithoutKey = [];
+
+  for (const client of data.clients) {
+    const key = comparableClientName(client.customerName ?? client.name);
+    if (!key) {
+      clientsWithoutKey.push(client);
+      continue;
+    }
+
+    if (!clientGroups.has(key)) clientGroups.set(key, []);
+    clientGroups.get(key).push(client);
+  }
+
+  const clientIdMap = new Map();
+  const mergedClients = [...clientsWithoutKey];
+
+  for (const clients of clientGroups.values()) {
+    if (clients.length === 1) {
+      mergedClients.push(clients[0]);
+      continue;
+    }
+
+    const canonical = clients
+      .slice()
+      .sort((first, second) => clientReferenceCount(data, second.id) - clientReferenceCount(data, first.id))[0];
+
+    for (const client of clients) {
+      if (client === canonical) continue;
+      if (client.id && canonical.id) clientIdMap.set(client.id, canonical.id);
+      for (const field of ['primaryContactName', 'primaryContactEmail', 'primaryContactPhone', 'observation']) {
+        mergeClientTextField(canonical, client, field);
+      }
+    }
+
+    mergedClients.push(canonical);
+  }
+
+  if (!clientIdMap.size) return;
+
+  data.clients = mergedClients;
+  for (const collection of ['opportunities', 'contactClients', 'allocateds', 'rateCards', 'candidatePool']) {
+    data[collection] = (data[collection] ?? []).map((item) => ({
+      ...item,
+      clientId: clientIdMap.get(item.clientId) ?? item.clientId
+    }));
+  }
+}
+
 function ensureDefaultRateCards(data) {
   const targetClientName = comparableClientName(DEFAULT_RATE_CARD_CLIENT_NAME);
   let client = data.clients.find((item) => comparableClientName(item.customerName ?? item.name) === targetClientName);
@@ -430,6 +502,8 @@ export function normalizeDatabase(data = {}) {
       data[collection] = [];
     }
   }
+
+  mergeDuplicateClients(data);
 
   data.opportunities = data.opportunities.map((opportunity) => ({
     ...opportunity,

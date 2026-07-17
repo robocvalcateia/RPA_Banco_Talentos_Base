@@ -38,6 +38,14 @@ import {
   deleteDatabaseDocument
 } from '../db.js';
 
+function comparableClientNameForTest(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
 function sampleDb() {
   return {
     clients: [
@@ -214,6 +222,57 @@ test('indicadores nao contam bolsao ativo como alocado ativo', () => {
 
   assert.equal(indicators.totals.activeAllocateds, 1);
   assert.equal(indicators.allocatedsByClient['Cliente Teste'], 1);
+});
+
+test('normalizacao consolida clientes duplicados por nome e remapeia referencias', () => {
+  const db = normalizeDatabase({
+    clients: [
+      {
+        id: 'client_totvs',
+        customerName: 'Totvs',
+        observation: 'Cliente principal'
+      },
+      {
+        id: 'client_totvs_duplicado',
+        customerName: 'TOTVS',
+        primaryContactName: 'Davi Mateus',
+        primaryContactEmail: 'davi.paula@totvs.com.br',
+        observation: 'Contato RMO'
+      }
+    ],
+    users: [],
+    opportunities: [
+      { id: 'opp_1', clientId: 'client_totvs_duplicado', opportunity: 'Projeto', status: 'Open' }
+    ],
+    faturamento: [],
+    curriculums: [],
+    candidates: [],
+    allocateds: [
+      { id: 'alloc_1', code: 'P-001', consultant: 'Pessoa', clientId: 'client_totvs_duplicado' }
+    ],
+    rateCards: [],
+    candidatePool: [
+      { id: 'pool_1', clientId: 'client_totvs_duplicado', candidateName: 'Pessoa', profile: 'Técnico' }
+    ],
+    contactClients: [
+      { id: 'contact_1', clientId: 'client_totvs_duplicado', name: 'Davi' }
+    ],
+    cvFilters: [],
+    curriculumObservations: [],
+    selectedCandidates: []
+  });
+
+  const totvsClients = db.clients.filter((client) => comparableClientNameForTest(client.customerName) === 'totvs');
+
+  assert.equal(totvsClients.length, 1);
+  assert.equal(totvsClients[0].id, 'client_totvs_duplicado');
+  assert.equal(totvsClients[0].primaryContactName, 'Davi Mateus');
+  assert.match(totvsClients[0].observation, /Cliente principal/);
+  assert.match(totvsClients[0].observation, /Contato RMO/);
+  assert.equal(db.opportunities[0].clientId, 'client_totvs_duplicado');
+  assert.equal(db.allocateds[0].clientId, 'client_totvs_duplicado');
+  assert.equal(db.candidatePool[0].clientId, 'client_totvs_duplicado');
+  assert.equal(db.contactClients[0].clientId, 'client_totvs_duplicado');
 });
 
 test('move candidato e preserva historico de etapas', () => {
