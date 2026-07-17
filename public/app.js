@@ -287,6 +287,25 @@ async function refresh() {
   showApp();
 }
 
+function upsertStateItem(collectionName, item) {
+  const collection = state[collectionName];
+  if (!Array.isArray(collection) || !item?.id) return;
+
+  const currentIndex = collection.findIndex((current) => current.id === item.id);
+  if (currentIndex >= 0) {
+    collection[currentIndex] = item;
+  } else {
+    collection.push(item);
+  }
+}
+
+function removeStateItem(collectionName, itemId) {
+  const collection = state[collectionName];
+  if (!Array.isArray(collection) || !itemId) return;
+
+  state[collectionName] = collection.filter((item) => item.id !== itemId);
+}
+
 function setSession(token, user) {
   session.token = token;
   session.user = user;
@@ -2414,7 +2433,6 @@ async function saveCurriculumDetail() {
     }
     state.selectedCurriculumId = curriculumIdentifier(updated);
     setCurriculumDetailEditing(false);
-    await refresh();
     state.selectedCurriculumId = curriculumIdentifier(updated);
     state.curriculumActiveTab = 'detail';
     state.curriculumEditing = false;
@@ -2557,7 +2575,7 @@ async function saveSelectedCurriculumCandidate(event) {
       button.textContent = 'Salvando...';
     }
 
-    await api('/api/selected-candidates', {
+    const selectedCandidates = await api('/api/selected-candidates', {
       method: 'POST',
       body: JSON.stringify({
         opportunityId,
@@ -2578,7 +2596,7 @@ async function saveSelectedCurriculumCandidate(event) {
     });
 
     closeCurriculumOpportunityModal();
-    await refresh();
+    selectedCandidates.forEach((selectedCandidate) => upsertStateItem('selectedCandidates', selectedCandidate));
     state.selectedCandidateFilter = { type: 'name', value: current.nome || '' };
     showView('selectedCandidates');
     renderSelectedCandidates();
@@ -3965,13 +3983,14 @@ function openCandidateStageMoveModal(candidate) {
 async function moveCandidateToStage(candidateId, stage) {
   if (!candidateId || !stage) return;
 
-  await api(`/api/candidates/${candidateId}`, {
+  const savedCandidate = await api(`/api/candidates/${candidateId}`, {
     method: 'PATCH',
     body: JSON.stringify({ stage })
   });
+  upsertStateItem('candidates', savedCandidate);
   closeCandidateStageMoveModal();
   toast(`Candidato movido para ${stage}.`);
-  await refresh();
+  render();
 }
 
 function loadUserForEdit(user) {
@@ -4206,13 +4225,14 @@ function bindForms() {
 
     try {
       if (submitButton) submitButton.disabled = true;
-      await api(editingId ? `/api/clients/${editingId}` : '/api/clients', {
+      const savedClient = await api(editingId ? `/api/clients/${editingId}` : '/api/clients', {
         method: editingId ? 'PATCH' : 'POST',
         body: JSON.stringify(formPayload(form))
       });
+      upsertStateItem('clients', savedClient);
       clearEditing(form, 'clientId', 'Salvar cliente');
       toast(editingId ? 'Cliente atualizado.' : 'Cliente cadastrado.');
-      await refresh();
+      render();
     } catch (error) {
       toast(error.message || 'Não foi possível salvar o cliente.');
     } finally {
@@ -4235,15 +4255,15 @@ function bindForms() {
     };
 
     try {
-      await api(editingId ? `/api/contact-clients/${editingId}` : '/api/contact-clients', {
+      const savedContact = await api(editingId ? `/api/contact-clients/${editingId}` : '/api/contact-clients', {
         method: editingId ? 'PATCH' : 'POST',
         body: JSON.stringify(payload)
       });
+      upsertStateItem('contactClients', savedContact);
       clearEditing(event.currentTarget, 'contactClientId', 'Cadastrar contato');
       state.editing.clientId = client.id;
       closeContactClientModal();
       toast(editingId ? 'Contato atualizado.' : 'Contato cadastrado.');
-      await refresh();
       state.editing.clientId = client.id;
       renderContactClients();
       renderContactClientListModal();
@@ -4285,13 +4305,14 @@ function bindForms() {
 
     const originalText = setSubmitButtonBusy(submitButton, editingId ? 'Atualizando...' : 'Salvando...');
     try {
-      await api(editingId ? `/api/faturamento/${encodeURIComponent(editingId)}` : '/api/faturamento', {
+      const savedFaturamento = await api(editingId ? `/api/faturamento/${encodeURIComponent(editingId)}` : '/api/faturamento', {
         method: editingId ? 'PATCH' : 'POST',
         body: JSON.stringify(payload)
       });
+      upsertStateItem('faturamento', savedFaturamento);
       clearEditing(form, 'faturamentoId', 'Salvar faturamento');
       toast(editingId ? 'Faturamento atualizado.' : 'Faturamento cadastrado.');
-      await refresh();
+      render();
     } catch (error) {
       toast(error.message || 'Não foi possível salvar o faturamento.');
     } finally {
@@ -4345,12 +4366,13 @@ function bindForms() {
         method: editingId ? 'PATCH' : 'POST',
         body: JSON.stringify(payload)
       });
+      upsertStateItem('cvFilters', savedFilter);
       toast(editingId ? 'Filtro de CV atualizado.' : 'Filtro de CV cadastrado.');
-      await refresh();
       const currentFilter = state.cvFilters.find((filter) => filter.id === savedFilter.id);
       if (currentFilter) {
         await loadCvFilterForEdit(currentFilter, { silent: true });
       }
+      render();
     } catch (error) {
       toast(error.message || 'Não foi possível salvar o filtro de CV.');
     } finally {
@@ -4405,7 +4427,12 @@ function bindForms() {
       } else {
         toast(editingId ? 'Candidato atualizado.' : 'Candidato cadastrado.');
       }
-      await refresh();
+      upsertStateItem('candidates', savedCandidate);
+      if (savedCandidate.placement) {
+        await refresh();
+      } else {
+        render();
+      }
     } catch (error) {
       toast(error.message || 'Não foi possível salvar o candidato.');
     } finally {
@@ -4439,14 +4466,15 @@ function bindForms() {
         submitButton.disabled = true;
         submitButton.textContent = editingId ? 'Atualizando...' : 'Salvando...';
       }
-      await api(editingId ? `/api/allocateds/${encodeURIComponent(editingId)}` : '/api/allocateds', {
+      const savedAllocated = await api(editingId ? `/api/allocateds/${encodeURIComponent(editingId)}` : '/api/allocateds', {
         method: editingId ? 'PATCH' : 'POST',
         body: JSON.stringify(payload)
       });
+      upsertStateItem('allocateds', savedAllocated);
       clearEditing(form, 'allocatedId', 'Salvar alocado');
       if (form.elements.active) form.elements.active.checked = true;
       toast(editingId ? 'Alocado atualizado.' : 'Alocado cadastrado.');
-      await refresh();
+      render();
     } catch (error) {
       toast(error.message || 'Não foi possível salvar o alocado.');
     } finally {
@@ -4482,14 +4510,15 @@ function bindForms() {
 
     const originalText = setSubmitButtonBusy(submitButton, editingId ? 'Atualizando...' : 'Salvando...');
     try {
-      await api(editingId ? `/api/rate-cards/${encodeURIComponent(editingId)}` : '/api/rate-cards', {
+      const savedRateCard = await api(editingId ? `/api/rate-cards/${encodeURIComponent(editingId)}` : '/api/rate-cards', {
         method: editingId ? 'PATCH' : 'POST',
         body: JSON.stringify(payload)
       });
+      upsertStateItem('rateCards', savedRateCard);
       clearEditing(form, 'rateCardId', 'Salvar Rate Card');
       syncRateCardMaximum(form);
       toast(editingId ? 'Rate Card atualizado.' : 'Rate Card cadastrado.');
-      await refresh();
+      render();
     } catch (error) {
       toast(error.message || 'Não foi possível salvar o Rate Card.');
     } finally {
@@ -4523,14 +4552,15 @@ function bindForms() {
 
     const originalText = setSubmitButtonBusy(submitButton, editingId ? 'Atualizando...' : 'Salvando...');
     try {
-      await api(editingId ? `/api/candidate-pool/${encodeURIComponent(editingId)}` : '/api/candidate-pool', {
+      const savedCandidatePoolItem = await api(editingId ? `/api/candidate-pool/${encodeURIComponent(editingId)}` : '/api/candidate-pool', {
         method: editingId ? 'PATCH' : 'POST',
         body: JSON.stringify(payload)
       });
+      upsertStateItem('candidatePool', savedCandidatePoolItem);
       clearEditing(form, 'candidatePoolId', 'Salvar candidato');
       if (form.elements.active) form.elements.active.checked = true;
       toast(editingId ? 'Candidato do bolsão atualizado.' : 'Candidato cadastrado no bolsão.');
-      await refresh();
+      render();
     } catch (error) {
       toast(error.message || 'Não foi possível salvar o candidato do bolsão.');
     } finally {
@@ -4564,13 +4594,15 @@ function bindForms() {
 
     const originalText = setSubmitButtonBusy(submitButton, editingId ? 'Atualizando...' : 'Salvando...');
     try {
-      await api(editingId ? `/api/huntings/${encodeURIComponent(editingId)}` : '/api/huntings', {
+      const savedHunting = await api(editingId ? `/api/huntings/${encodeURIComponent(editingId)}` : '/api/huntings', {
         method: editingId ? 'PATCH' : 'POST',
         body: JSON.stringify(payload)
       });
+      upsertStateItem('opportunities', savedHunting.opportunity);
+      upsertStateItem('candidates', savedHunting.candidate);
       clearEditing(form, 'huntingId', 'Salvar hunting');
       toast(editingId ? 'Hunting atualizado.' : 'Hunting cadastrado.');
-      await refresh();
+      render();
     } catch (error) {
       toast(error.message || 'Não foi possível salvar o hunting.');
     } finally {
@@ -4598,13 +4630,15 @@ function bindForms() {
     try {
       const payload = formPayload(form);
       payload.active = form.elements.active.checked;
-      await api(`/api/candidates/${candidateId}/select`, {
+      const selectedCandidate = await api(`/api/candidates/${candidateId}/select`, {
         method: 'POST',
         body: JSON.stringify(payload)
       });
+      upsertStateItem('candidates', selectedCandidate.candidate);
+      upsertStateItem('allocateds', selectedCandidate.allocated);
       closeCandidateSelectModal();
       toast('Candidato aprovado e migrado para alocados.');
-      await refresh();
+      render();
     } catch (error) {
       toast(error.message || 'Não foi possível criar o alocado.');
     } finally {
@@ -4633,13 +4667,18 @@ function bindForms() {
 
     const originalText = setSubmitButtonBusy(submitButton, editingId ? 'Atualizando...' : 'Salvando...');
     try {
-      await api(editingId ? `/api/users/${encodeURIComponent(editingId)}` : '/api/users', {
+      const savedUser = await api(editingId ? `/api/users/${encodeURIComponent(editingId)}` : '/api/users', {
         method: editingId ? 'PATCH' : 'POST',
         body: JSON.stringify(payload)
       });
+      upsertStateItem('users', savedUser);
+      if (state.currentUser?.id === savedUser.id) {
+        state.currentUser = savedUser;
+        updateSessionUser(savedUser);
+      }
       clearEditing(form, 'userId', 'Salvar usuário');
       toast(editingId ? 'Usuário atualizado.' : 'Usuário cadastrado com senha inicial Alcateia123.');
-      await refresh();
+      render();
     } catch (error) {
       toast(error.message || 'Não foi possível salvar o usuário.');
     } finally {
@@ -5380,7 +5419,8 @@ function bindSelectedCandidateActions() {
 
       try {
         const advanced = await api(`/api/selected-candidates/${candidate.id}/advance`, { method: 'POST' });
-        await refresh();
+        upsertStateItem('candidates', advanced);
+        render();
         const typeSelect = $('#candidateFilterType');
         const valueSelect = $('#candidateFilterValue');
         if (typeSelect && valueSelect) {
@@ -5542,7 +5582,7 @@ function bindEditableRows() {
 
       try {
         await api(`/api/contact-clients/${contact.id}`, { method: 'DELETE' });
-        state.contactClients = state.contactClients.filter((item) => item.id !== contact.id);
+        removeStateItem('contactClients', contact.id);
         if (state.editing.contactClientId === contact.id) {
           clearEditing($('#contactClientForm'), 'contactClientId', 'Cadastrar contato');
         }
@@ -5580,7 +5620,7 @@ function bindEditableRows() {
 
     try {
       await api(`/api/contact-clients/${contact.id}`, { method: 'DELETE' });
-      state.contactClients = state.contactClients.filter((item) => item.id !== contact.id);
+      removeStateItem('contactClients', contact.id);
       if (state.editing.contactClientId === contact.id) {
         clearEditing($('#contactClientForm'), 'contactClientId', 'Cadastrar contato');
       }
@@ -5624,10 +5664,11 @@ function bindEditableRows() {
       if (!filter) return;
       if (!window.confirm('Apagar este filtro de CV?')) return;
       api(`/api/cv-filters/${filter.id}`, { method: 'DELETE' })
-        .then(async () => {
+        .then(() => {
           if (state.editing.cvFilterId === filter.id) state.editing.cvFilterId = '';
+          removeStateItem('cvFilters', filter.id);
           toast('Filtro de CV apagado.');
-          await refresh();
+          render();
         })
         .catch((error) => toast(error.message || 'Não foi possível apagar o filtro.'));
       return;
