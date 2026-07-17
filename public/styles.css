@@ -875,6 +875,11 @@ label.full,
   padding: 0 18px;
 }
 
+.opportunity-filter-bar {
+  grid-template-columns: 360px 360px;
+  justify-content: start;
+}
+
 .allocated-filter-bar {
   grid-template-columns: 240px 220px 220px minmax(220px, auto);
   align-items: end;
