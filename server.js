@@ -23,6 +23,7 @@ import {
   normalizeContactClient,
   normalizeCurriculum,
   normalizeCurriculumObservation,
+  normalizeFormRequestObservation,
   normalizeCvFilter,
   normalizeCvSearchResult,
   normalizeSelectedCandidate,
@@ -242,6 +243,16 @@ function getPublicBaseUrl() {
   return 'https://rpa-banco-talentos-5v5r.onrender.com';
 }
 
+function buildFormRequestUrl(requestItem) {
+  const url = new URL(getPublicBaseUrl());
+  url.searchParams.set('view', 'forms');
+  url.searchParams.set('panel', 'requests');
+  if (requestItem?.id) {
+    url.searchParams.set('requestId', requestItem.id);
+  }
+  return url.toString();
+}
+
 function isSmtpAccountConfigured(config) {
   return Boolean(config?.host && config?.port && config?.user && config?.password && config?.from);
 }
@@ -257,6 +268,548 @@ function smtpSafeConfig(config) {
     passwordConfigured: Boolean(config.password),
     configured: isSmtpAccountConfigured(config)
   };
+}
+
+const USER_ROLES = ['Admin', 'Gestão'];
+
+function normalizeUserRole(role) {
+  const value = String(role || '').trim();
+  const match = USER_ROLES.find((item) => item.toLowerCase() === value.toLowerCase());
+  return match || 'Gestão';
+}
+
+function isAdminUser(user) {
+  return String(user?.role || '').trim().toLowerCase() === 'admin';
+}
+
+function requireAdmin(response, user, message = 'Apenas administradores podem executar esta ação.') {
+  if (isAdminUser(user)) return false;
+  sendError(response, 403, message);
+  return true;
+}
+
+function visibleFormRequestsForUser(formRequests = [], user = {}) {
+  if (isAdminUser(user)) return formRequests;
+  const userId = String(user.id || '');
+  const userEmail = String(user.email || '').toLowerCase();
+  return formRequests.filter((requestItem) => {
+    const requesterId = String(requestItem.requesterId || '');
+    const requesterEmail = String(requestItem.requesterEmail || '').toLowerCase();
+    const approverEmail = String(requestItem.currentApproverEmail || '').toLowerCase();
+    return requesterId === userId || requesterEmail === userEmail || approverEmail === userEmail;
+  });
+}
+
+function visibleFormRequestObservationsForUser(observations = [], visibleRequests = []) {
+  const visibleRequestIds = new Set(visibleRequests.map((requestItem) => String(requestItem.id || '')));
+  return observations.filter((observation) => visibleRequestIds.has(String(observation.requestId || '')));
+}
+
+function formRequestHistoryObservations(requestItem = {}) {
+  return (Array.isArray(requestItem.history) ? requestItem.history : [])
+    .filter((entry) => String(entry.observation || '').trim())
+    .map((entry) => normalizeFormRequestObservation({
+      id: entry.id || createId('form_req_obs', `${requestItem.id}-${entry.userId || entry.userName}-${entry.date || entry.createdAt}`),
+      requestId: requestItem.id,
+      observation: entry.observation,
+      date: entry.date || entry.createdAt || requestItem.createdAt,
+      userId: entry.userId,
+      userName: entry.userName,
+      userEmail: entry.userEmail,
+      action: entry.status,
+      createdAt: entry.createdAt || entry.date || requestItem.createdAt
+    }));
+}
+
+function formRequestObservationKey(observation = {}) {
+  return [
+    observation.requestId || '',
+    observation.date || observation.createdAt || '',
+    observation.userId || observation.userEmail || observation.userName || '',
+    observation.action || '',
+    observation.observation || ''
+  ].map((part) => String(part).trim()).join('|');
+}
+
+function mergedFormRequestObservations(formRequests = [], storedObservations = []) {
+  const merged = new Map();
+  for (const observation of storedObservations || []) {
+    const normalized = normalizeFormRequestObservation(observation);
+    if (normalized.requestId && normalized.observation) {
+      merged.set(formRequestObservationKey(normalized), normalized);
+    }
+  }
+  for (const requestItem of formRequests || []) {
+    for (const observation of formRequestHistoryObservations(requestItem)) {
+      const key = formRequestObservationKey(observation);
+      if (!merged.has(key)) {
+        merged.set(key, observation);
+      }
+    }
+  }
+  return Array.from(merged.values()).sort((left, right) => String(left.date || '').localeCompare(String(right.date || '')));
+}
+
+function addFormRequestObservation(db, requestItem, user, text, action = '') {
+  const observationText = repairEncodingArtifacts(text || '').trim();
+  if (!observationText || !requestItem?.id) return null;
+  db.formRequestObservations = Array.isArray(db.formRequestObservations) ? db.formRequestObservations : [];
+  const observation = normalizeFormRequestObservation({
+    requestId: requestItem.id,
+    observation: observationText,
+    date: toISODate(),
+    userId: user?.id || '',
+    userName: user?.name || '',
+    userEmail: user?.email || '',
+    action
+  });
+  db.formRequestObservations.push(observation);
+  return observation;
+}
+
+const FORM_FIELD_TYPES = ['texto', 'numero', 'data', 'email', 'textarea', 'lista', 'arquivo', 'moeda'];
+const REQUESTER_WORKFLOW_ASSIGNEE = '__requester__';
+const FORM_REMINDER_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+function repairEncodingArtifacts(value) {
+  let text = String(value || '');
+  if (!text) return text;
+
+  if (/[ÃÂ]/.test(text)) {
+    const decoded = Buffer.from(text, 'latin1').toString('utf8');
+    const artifactCount = (candidate) => (candidate.match(/[ÃÂ�]/g) || []).length;
+    if (artifactCount(decoded) < artifactCount(text)) {
+      text = decoded;
+    }
+  }
+
+  return text
+    .replace(/Formul\?rios/g, 'Formulários')
+    .replace(/formul\?rios/g, 'formulários')
+    .replace(/Observa\?\?o/g, 'Observação')
+    .replace(/observa\?\?o/g, 'observação')
+    .replace(/Refei\?\?o/g, 'Refeição')
+    .replace(/refei\?\?o/g, 'refeição')
+    .replace(/aprova\?\?o/g, 'aprovação')
+    .replace(/Aprova\?\?o/g, 'Aprovação')
+    .replace(/([A-Za-zÀ-ÿ]+)\?\?es/g, '$1ções')
+    .replace(/([A-Za-zÀ-ÿ]+)\?\?o/g, '$1ção');
+}
+
+function simplifyFormText(value) {
+  return repairEncodingArtifacts(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function formFieldListOptions(value) {
+  const match = repairEncodingArtifacts(value).match(/lista de valores\s*-\s*([^)]+)/i);
+  return match
+    ? match[1].split(',').map((option) => option.trim()).filter(Boolean)
+    : [];
+}
+
+function smartFormFieldType(label, explicitType = '') {
+  const normalizedType = simplifyFormText(explicitType).trim();
+  if (FORM_FIELD_TYPES.includes(normalizedType)) return normalizedType;
+
+  const normalizedLabel = simplifyFormText(label);
+  if (normalizedLabel.includes('lista de valores')) return 'lista';
+  if (/\bdata\b/.test(normalizedLabel)) return 'data';
+  if (normalizedLabel.includes('r$') || normalizedLabel.includes('valor')) return 'moeda';
+  if (normalizedLabel.includes('arquivo') || normalizedLabel.includes('anexo') || normalizedLabel.includes('upload')) return 'arquivo';
+  if (normalizedLabel.includes('observacao')) return 'textarea';
+  return 'texto';
+}
+
+function cleanSmartFormFieldLabel(label, type) {
+  let clean = repairEncodingArtifacts(label)
+    .replace(/\s*\((?:lista de valores\s*-[^)]+|data|r\$[^)]*)\)/gi, '')
+    .replace(/\s+se campo outro.*$/i, '')
+    .trim();
+
+  if (type === 'arquivo' && simplifyFormText(clean) === 'campo de postagem de arquivo') {
+    clean = 'Arquivo';
+  }
+  return clean || repairEncodingArtifacts(label).trim();
+}
+
+function normalizeWorkflowAction(action) {
+  const value = simplifyFormText(action).trim();
+  if (value.includes('ajuste') || value.includes('corrigir') || value.includes('correcao')) return 'Ajuste';
+  if (value.includes('process')) return 'Processado';
+  if (value.includes('final')) return 'Finalizado';
+  return 'Aprovar';
+}
+
+function normalizeWorkflowSlaDays(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? Math.floor(number) : 0;
+}
+
+function calculateWorkflowDueAt(startDate, slaDays) {
+  const days = normalizeWorkflowSlaDays(slaDays);
+  if (!days) return '';
+  const date = new Date(startDate || toISODate());
+  date.setDate(date.getDate() + days);
+  return date.toISOString();
+}
+
+function workflowStepStatus(step) {
+  const action = normalizeWorkflowAction(step?.action);
+  if (action === 'Ajuste') return 'Pendente ajuste';
+  if (action === 'Processado') return 'Em processamento';
+  if (action === 'Finalizado') return 'Pendente finalização';
+  return 'Pendente aprovação';
+}
+
+function resolveWorkflowApproverEmail(step, requestItem) {
+  const action = normalizeWorkflowAction(step?.action);
+  const approverEmail = String(step?.approverEmail || '').trim();
+  if (approverEmail === REQUESTER_WORKFLOW_ASSIGNEE || action === 'Ajuste') {
+    return String(requestItem.requesterEmail || '').trim();
+  }
+  return approverEmail;
+}
+
+function assignFormRequestStep(requestItem, definition, stepIndex) {
+  const step = definition.workflowSteps?.[stepIndex];
+  if (!step) {
+    requestItem.currentStepIndex = -1;
+    requestItem.currentApproverEmail = '';
+    requestItem.currentAction = '';
+    requestItem.currentStepName = '';
+    requestItem.currentSlaDays = 0;
+    requestItem.currentStepStartedAt = '';
+    requestItem.currentDueAt = '';
+    requestItem.status = 'Aprovada';
+    return;
+  }
+
+  const now = toISODate();
+  requestItem.currentStepIndex = stepIndex;
+  requestItem.currentApproverEmail = resolveWorkflowApproverEmail(step, requestItem);
+  requestItem.currentAction = normalizeWorkflowAction(step.action);
+  requestItem.currentStepName = step.name || '';
+  requestItem.currentSlaDays = normalizeWorkflowSlaDays(step.slaDays);
+  requestItem.currentStepStartedAt = now;
+  requestItem.currentDueAt = calculateWorkflowDueAt(now, step.slaDays);
+  requestItem.status = workflowStepStatus(step);
+}
+
+function assignFormRequestProcessing(requestItem, user, payload = {}) {
+  const now = toISODate();
+  requestItem.status = 'Em processamento';
+  requestItem.currentApproverEmail = String(user?.email || requestItem.currentApproverEmail || '').trim();
+  requestItem.currentAction = 'Finalizar';
+  requestItem.currentStepName = 'Processamento';
+  requestItem.processingResponsibleId = String(user?.id || '').trim();
+  requestItem.processingResponsibleName = String(user?.name || '').trim();
+  requestItem.processingStartedAt = now;
+  requestItem.expectedPaymentDate = String(payload.expectedPaymentDate || '').trim();
+  requestItem.processingObservation = repairEncodingArtifacts(payload.observation || '').trim();
+  requestItem.currentStepStartedAt = now;
+  requestItem.currentDueAt = calculateWorkflowDueAt(now, requestItem.currentSlaDays);
+  requestItem.reminderLastSentDate = '';
+  requestItem.reminderLastSentAt = '';
+}
+
+function finalizeFormRequest(requestItem, user, payload = {}) {
+  const now = toISODate();
+  requestItem.status = 'Finalizado';
+  requestItem.currentApproverEmail = '';
+  requestItem.currentAction = '';
+  requestItem.currentStepName = '';
+  requestItem.currentSlaDays = 0;
+  requestItem.currentStepStartedAt = '';
+  requestItem.currentDueAt = '';
+  requestItem.finalizedById = String(user?.id || '').trim();
+  requestItem.finalizedByName = String(user?.name || '').trim();
+  requestItem.finalizedAt = now;
+  requestItem.finalObservation = repairEncodingArtifacts(payload.observation || '').trim();
+  requestItem.reminderLastSentDate = '';
+  requestItem.reminderLastSentAt = '';
+}
+
+function normalizeFormFieldsPayload(fields) {
+  if (Array.isArray(fields)) {
+    return fields.map((field) => {
+      const smartType = smartFormFieldType(field?.label, field?.type);
+      return {
+        id: field?.id || createId('form_field', field?.label),
+        label: cleanSmartFormFieldLabel(field?.label, smartType),
+        type: smartType,
+        required: Boolean(field?.required),
+        options: Array.isArray(field?.options) ? field.options.map((option) => repairEncodingArtifacts(option).trim()).filter(Boolean) : formFieldListOptions(field?.label),
+        otherObservation: Boolean(field?.otherObservation) || simplifyFormText(field?.label).includes('campo outro')
+      };
+    }).filter((field) => field.label);
+  }
+
+  return String(fields || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [label, type = '', required = '', options = '', otherObservation = ''] = line.split('|').map((part) => part.trim());
+      const smartType = smartFormFieldType(label, type);
+      return {
+        id: createId('form_field', label),
+        label: cleanSmartFormFieldLabel(label, smartType),
+        type: smartType,
+        required: ['sim', 'true', '1', 'obrigatorio', 'obrigatório'].includes(required.toLowerCase()),
+        options: (options || formFieldListOptions(label).join(',')).split(',').map((option) => repairEncodingArtifacts(option).trim()).filter(Boolean),
+        otherObservation: ['sim', 'true', '1'].includes(otherObservation.toLowerCase()) || simplifyFormText(label).includes('campo outro')
+      };
+    });
+}
+
+function normalizeWorkflowStepsPayload(steps) {
+  return String(steps || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line, index) => {
+      const cleanLine = repairEncodingArtifacts(line);
+      const [name, action = 'Aprovar', approverEmail = '', slaDays = ''] = cleanLine.split('|').map((part) => part.trim());
+      const emailMatch = cleanLine.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+      const inferredEmail = approverEmail || emailMatch?.[0] || '';
+      const inferredName = name.includes(':') && emailMatch ? name.split(':')[0].trim() : name;
+      return {
+        id: createId('workflow_step', `${index + 1}-${inferredName}`),
+        name: inferredName,
+        action: normalizeWorkflowAction(action),
+        approverEmail: inferredEmail,
+        slaDays: normalizeWorkflowSlaDays(slaDays),
+        order: index + 1
+      };
+    });
+}
+
+function formDefinitionLabel(definition) {
+  return `${definition.title || 'Formulário'} (${definition.workflowSteps?.length || 0} etapa(s))`;
+}
+
+function normalizeFormDefinitionPayload(payload, existing = {}) {
+  const fields = normalizeFormFieldsPayload(payload.fieldsText ?? payload.fields ?? existing.fieldsText);
+  const workflowSteps = normalizeWorkflowStepsPayload(payload.workflowText ?? payload.workflowSteps ?? existing.workflowText);
+  return {
+    ...existing,
+    id: existing.id || createId('form_definition', payload.title),
+    title: repairEncodingArtifacts(payload.title ?? existing.title ?? '').trim(),
+    description: repairEncodingArtifacts(payload.description ?? existing.description ?? '').trim(),
+    fields,
+    workflowSteps,
+    fieldsText: repairEncodingArtifacts(payload.fieldsText ?? existing.fieldsText ?? '').trim(),
+    workflowText: repairEncodingArtifacts(payload.workflowText ?? existing.workflowText ?? '').trim(),
+    active: payload.active === undefined ? existing.active !== false : Boolean(payload.active),
+    createdAt: existing.createdAt || toISODate(),
+    updatedAt: toISODate()
+  };
+}
+
+function normalizeFormRequestFieldValue(field, rawValue) {
+  if (field.type === 'arquivo' && String(rawValue || '') === '[object Object]') {
+    return '[invalid-file-object]';
+  }
+  if (field.type === 'arquivo' && rawValue && typeof rawValue === 'object' && !Array.isArray(rawValue)) {
+    return {
+      name: repairEncodingArtifacts(rawValue.name || '').trim(),
+      type: repairEncodingArtifacts(rawValue.type || '').trim(),
+      size: Number(rawValue.size || 0),
+      dataUrl: String(rawValue.dataUrl || '').trim(),
+      url: String(rawValue.url || '').trim(),
+      uploadedAt: repairEncodingArtifacts(rawValue.uploadedAt || toISODate()).trim()
+    };
+  }
+  return repairEncodingArtifacts(rawValue ?? '').trim();
+}
+
+function isInvalidFormRequestFileValue(value) {
+  return value === '[invalid-file-object]'
+    || (value && typeof value === 'object' && !String(value.dataUrl || value.url || '').trim());
+}
+
+function normalizeFormRequestPayload(payload, definition, user) {
+  const values = {};
+  for (const field of definition.fields || []) {
+    values[field.id] = normalizeFormRequestFieldValue(field, payload.values?.[field.id]);
+    const otherKey = `${field.id}_other`;
+    if (payload.values?.[otherKey]) {
+      values[otherKey] = repairEncodingArtifacts(payload.values[otherKey]).trim();
+    }
+  }
+  const firstStep = definition.workflowSteps?.[0];
+  const requestItem = {
+    id: createId('form_request', `${definition.id}-${Date.now()}`),
+    formDefinitionId: definition.id,
+    formTitle: definition.title,
+    requesterId: user.id,
+    requesterName: user.name,
+    requesterEmail: user.email,
+    values,
+    status: firstStep ? workflowStepStatus(firstStep) : 'Aprovada',
+    currentStepIndex: -1,
+    currentApproverEmail: '',
+    currentAction: '',
+    currentStepName: '',
+    currentSlaDays: 0,
+    currentStepStartedAt: '',
+    currentDueAt: '',
+    history: [{
+      status: firstStep ? 'Criada' : 'Aprovada',
+      userId: user.id,
+      userName: user.name,
+      date: toISODate(),
+      observation: firstStep ? 'Requisição enviada para aprovação.' : 'Requisição criada sem etapas de aprovação.'
+    }],
+    createdAt: toISODate(),
+    updatedAt: toISODate()
+  };
+  if (firstStep) {
+    assignFormRequestStep(requestItem, definition, 0);
+  }
+  return requestItem;
+}
+
+async function notifyFormRequest(requestItem, definition, action) {
+  const config = getSmtpConfigFromEnv();
+  if (!isSmtpAccountConfigured(config)) return { sent: false, reason: 'SMTP não configurado.' };
+
+  const to = requestItem.currentApproverEmail || requestItem.requesterEmail || config.testTo;
+  if (!to) return { sent: false, reason: 'Destinatário não informado.' };
+
+  const requestUrl = buildFormRequestUrl(requestItem);
+  const workflowActionLabel = resolveFormRequestNotificationAction(requestItem, definition, action);
+  const subject = `[Alcateia] ${workflowActionLabel}: ${requestItem.formTitle}`;
+  const text = [
+    `Formulário: ${formDefinitionLabel(definition)}`,
+    `Requisitante: ${requestItem.requesterName} <${requestItem.requesterEmail}>`,
+    `Status: ${requestItem.status}`,
+    `Link para consulta/aprovacao: ${requestUrl}`,
+    `Acao: ${workflowActionLabel}`,
+    '',
+    'Acesse o sistema para acompanhar ou aprovar a requisição.'
+  ].join('\n');
+
+  await sendMail({ ...config, to, subject, text });
+  return { sent: true, to };
+}
+
+function resolveFormRequestNotificationAction(requestItem, definition, fallback = '') {
+  const currentAction = String(requestItem?.currentAction || '').trim();
+  if (currentAction) return normalizeWorkflowAction(currentAction);
+
+  const stepIndex = Number(requestItem?.currentStepIndex ?? 0);
+  const currentStepAction = definition?.workflowSteps?.[stepIndex]?.action;
+  if (currentStepAction) return normalizeWorkflowAction(currentStepAction);
+
+  const fallbackText = repairEncodingArtifacts(fallback).trim();
+  if (/nova requisi/i.test(simplifyFormText(fallbackText))) {
+    return normalizeWorkflowAction(definition?.workflowSteps?.[0]?.action);
+  }
+  return fallbackText || repairEncodingArtifacts(requestItem?.status || 'Atualizacao').trim();
+}
+
+function formRequestDueLabel(requestItem) {
+  if (!requestItem.currentDueAt) return 'Sem SLA definido';
+  const due = new Date(requestItem.currentDueAt);
+  const overdue = Number.isFinite(due.getTime()) && due.getTime() < Date.now();
+  return `${due.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}${overdue ? ' (vencida)' : ''}`;
+}
+
+async function sendDailyFormRequestReminders({ force = false } = {}) {
+  const config = getSmtpConfigFromEnv();
+  if (!isSmtpAccountConfigured(config)) {
+    return { sent: 0, skipped: true, reason: 'SMTP nao configurado.' };
+  }
+
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+  const db = await readDatabaseCollections(['formDefinitions', 'formRequests']);
+  const pendingRequests = (db.formRequests || []).filter((requestItem) => {
+    const status = String(requestItem.status || '').toLowerCase();
+    const isOpen = status.includes('pendente') || status === 'em processamento';
+    if (!isOpen) return false;
+    if (!requestItem.currentApproverEmail) return false;
+    return force || requestItem.reminderLastSentDate !== today;
+  });
+
+  const groups = new Map();
+  for (const requestItem of pendingRequests) {
+    const email = String(requestItem.currentApproverEmail || '').trim().toLowerCase();
+    if (!email) continue;
+    if (!groups.has(email)) groups.set(email, []);
+    groups.get(email).push(requestItem);
+  }
+
+  let sent = 0;
+  for (const [email, requests] of groups.entries()) {
+    const lines = requests.map((requestItem, index) => {
+      const definition = db.formDefinitions.find((item) => item.id === requestItem.formDefinitionId);
+      const url = buildFormRequestUrl(requestItem);
+      return [
+        `${index + 1}. ${requestItem.formTitle || definition?.title || 'Formulario'}`,
+        `   Solicitante: ${requestItem.requesterName || '-'} <${requestItem.requesterEmail || '-'}>`,
+        `   Status: ${requestItem.status || '-'}`,
+        `   Etapa: ${requestItem.currentStepName || '-'}`,
+        `   SLA: ${requestItem.currentSlaDays || 0} dia(s)`,
+        `   Vencimento: ${formRequestDueLabel(requestItem)}`,
+        `   Link: ${url}`
+      ].join('\n');
+    });
+
+    await sendMail({
+      ...config,
+      to: email,
+      subject: `[Alcateia] ${requests.length} requisicao(oes) em aberto`,
+      text: [
+        'Voce possui requisicoes em aberto aguardando acao.',
+        '',
+        ...lines,
+        '',
+        'Acesse o sistema para aprovar, reprovar, ajustar ou finalizar as requisicoes em aberto.'
+      ].join('\n')
+    });
+    sent += 1;
+    for (const requestItem of requests) {
+      requestItem.reminderLastSentDate = today;
+      requestItem.reminderLastSentAt = toISODate();
+    }
+  }
+
+  if (sent) {
+    await writeDatabaseCollections(db, ['formRequests']);
+  }
+
+  return { sent, requests: pendingRequests.length };
+}
+
+function msUntilNextFormReminderRun() {
+  const hour = Math.min(23, Math.max(0, Number(process.env.FORM_REMINDER_HOUR || 8)));
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(hour, 0, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+  return next.getTime() - now.getTime();
+}
+
+function startFormRequestReminderJob() {
+  if (String(process.env.FORM_REMINDER_ENABLED || '').toLowerCase() !== 'true') return;
+  const run = async () => {
+    try {
+      const result = await sendDailyFormRequestReminders();
+      if (result.sent) {
+        console.log(`Lembretes de requisicoes enviados: ${result.sent}`);
+      }
+    } catch (error) {
+      console.error('Falha ao enviar lembretes de requisicoes:', error.message);
+    }
+  };
+  setTimeout(() => {
+    run();
+    setInterval(run, FORM_REMINDER_INTERVAL_MS);
+  }, msUntilNextFormReminderRun());
 }
 
 async function withTimeout(promise, timeoutMs, message) {
@@ -1063,15 +1616,109 @@ async function ensureAuthDatabase(auth) {
   return auth.db;
 }
 
-async function readJsonBody(request) {
+async function readRequestBodyBuffer(request) {
   const chunks = [];
   for await (const chunk of request) {
     chunks.push(chunk);
   }
 
-  if (!chunks.length) return {};
-  const raw = Buffer.concat(chunks).toString('utf8');
+  return chunks.length ? Buffer.concat(chunks) : Buffer.alloc(0);
+}
+
+async function readJsonBody(request) {
+  const buffer = await readRequestBodyBuffer(request);
+  if (!buffer.length) return {};
+  const raw = buffer.toString('utf8');
   return raw ? JSON.parse(raw) : {};
+}
+
+function multipartBoundary(contentType = '', bodyBuffer = null) {
+  const match = String(contentType).match(/boundary=(?:"([^"]+)"|([^;]+))/i);
+  if (match?.[1] || match?.[2]) return match?.[1] || match?.[2] || '';
+  if (!bodyBuffer?.length) return '';
+  const firstLine = bodyBuffer.toString('latin1', 0, Math.min(bodyBuffer.length, 200)).split(/\r?\n/)[0];
+  return firstLine.startsWith('--') ? firstLine.slice(2).trim() : '';
+}
+
+function parseMultipartDisposition(value = '') {
+  const result = {};
+  for (const part of String(value).split(';')) {
+    const [rawKey, ...rawValue] = part.trim().split('=');
+    if (!rawValue.length) continue;
+    result[rawKey.toLowerCase()] = rawValue.join('=').trim().replace(/^"|"$/g, '');
+  }
+  return result;
+}
+
+async function parseMultipartFormDataBuffer(contentType, bodyBuffer) {
+  const boundary = multipartBoundary(contentType, bodyBuffer);
+  if (!boundary) return { fields: {}, files: {} };
+
+  const body = bodyBuffer.toString('latin1');
+  const fields = {};
+  const files = {};
+  for (const rawPart of body.split(`--${boundary}`)) {
+    const part = rawPart.replace(/^\r?\n/, '');
+    if (!part || part.startsWith('--')) continue;
+
+    const headerEnd = part.indexOf('\r\n\r\n');
+    if (headerEnd < 0) continue;
+
+    const rawHeaders = part.slice(0, headerEnd);
+    let content = part.slice(headerEnd + 4);
+    content = content.replace(/\r?\n$/, '');
+
+    const headers = Object.fromEntries(rawHeaders.split(/\r?\n/).map((line) => {
+      const index = line.indexOf(':');
+      return index >= 0 ? [line.slice(0, index).trim().toLowerCase(), line.slice(index + 1).trim()] : ['', ''];
+    }).filter(([key]) => key));
+
+    const disposition = parseMultipartDisposition(headers['content-disposition']);
+    const fieldName = disposition.name;
+    if (!fieldName) continue;
+
+    const contentBuffer = Buffer.from(content, 'latin1');
+    if (disposition.filename) {
+      const type = headers['content-type'] || 'application/octet-stream';
+      files[fieldName] = {
+        name: repairEncodingArtifacts(disposition.filename).trim(),
+        type,
+        size: contentBuffer.length,
+        dataUrl: `data:${type};base64,${contentBuffer.toString('base64')}`,
+        uploadedAt: toISODate()
+      };
+    } else {
+      fields[fieldName] = contentBuffer.toString('utf8');
+    }
+  }
+
+  return { fields, files };
+}
+
+async function readFormRequestPayload(request) {
+  const contentType = String(request.headers['content-type'] || '');
+  const bodyBuffer = await readRequestBodyBuffer(request);
+  if (!bodyBuffer.length) return {};
+
+  const rawStart = bodyBuffer.toString('latin1', 0, Math.min(bodyBuffer.length, 200));
+  const isMultipart = contentType.toLowerCase().includes('multipart/form-data')
+    || rawStart.startsWith('--');
+  if (!isMultipart) {
+    const raw = bodyBuffer.toString('utf8');
+    return raw ? JSON.parse(raw) : {};
+  }
+
+  const { fields, files } = await parseMultipartFormDataBuffer(contentType, bodyBuffer);
+  const values = fields.values ? JSON.parse(fields.values) : {};
+  for (const [fieldName, file] of Object.entries(files)) {
+    if (fieldName.startsWith('file_')) {
+      values[fieldName.slice(5)] = file;
+    }
+  }
+  return {
+    formDefinitionId: fields.formDefinitionId || '',
+    values
+  };
 }
 
 function getRoute(request) {
@@ -1939,11 +2586,19 @@ async function handleApi(request, response) {
       const curriculumBootstrap = await loadCurriculumsForBootstrap(auth.db);
       const responseDb = { ...auth.db, curriculums: curriculumBootstrap.curriculums };
       const curriculumTemplates = await listCurriculumTemplates().catch(() => []);
+      const visibleFormRequests = visibleFormRequestsForUser(responseDb.formRequests, auth.user);
+      const formRequestObservations = visibleFormRequestObservationsForUser(
+        mergedFormRequestObservations(responseDb.formRequests, responseDb.formRequestObservations),
+        visibleFormRequests
+      );
       sendJson(response, 200, {
         clients: responseDb.clients,
         contactClients: responseDb.contactClients,
         opportunities: responseDb.opportunities,
         faturamento: responseDb.faturamento,
+        formDefinitions: responseDb.formDefinitions,
+        formRequests: visibleFormRequests,
+        formRequestObservations,
         cvFilters: responseDb.cvFilters.map((filter) => enrichCvFilter(filter, responseDb)),
         selectedCandidates: responseDb.selectedCandidates.map((candidate) => enrichSelectedCandidate(candidate, responseDb)),
         curriculums: curriculumBootstrap.curriculums,
@@ -2172,7 +2827,7 @@ async function handleApi(request, response) {
         id: createId('user', payload.name || email),
         name: String(payload.name ?? '').trim(),
         email,
-        role: 'Admin',
+        role: normalizeUserRole(payload.role || 'Gestão'),
         passwordHash: hashPassword('Alcateia123'),
         mustChangePassword: false,
         createdAt: toISODate()
@@ -2215,7 +2870,7 @@ async function handleApi(request, response) {
 
       user.name = String(payload.name).trim();
       user.email = email;
-      user.role = 'Admin';
+      user.role = normalizeUserRole(payload.role || user.role);
       if (payload.resetPassword === true) {
         const defaultPassword = String(payload.password || 'Alcateia123');
         if (defaultPassword.length < 6) {
@@ -2231,6 +2886,318 @@ async function handleApi(request, response) {
       user.updatedAt = toISODate();
       await writeDatabaseCollections(db, ['users']);
       sendJson(response, 200, sanitizeUser(user));
+      return;
+    }
+
+    if (request.method === 'POST' && pathname === '/api/form-definitions') {
+      if (requireAdmin(response, auth.user, 'Apenas administradores podem criar formulários.')) {
+        return;
+      }
+      const payload = await readJsonBody(request);
+      const db = await readDatabaseCollections(['formDefinitions']);
+      const definition = normalizeFormDefinitionPayload(payload);
+
+      if (!definition.title) {
+        sendError(response, 422, 'Informe o nome do formulário.');
+        return;
+      }
+      if (!definition.fields.length) {
+        sendError(response, 422, 'Informe ao menos um campo do formulário.');
+        return;
+      }
+
+      db.formDefinitions.push(definition);
+      await writeDatabaseCollections(db, ['formDefinitions']);
+      sendJson(response, 201, definition);
+      return;
+    }
+
+    if (request.method === 'PATCH' && pathname.startsWith('/api/form-definitions/')) {
+      if (requireAdmin(response, auth.user, 'Apenas administradores podem editar formulários.')) {
+        return;
+      }
+      const definitionId = decodeURIComponent(pathname.split('/').at(-1));
+      const payload = await readJsonBody(request);
+      const db = await readDatabaseCollections(['formDefinitions']);
+      const definition = db.formDefinitions.find((item) => item.id === definitionId);
+
+      if (!definition) {
+        sendError(response, 404, 'Formulário não encontrado.');
+        return;
+      }
+
+      const updated = normalizeFormDefinitionPayload(payload, definition);
+      if (!updated.title) {
+        sendError(response, 422, 'Informe o nome do formulário.');
+        return;
+      }
+      if (!updated.fields.length) {
+        sendError(response, 422, 'Informe ao menos um campo do formulário.');
+        return;
+      }
+
+      Object.assign(definition, updated);
+      await writeDatabaseCollections(db, ['formDefinitions']);
+      sendJson(response, 200, definition);
+      return;
+    }
+
+    if (request.method === 'DELETE' && pathname.startsWith('/api/form-definitions/')) {
+      if (requireAdmin(response, auth.user, 'Apenas administradores podem excluir formularios.')) {
+        return;
+      }
+      const definitionId = decodeURIComponent(pathname.split('/').at(-1));
+      const db = await readDatabaseCollections(['formDefinitions', 'formRequests', 'formRequestObservations']);
+      const definition = db.formDefinitions.find((item) => item.id === definitionId);
+
+      if (!definition) {
+        sendError(response, 404, 'Formulario nao encontrado.');
+        return;
+      }
+
+      const hasRequests = db.formRequests.some((requestItem) => requestItem.formDefinitionId === definitionId);
+      if (hasRequests) {
+        sendError(response, 409, 'Nao e possivel excluir formulario com requisicoes vinculadas. Inative o formulario para preservar o historico.');
+        return;
+      }
+
+      await deleteDatabaseDocument('formDefinitions', definitionId);
+      sendJson(response, 200, { ok: true });
+      return;
+    }
+
+    if (request.method === 'POST' && pathname === '/api/form-requests') {
+      const payload = await readFormRequestPayload(request);
+      const db = await readDatabaseCollections(['formDefinitions', 'formRequests', 'formRequestObservations']);
+      const definition = db.formDefinitions.find((item) => item.id === payload.formDefinitionId && item.active !== false);
+
+      if (!definition) {
+        sendError(response, 422, 'Selecione um formulário válido.');
+        return;
+      }
+
+      const requestItem = normalizeFormRequestPayload(payload, definition, auth.user);
+      addFormRequestObservation(
+        db,
+        requestItem,
+        auth.user,
+        requestItem.history?.[0]?.observation,
+        requestItem.history?.[0]?.status || 'Criada'
+      );
+      const invalidFileField = (definition.fields || []).find((field) => field.type === 'arquivo' && isInvalidFormRequestFileValue(requestItem.values[field.id]));
+      if (invalidFileField) {
+        sendError(response, 422, `O arquivo do campo ${invalidFileField.label} nao foi enviado corretamente. Recarregue a pagina e anexe novamente.`);
+        return;
+      }
+      const missingField = (definition.fields || []).find((field) => field.required && !requestItem.values[field.id]);
+      if (missingField) {
+        sendError(response, 422, `Informe o campo obrigatório: ${missingField.label}.`);
+        return;
+      }
+
+      try {
+        const notificationAction = resolveFormRequestNotificationAction(requestItem, definition);
+        const notification = await notifyFormRequest(requestItem, definition, notificationAction);
+        requestItem.notification = notification;
+      } catch (error) {
+        requestItem.notification = { sent: false, reason: error.message };
+      }
+
+      db.formRequests.push(requestItem);
+      await writeDatabaseCollections(db, ['formRequests', 'formRequestObservations']);
+      sendJson(response, 201, requestItem);
+      return;
+    }
+
+    if (request.method === 'PATCH' && /^\/api\/form-requests\/[^/]+\/values$/.test(pathname)) {
+      const requestId = decodeURIComponent(pathname.split('/').at(-2));
+      const payload = await readFormRequestPayload(request);
+      const db = await readDatabaseCollections(['formDefinitions', 'formRequests', 'formRequestObservations']);
+      const requestItem = db.formRequests.find((item) => item.id === requestId);
+      const definition = db.formDefinitions.find((item) => item.id === requestItem?.formDefinitionId);
+
+      if (!requestItem || !definition) {
+        sendError(response, 404, 'Requisicao nao encontrada.');
+        return;
+      }
+      if (normalizeWorkflowAction(requestItem.currentAction) !== 'Ajuste') {
+        sendError(response, 409, 'Essa requisicao nao esta pendente de ajuste.');
+        return;
+      }
+      const currentUserEmail = String(auth.user.email || '').toLowerCase();
+      const currentApproverEmail = String(requestItem.currentApproverEmail || '').toLowerCase();
+      if (!currentApproverEmail || currentApproverEmail !== currentUserEmail) {
+        sendError(response, 403, 'Apenas o solicitante pendente de ajuste pode alterar essa requisicao.');
+        return;
+      }
+
+      const values = {};
+      for (const field of definition.fields || []) {
+        values[field.id] = normalizeFormRequestFieldValue(field, payload.values?.[field.id]);
+        const otherKey = `${field.id}_other`;
+        if (payload.values?.[otherKey]) {
+          values[otherKey] = repairEncodingArtifacts(payload.values[otherKey]).trim();
+        }
+      }
+      const missingField = (definition.fields || []).find((field) => field.required && !values[field.id]);
+      const invalidFileField = (definition.fields || []).find((field) => field.type === 'arquivo' && isInvalidFormRequestFileValue(values[field.id]));
+      if (invalidFileField) {
+        sendError(response, 422, `O arquivo do campo ${invalidFileField.label} nao foi enviado corretamente. Recarregue a pagina e anexe novamente.`);
+        return;
+      }
+      if (missingField) {
+        sendError(response, 422, `Informe o campo obrigatorio: ${missingField.label}.`);
+        return;
+      }
+
+      requestItem.values = values;
+      requestItem.history = Array.isArray(requestItem.history) ? requestItem.history : [];
+      requestItem.history.push({
+        status: 'Ajuste enviado',
+        userId: auth.user.id,
+        userName: auth.user.name,
+        date: toISODate(),
+        observation: repairEncodingArtifacts(payload.observation || '').trim()
+      });
+      addFormRequestObservation(db, requestItem, auth.user, payload.observation, 'Ajuste enviado');
+      assignFormRequestStep(requestItem, definition, Number(requestItem.currentStepIndex || 0) + 1);
+      requestItem.updatedAt = toISODate();
+
+      try {
+        const notification = await notifyFormRequest(requestItem, definition, 'Ajuste enviado');
+        requestItem.notification = notification;
+      } catch (error) {
+        requestItem.notification = { sent: false, reason: error.message };
+      }
+
+      await writeDatabaseCollections(db, ['formRequests', 'formRequestObservations']);
+      sendJson(response, 200, requestItem);
+      return;
+    }
+
+    if (request.method === 'POST' && /^\/api\/form-requests\/[^/]+\/decision$/.test(pathname)) {
+      const requestId = decodeURIComponent(pathname.split('/').at(-2));
+      const payload = await readJsonBody(request);
+      const db = await readDatabaseCollections(['formDefinitions', 'formRequests', 'formRequestObservations']);
+      const requestItem = db.formRequests.find((item) => item.id === requestId);
+      const definition = db.formDefinitions.find((item) => item.id === requestItem?.formDefinitionId);
+
+      if (!requestItem || !definition) {
+        sendError(response, 404, 'Requisição não encontrada.');
+        return;
+      }
+      const requestStatus = String(requestItem.status || '').toLowerCase();
+      const isPendingFormRequest = requestStatus.includes('pendente');
+      const isProcessingFormRequest = requestStatus === 'em processamento';
+      if (!isPendingFormRequest && !isProcessingFormRequest) {
+        sendError(response, 409, 'Essa requisição não está pendente de aprovação.');
+        return;
+      }
+
+      const currentStep = definition.workflowSteps?.[requestItem.currentStepIndex];
+      const currentAction = normalizeWorkflowAction(currentStep?.action || requestItem.currentAction);
+      const approverEmail = String(resolveWorkflowApproverEmail(currentStep, requestItem) || requestItem.currentApproverEmail || '').toLowerCase();
+      const currentUserEmail = String(auth.user.email || '').toLowerCase();
+      if (currentAction === 'Ajuste') {
+        sendError(response, 409, 'Essa etapa exige ajuste do solicitante pela tela de requisicao.');
+        return;
+      }
+      if (!approverEmail || approverEmail !== currentUserEmail) {
+        sendError(response, 403, 'Apenas o aprovador atual da etapa pode decidir essa requisicao.');
+        return;
+      }
+
+      const decision = String(payload.decision || '').toLowerCase();
+      if (!['approve', 'reject', 'process', 'finish'].includes(decision)) {
+        sendError(response, 422, 'Informe uma decisão válida.');
+        return;
+      }
+
+      if (decision === 'approve' && currentAction !== 'Aprovar') {
+        sendError(response, 409, 'Essa etapa não está configurada para aprovação.');
+        return;
+      }
+      if (decision === 'process' && currentAction !== 'Processado') {
+        sendError(response, 409, 'Essa etapa não está configurada para processar.');
+        return;
+      }
+      if (decision === 'finish' && currentAction !== 'Finalizado') {
+        sendError(response, 409, 'Essa etapa não está configurada para finalizar.');
+        return;
+      }
+
+      if (decision === 'finish' && !isProcessingFormRequest && !isPendingFormRequest) {
+        sendError(response, 409, 'Essa requisição não está em processamento.');
+        return;
+      }
+      if (decision !== 'finish' && !isPendingFormRequest && !isProcessingFormRequest) {
+        sendError(response, 409, 'Essa requisição não está pendente de aprovação.');
+        return;
+      }
+
+      const observation = repairEncodingArtifacts(payload.observation || '').trim();
+      if (decision === 'reject') {
+        requestItem.status = 'Reprovada';
+        requestItem.currentApproverEmail = '';
+        requestItem.currentStepIndex = -1;
+        requestItem.currentAction = '';
+        requestItem.currentStepName = '';
+        requestItem.currentSlaDays = 0;
+        requestItem.currentStepStartedAt = '';
+        requestItem.currentDueAt = '';
+      } else if (decision === 'finish') {
+        finalizeFormRequest(requestItem, auth.user, { observation });
+      } else {
+        const expectedPaymentDate = String(payload.expectedPaymentDate || '').trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(expectedPaymentDate)) {
+          sendError(response, 422, 'Informe a data prevista para pagamento.');
+          return;
+        }
+        requestItem.expectedPaymentDate = expectedPaymentDate;
+        if (decision === 'process') {
+          requestItem.processedById = auth.user.id;
+          requestItem.processedByName = auth.user.name;
+          requestItem.processedAt = toISODate();
+          requestItem.processingObservation = observation;
+        }
+        const nextIndex = Number(requestItem.currentStepIndex || 0) + 1;
+        assignFormRequestStep(requestItem, definition, nextIndex);
+        if (!definition.workflowSteps?.[nextIndex] && decision === 'process') {
+          requestItem.status = 'Processado';
+        }
+      }
+
+      requestItem.history = Array.isArray(requestItem.history) ? requestItem.history : [];
+      requestItem.history.push({
+        status: decision === 'approve' ? 'Aprovada etapa' : decision === 'process' ? 'Processado' : decision === 'finish' ? 'Finalizado' : 'Reprovada',
+        userId: auth.user.id,
+        userName: auth.user.name,
+        date: toISODate(),
+        observation,
+        expectedPaymentDate: ['approve', 'process'].includes(decision) ? requestItem.expectedPaymentDate : ''
+      });
+      addFormRequestObservation(
+        db,
+        requestItem,
+        auth.user,
+        observation,
+        decision === 'approve' ? 'Aprovada etapa' : decision === 'process' ? 'Processado' : decision === 'finish' ? 'Finalizado' : 'Reprovada'
+      );
+      requestItem.updatedAt = toISODate();
+
+      try {
+        const notification = await notifyFormRequest(
+          requestItem,
+          definition,
+          decision === 'approve' ? 'Aprovação registrada' : decision === 'process' ? 'Requisi\u00e7\u00e3o processada' : decision === 'finish' ? 'Requisi\u00e7\u00e3o finalizada' : 'Requisi\u00e7\u00e3o reprovada'
+        );
+        requestItem.notification = notification;
+      } catch (error) {
+        requestItem.notification = { sent: false, reason: error.message };
+      }
+
+      await writeDatabaseCollections(db, ['formRequests', 'formRequestObservations']);
+      sendJson(response, 200, requestItem);
       return;
     }
 
@@ -2465,6 +3432,9 @@ async function handleApi(request, response) {
     }
 
     if (request.method === 'POST' && pathname === '/api/faturamento') {
+      if (requireAdmin(response, auth.user, 'Apenas administradores podem cadastrar faturamento.')) {
+        return;
+      }
       const payload = await readJsonBody(request);
       const db = await readDatabaseCollections(['faturamento']);
       const faturamento = normalizeFaturamento({
@@ -2478,6 +3448,11 @@ async function handleApi(request, response) {
         return;
       }
 
+      if (db.faturamento.some((item) => item.monthYear === faturamento.monthYear)) {
+        sendError(response, 409, 'Ja existe faturamento cadastrado para esse mes/ano.');
+        return;
+      }
+
       db.faturamento.push(faturamento);
       await writeDatabaseCollections(db, ['faturamento']);
       sendJson(response, 201, faturamento);
@@ -2485,6 +3460,9 @@ async function handleApi(request, response) {
     }
 
     if (request.method === 'PATCH' && pathname.startsWith('/api/faturamento/')) {
+      if (requireAdmin(response, auth.user, 'Apenas administradores podem atualizar faturamento.')) {
+        return;
+      }
       const faturamentoId = pathname.split('/').at(-1);
       const payload = await readJsonBody(request);
       const db = await readDatabaseCollections(['faturamento']);
@@ -2505,6 +3483,11 @@ async function handleApi(request, response) {
 
       if (!updated.monthYear) {
         sendError(response, 422, 'Informe o mes/ano.');
+        return;
+      }
+
+      if (db.faturamento.some((item) => item.id !== faturamentoId && item.monthYear === updated.monthYear)) {
+        sendError(response, 409, 'Ja existe faturamento cadastrado para esse mes/ano.');
         return;
       }
 
@@ -3601,6 +4584,7 @@ const server = http.createServer((request, response) => {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   server.listen(PORT, () => {
-  console.log(`Gestão do Negócio Alcateia MVP em http://localhost:${PORT}`);
+    startFormRequestReminderJob();
+    console.log(`Gestão do Negócio Alcateia MVP em http://localhost:${PORT}`);
   });
 }

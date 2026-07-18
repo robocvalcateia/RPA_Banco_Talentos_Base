@@ -100,12 +100,21 @@
             <span class="nav-chevron" aria-hidden="true">›</span>
           </button>
           <div class="nav-submenu" data-nav-submenu="contracts" hidden>
-            <button class="nav-item nav-subitem" data-view="faturamento" data-parent-group="contracts">Faturamento</button>
             <button class="nav-item nav-subitem" data-view="allocateds" data-parent-group="contracts">Alocados</button>
             <button class="nav-item nav-subitem" data-view="huntings" data-parent-group="contracts">Huntings</button>
             <button class="nav-item nav-subitem" data-view="rateCards" data-parent-group="contracts">Rate Cards</button>
           </div>
         </div>
+        <div class="nav-group" data-nav-group="finance">
+          <button class="nav-group-toggle" type="button" data-nav-toggle="finance" aria-expanded="false">
+            <span>Financeiro</span>
+            <span class="nav-chevron" aria-hidden="true">›</span>
+          </button>
+          <div class="nav-submenu" data-nav-submenu="finance" hidden>
+            <button class="nav-item nav-subitem" data-view="faturamento" data-parent-group="finance">Faturamento</button>
+          </div>
+        </div>
+        <button class="nav-item" data-view="forms">Formulários</button>
         <button class="nav-item" data-view="curriculums">Banco de Talentos</button>
         <button class="nav-item" data-view="clients">Clientes</button>
         <button class="nav-item" data-view="users">Usuários</button>
@@ -119,9 +128,12 @@
 
     <main class="app-shell">
       <header class="topbar">
-        <div>
+        <div class="topbar-title">
+          <button class="ghost-action home-action" id="homeViewButton" type="button">Menu inicial</button>
+          <div>
           <p class="eyebrow">Gestão do negócio</p>
-          <h1 id="viewTitle">Dashboard</h1>
+          <h1 id="viewTitle">Alcateia</h1>
+          </div>
         </div>
         <div class="user-menu" aria-label="Usuário logado">
           <span id="currentUserLabel">Admin</span>
@@ -130,6 +142,39 @@
       </header>
 
       <section class="view active" id="dashboard">
+        <section class="module-launcher" aria-labelledby="moduleLauncherTitle">
+          <div class="module-launcher-heading">
+            <h2 id="moduleLauncherTitle">Escolha uma área para operar</h2>
+          </div>
+          <div class="favorites-zone" aria-labelledby="favoritesTitle">
+            <div class="launcher-section-heading">
+              <div>
+                <h3 id="favoritesTitle">Favoritos</h3>
+                <p>Atalhos rápidos para a rotina principal</p>
+              </div>
+              <button class="ghost-action compact-action" id="manageFavoritesButton" type="button">Manter favoritos</button>
+            </div>
+            <div class="shortcut-card-grid" id="favoriteCards"></div>
+            <div class="favorite-maintenance-panel" id="favoriteMaintenancePanel" hidden>
+              <div class="favorite-maintenance-grid" id="favoriteMaintenanceGrid"></div>
+              <div class="favorite-maintenance-actions">
+                <button class="secondary-action compact-action" id="resetFavoritesButton" type="button">Restaurar padrão</button>
+                <button class="primary-action compact-action" id="saveFavoritesButton" type="button">Salvar favoritos</button>
+              </div>
+            </div>
+          </div>
+          <div class="module-workspace" aria-labelledby="moduleWorkspaceTitle">
+            <div class="launcher-section-heading module-drill-heading">
+              <div>
+                <h3 id="moduleWorkspaceTitle">Seções</h3>
+                <p id="moduleWorkspaceSubtitle">Menu operacional</p>
+              </div>
+              <button class="ghost-action compact-action" id="moduleBackButton" type="button" hidden>Voltar</button>
+            </div>
+            <div class="module-breadcrumb" id="moduleBreadcrumb" aria-label="Caminho do menu"></div>
+            <div class="module-card-grid" id="moduleDrillCards" aria-live="polite"></div>
+          </div>
+        </section>
         <section class="panel faturamento-chart-panel" aria-labelledby="faturamentoDashboardChartTitle">
           <div class="panel-heading">
             <div>
@@ -181,7 +226,10 @@
           <section class="panel wide">
             <div class="panel-heading">
               <h2>Alocados por cliente</h2>
-              <span>Total</span>
+              <div class="panel-heading-actions">
+                <span>Total</span>
+                <button class="secondary-action compact-action" id="openAllocatedDashboardButton" type="button">Abrir</button>
+              </div>
             </div>
             <div class="pie-wrap" id="allocatedPie"></div>
           </section>
@@ -245,6 +293,102 @@
               <tbody id="faturamentoTable"></tbody>
             </table>
           </div>
+        </section>
+      </section>
+
+      <section class="view" id="forms">
+        <section class="panel forms-admin-panel" data-admin-only data-forms-panel="builder">
+          <div class="panel-heading">
+            <h2>Criar novo formulário</h2>
+            <span>Admin</span>
+          </div>
+          <form id="formDefinitionForm" class="form-grid compact-form-grid" novalidate>
+            <label>Nome do formulário<input name="title" required /></label>
+            <label>Ativo<select name="active">
+              <option value="true">Sim</option>
+              <option value="false">Não</option>
+            </select></label>
+            <label class="full">Descrição<textarea name="description" rows="2"></textarea></label>
+            <div class="full form-builder-block">
+              <div class="form-builder-heading">
+                <strong>Campos</strong>
+                <button class="secondary-action compact-action" id="addFormFieldButton" type="button">Adicionar campo</button>
+              </div>
+              <div class="form-builder-list" id="formFieldBuilderRows"></div>
+            </div>
+            <div class="full form-builder-block">
+              <div class="form-builder-heading">
+                <strong>Workflow</strong>
+                <button class="secondary-action compact-action" id="addWorkflowStepButton" type="button">Adicionar etapa</button>
+              </div>
+              <div class="form-builder-list" id="workflowBuilderRows"></div>
+            </div>
+            <input name="fieldsText" type="hidden" />
+            <input name="workflowText" type="hidden" />
+            <button class="primary-action" type="submit">Salvar formulário</button>
+          </form>
+          <div class="form-definition-maintenance">
+            <div class="panel-heading compact-heading">
+              <h3>Formulários cadastrados</h3>
+              <span id="formDefinitionCount">0</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Formulário</th>
+                    <th>Campos</th>
+                    <th>Workflow</th>
+                    <th>Ativo</th>
+                    <th>Atualizado em</th>
+                    <th>Ações</th>
+                  </tr>
+                </thead>
+                <tbody id="formDefinitionTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+        <section class="panel" data-forms-panel="request">
+          <div class="panel-heading">
+            <h2>Fazer requisição</h2>
+            <span>Formulários</span>
+          </div>
+          <div class="form-request-picker module-card-grid" id="formRequestPicker" aria-live="polite"></div>
+          <form id="formRequestForm" class="form-grid compact-form-grid form-request-entry" hidden novalidate>
+            <input name="formDefinitionId" id="formRequestDefinitionSelect" type="hidden" required />
+            <div class="full form-request-entry-heading">
+              <strong id="formRequestSelectedTitle"></strong>
+              <button class="secondary-action compact-action" id="formRequestBackButton" type="button">Voltar</button>
+            </div>
+            <div class="full dynamic-form-fields" id="formRequestFields"></div>
+            <button class="primary-action" type="submit">Enviar requisição</button>
+          </form>
+        </section>
+        <section class="panel" data-forms-panel="requests">
+          <div class="panel-heading">
+            <h2 id="formRequestPanelTitle">Requisições</h2>
+            <span id="formRequestCount">0</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Formulário</th>
+                  <th>Solicitante</th>
+                  <th>Status</th>
+                  <th>Responsável atual</th>
+                  <th>SLA</th>
+                  <th>Tempo corrido</th>
+                  <th>Pagto previsto</th>
+                  <th>Criado em</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="formRequestTable"></tbody>
+            </table>
+          </div>
+          <div class="form-request-detail" id="formRequestDetailPanel" hidden></div>
         </section>
       </section>
 
@@ -317,8 +461,8 @@
             <span>Recrutador</span>
           </div>
           <form id="opportunityForm" class="form-grid" novalidate>
-            <label>Oportunidade<input name="opportunity" required /></label>
-            <label>Id_Oportunidade<input name="opportunityCode" /></label>
+            <label class="opportunity-main-field">Oportunidade<input name="opportunity" required /></label>
+            <label class="opportunity-code-field">Id_Oportunidade<input name="opportunityCode" /></label>
             <label>Cliente<select name="clientId" required></select></label>
             <label>Contato cliente<select name="contactClientId" disabled>
               <option value="">Selecione um cliente</option>
@@ -330,7 +474,7 @@
             <label>Nome Responsável<select name="owner"></select></label>
             <label>Quantidade<input name="quantity" type="number" min="0" /></label>
             <label>Qtde Fechada<input name="closedQuantity" type="number" min="0" /></label>
-            <label>Valor Contrato<input name="contractValue" type="number" min="0" step="0.01" /></label>
+            <label>Valor Contrato<input name="contractValue" class="currency-input" inputmode="decimal" placeholder="R$ 0,00" /></label>
             <label class="full">Observação<textarea name="observation" rows="3"></textarea></label>
             <button class="primary-action" type="submit">Salvar oportunidade</button>
           </form>
@@ -477,7 +621,7 @@
           </div>
           <form id="huntingForm" class="form-grid" novalidate>
             <input name="candidateId" type="hidden" />
-            <label>Candidato<input name="candidateName" required /></label>
+            <label>Consultor<input name="candidateName" required /></label>
             <label>Perfil<input name="profile" required /></label>
             <label>Data de início<input name="startDate" type="date" /></label>
             <label>Cliente<select name="clientId" required></select></label>
@@ -503,7 +647,7 @@
             <label>Consultar por
               <select id="huntingFilterType">
                 <option value="">Todos</option>
-                <option value="candidate">Candidato</option>
+                <option value="candidate">Consultor</option>
                 <option value="client">Cliente</option>
               </select>
             </label>
@@ -517,7 +661,7 @@
             <table>
               <thead>
                 <tr>
-                  <th>Candidato</th>
+                  <th>Consultor</th>
                   <th>Perfil</th>
                   <th>Data de início</th>
                   <th>Cliente</th>
@@ -541,8 +685,8 @@
           </div>
           <form id="rateCardForm" class="form-grid" novalidate>
             <label>Skill<input name="skill" required /></label>
-            <label>Taxa<input name="rate" type="number" min="0" step="0.01" required /></label>
-            <label>Máximo<input name="maximum" type="number" min="0" step="0.01" readonly /></label>
+            <label>Taxa<input name="rate" class="currency-input" inputmode="decimal" placeholder="R$ 0,00" required /></label>
+            <label>Máximo<input name="maximum" class="currency-input" inputmode="decimal" placeholder="R$ 0,00" readonly /></label>
             <label>Cliente<select name="clientId" required></select></label>
             <label class="checkbox-field"><input name="active" type="checkbox" checked /> Ativo</label>
             <button class="primary-action" type="submit">Salvar Rate Card</button>
@@ -899,7 +1043,10 @@
           <form id="userForm" class="form-grid" novalidate>
             <label>Nome<input name="name" required /></label>
             <label>E-mail<input name="email" type="email" required /></label>
-            <label>Perfil<input name="role" value="Admin" readonly /></label>
+            <label>Perfil<select name="role">
+              <option value="Admin">Admin</option>
+              <option value="Gestão">Gestão</option>
+            </select></label>
             <label>Senha inicial<input value="Alcateia123" readonly /></label>
             <button class="primary-action" type="submit">Salvar usuário</button>
           </form>
@@ -932,9 +1079,9 @@
             <span>Operação</span>
           </div>
           <form id="allocatedForm" class="form-grid" novalidate>
+            <label class="allocated-consultant-field">Consultor<input name="consultant" required /></label>
             <label>ID<input name="externalId" /></label>
             <label>Código<input name="code" required /></label>
-            <label>Consultor<input name="consultant" required /></label>
             <label>Skill<input name="skill" /></label>
             <label>Cliente<select name="clientId" required></select></label>
             <label>Valor Hora<input name="hourlyRate" type="number" min="0" step="0.01" /></label>
@@ -1132,7 +1279,7 @@
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=20260714-prod-sync"></script>
+    <script src="/app.js?v=20260717-form-request-observations"></script>
   </body>
 </html>
 

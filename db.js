@@ -72,6 +72,9 @@ const REQUIRED_COLLECTIONS = [
   'users',
   'opportunities',
   'faturamento',
+  'formDefinitions',
+  'formRequests',
+  'formRequestObservations',
   'curriculums',
   'candidates',
   'allocateds',
@@ -524,6 +527,7 @@ export function normalizeDatabase(data = {}) {
   data.contactClients = data.contactClients.map((contact) => normalizeContactClient(contact));
   data.cvFilters = data.cvFilters.map((filter) => normalizeCvFilter(filter));
   data.curriculumObservations = data.curriculumObservations.map((observation) => normalizeCurriculumObservation(observation));
+  data.formRequestObservations = data.formRequestObservations.map((observation) => normalizeFormRequestObservation(observation));
   data.selectedCandidates = data.selectedCandidates.map((candidate) => normalizeSelectedCandidate(candidate));
   delete data.applications;
 
@@ -1074,6 +1078,42 @@ export function normalizeCurriculumObservation(observation = {}) {
     userName: String(observation.userName ?? observation.responsibleName ?? observation.responsavelNome ?? '').trim(),
     userEmail: String(observation.userEmail ?? observation.responsibleEmail ?? observation.responsavelEmail ?? '').trim(),
     createdAt: String(observation.createdAt ?? observation.date ?? toISODate()).trim()
+  };
+}
+
+export function normalizeFormRequestObservation(observation = {}) {
+  const requestId = String(
+    observation.requestId
+    ?? observation.formRequestId
+    ?? observation.requisitionId
+    ?? observation.idRequisicao
+    ?? ''
+  ).trim();
+  const userId = String(
+    observation.userId
+    ?? observation.responsibleUserId
+    ?? observation.responsavelId
+    ?? ''
+  ).trim();
+  const text = String(
+    observation.observation
+    ?? observation.text
+    ?? observation.observacao
+    ?? observation.observacoes
+    ?? ''
+  ).trim();
+  const date = String(observation.date ?? observation.createdAt ?? observation.data ?? toISODate()).trim();
+
+  return {
+    id: String(observation.id ?? createId('form_req_obs', `${requestId}-${userId}-${date}`)).trim(),
+    requestId,
+    observation: text,
+    date,
+    userId,
+    userName: String(observation.userName ?? observation.responsibleName ?? observation.responsavelNome ?? '').trim(),
+    userEmail: String(observation.userEmail ?? observation.responsibleEmail ?? observation.responsavelEmail ?? '').trim(),
+    action: String(observation.action ?? observation.status ?? '').trim(),
+    createdAt: String(observation.createdAt ?? date).trim()
   };
 }
 

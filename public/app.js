@@ -3,6 +3,9 @@
   contactClients: [],
   opportunities: [],
   faturamento: [],
+  formDefinitions: [],
+  formRequests: [],
+  formRequestObservations: [],
   cvFilters: [],
   selectedCandidates: [],
   curriculums: [],
@@ -29,6 +32,7 @@
   dashboardMonth: '',
   dashboardModel: '',
   dashboardAnalyticsCsvUrl: '',
+  activeFormsPanel: 'request',
   selectedCandidateFilter: { type: '', value: '' },
   whatsappQueue: [],
   allocatedFilter: { type: '', value: '', status: '' },
@@ -54,12 +58,16 @@
     candidatePoolId: '',
     huntingId: '',
     userId: '',
+    formDefinitionId: '',
+    formRequestId: '',
     selectingCandidateId: '',
     movingCandidateId: '',
     observingCurriculumId: ''
   },
   indicators: null
 };
+
+let initialRouteApplied = false;
 
 const FATURAMENTO_DASHBOARD_CHART_SERIES = [
   { key: 'forecast', label: 'Previsto', color: '#ed7d31' },
@@ -123,10 +131,28 @@ function passwordResetTokenFromUrl() {
   return new URLSearchParams(window.location.search).get('reset') || '';
 }
 
+function applyInitialRoute() {
+  if (initialRouteApplied) return;
+  initialRouteApplied = true;
+
+  const params = new URLSearchParams(window.location.search);
+  const viewId = params.get('view');
+  const formsPanel = params.get('panel');
+
+  if (viewId === 'forms' && ['builder', 'request', 'requests', 'pending'].includes(formsPanel)) {
+    state.activeFormsPanel = formsPanel === 'builder' && isCurrentUserAdmin() ? 'builder' : formsPanel;
+  }
+
+  if (viewId && viewTitles[viewId]) {
+    showView(viewId);
+  }
+}
+
 const viewTitles = {
-  dashboard: 'Dashboard',
+  dashboard: 'Alcateia',
   clients: 'Clientes',
-  faturamento: 'Contratos/Faturamento',
+  faturamento: 'Financeiro/Faturamento',
+  forms: 'Formulários',
   opportunities: 'Deals/Oportunidades',
   candidatePool: 'Deals/Bolsão de Candidatos',
   huntings: 'Contratos/Huntings',
@@ -137,6 +163,162 @@ const viewTitles = {
   candidates: 'Deals/Candidatos Entrevistados',
   allocateds: 'Contratos/Alocados',
   users: 'Usuários',
+};
+
+const launcherFavoriteStorageKey = 'talentos_launcher_favorites';
+const launcherRootId = 'root';
+const defaultLauncherFavoriteIds = ['opportunities', 'curriculums', 'selectedCandidates', 'allocateds'];
+const launcherNodes = {
+  root: {
+    label: 'Seções',
+    eyebrow: 'Menu',
+    description: 'Menu operacional',
+    children: ['deals', 'contracts', 'finance', 'formsSection', 'talents', 'admin', 'businessDashboard']
+  },
+  deals: {
+    label: 'Deals',
+    eyebrow: 'Seção',
+    description: 'Oportunidades, candidatos e filtros de CV',
+    children: ['opportunities', 'dealCandidates', 'cvFilters']
+  },
+  dealCandidates: {
+    label: 'Candidatos',
+    eyebrow: 'Deals',
+    description: 'Triagem, seleção, entrevista e vínculo com oportunidades',
+    children: ['candidatePool', 'selectedCandidates', 'candidates']
+  },
+  contracts: {
+    label: 'Contratos',
+    eyebrow: 'Seção',
+    description: 'Alocados, huntings e rate cards',
+    children: ['allocateds', 'huntings', 'rateCards']
+  },
+  finance: {
+    label: 'Financeiro',
+    eyebrow: 'Seção',
+    description: 'Faturamento e controles financeiros',
+    children: ['faturamento'],
+    roles: ['Admin']
+  },
+  formsSection: {
+    label: 'Formulários',
+    eyebrow: 'Seção',
+    description: 'Requisições, workflows e aprovações',
+    children: ['formBuilder', 'formRequest', 'formPendingRequests']
+  },
+  talents: {
+    label: 'Banco de Talentos',
+    eyebrow: 'Seção',
+    description: 'Currículos, busca e manutenção da base',
+    children: ['curriculums']
+  },
+  admin: {
+    label: 'Cadastros',
+    eyebrow: 'Seção',
+    description: 'Clientes, usuários e apoio operacional',
+    children: ['clients', 'users']
+  },
+  opportunities: {
+    label: 'Oportunidades',
+    eyebrow: 'Deals',
+    description: 'Pipeline, status, responsáveis e fechamento',
+    view: 'opportunities'
+  },
+  candidatePool: {
+    label: 'Bolsão de Candidatos',
+    eyebrow: 'Deals',
+    description: 'Disponíveis por cliente, perfil e skills',
+    view: 'candidatePool'
+  },
+  cvFilters: {
+    label: 'Filtro de CVs',
+    eyebrow: 'Deals',
+    description: 'Critérios de busca e resultados filtrados',
+    view: 'cvFilters'
+  },
+  selectedCandidates: {
+    label: 'Candidatos Selecionados',
+    eyebrow: 'Pipeline',
+    description: 'Lista curta, envio e avanço para entrevista',
+    view: 'selectedCandidates'
+  },
+  candidates: {
+    label: 'Candidatos Entrevistados',
+    eyebrow: 'Deals',
+    description: 'Etapas, aderência, aprovação e alocação',
+    view: 'candidates'
+  },
+  faturamento: {
+    label: 'Faturamento',
+    eyebrow: 'Financeiro',
+    description: 'Previsto, realizado e evolução mensal',
+    view: 'faturamento',
+    roles: ['Admin']
+  },
+  formBuilder: {
+    label: 'Criar novo formulário',
+    eyebrow: 'Admin',
+    description: 'Campos, workflow de aprovação e destinatários',
+    view: 'forms',
+    panel: 'builder',
+    roles: ['Admin']
+  },
+  formRequest: {
+    label: 'Fazer requisição',
+    eyebrow: 'Formulários',
+    description: 'Abrir uma nova solicitação e acompanhar aprovações',
+    view: 'forms',
+    panel: 'request'
+  },
+  formPendingRequests: {
+    label: 'Requisições Pendentes',
+    eyebrow: 'Formulários',
+    description: 'Itens aguardando minha ação, SLA e consulta dos anexos',
+    view: 'forms',
+    panel: 'pending'
+  },
+  allocateds: {
+    label: 'Alocados',
+    eyebrow: 'Contratos',
+    description: 'Contratos ativos, documentos e exportação',
+    view: 'allocateds'
+  },
+  huntings: {
+    label: 'Huntings',
+    eyebrow: 'Contratos',
+    description: 'Processos contratados por vaga fechada',
+    view: 'huntings'
+  },
+  rateCards: {
+    label: 'Rate Cards',
+    eyebrow: 'Contratos',
+    description: 'Tabelas comerciais por cliente',
+    view: 'rateCards'
+  },
+  curriculums: {
+    label: 'Banco de Talentos',
+    eyebrow: 'Talentos',
+    description: 'Busca, edição e documentos de currículos',
+    view: 'curriculums'
+  },
+  clients: {
+    label: 'Clientes',
+    eyebrow: 'Cadastros',
+    description: 'Clientes, contatos e relacionamento',
+    view: 'clients'
+  },
+  users: {
+    label: 'Usuários',
+    eyebrow: 'Admin',
+    description: 'Acessos, perfis e recuperação de senha',
+    view: 'users'
+  },
+  businessDashboard: {
+    label: 'Dashboard',
+    eyebrow: 'Indicadores',
+    description: 'Indicadores e acompanhamento do negócio',
+    action: 'dashboard'
+  }
 };
 
 const defaultCandidatePoolSkillFields = [
@@ -177,6 +359,68 @@ function normalizeText(value) {
     .trim();
 }
 
+function parseCurrencyInput(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return 0;
+  const normalized = raw
+    .replace(/[^\d,.-]/g, '')
+    .replace(/\./g, '')
+    .replace(',', '.');
+  const number = Number(normalized);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function formatCurrencyInput(value) {
+  return Number(value || 0).toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+}
+
+function bindCurrencyInputs(root = document) {
+  $$('.currency-input', root).forEach((input) => {
+    if (input.dataset.currencyBound === 'true') return;
+    input.dataset.currencyBound = 'true';
+    input.addEventListener('focus', () => {
+      const numericValue = parseCurrencyInput(input.value);
+      input.value = numericValue ? String(numericValue).replace('.', ',') : '';
+    });
+    input.addEventListener('blur', () => {
+      input.value = formatCurrencyInput(parseCurrencyInput(input.value));
+    });
+  });
+}
+
+function currentUserRole() {
+  return String(state.currentUser?.role || session.user?.role || 'Gestão').trim();
+}
+
+function isCurrentUserAdmin() {
+  return currentUserRole().toLowerCase() === 'admin';
+}
+
+function canAccessLauncherNode(node) {
+  if (!node?.roles?.length) return true;
+  const role = currentUserRole().toLowerCase();
+  return node.roles.some((allowedRole) => String(allowedRole).toLowerCase() === role);
+}
+
+function canAccessView(viewId) {
+  if (viewId === 'faturamento') return isCurrentUserAdmin();
+  return true;
+}
+
+function applyRoleVisibility() {
+  $$('[data-admin-only]').forEach((element) => {
+    element.hidden = !isCurrentUserAdmin();
+  });
+  $$('[data-nav-group="finance"], [data-view="faturamento"]').forEach((element) => {
+    element.hidden = !isCurrentUserAdmin();
+  });
+}
+
 const fallbackCitiesByUf = {
   AC: ['Rio Branco'],
   AL: ['Maceió'],
@@ -207,14 +451,68 @@ const fallbackCitiesByUf = {
   TO: ['Palmas']
 };
 
+function repairEncodingArtifacts(value) {
+  let text = String(value ?? '');
+  if (!text) return text;
+
+  if (/[ÃÂ]/.test(text)) {
+    try {
+      const decoded = new TextDecoder('utf-8', { fatal: false }).decode(
+        Uint8Array.from(Array.from(text, (char) => char.charCodeAt(0) & 0xff))
+      );
+      const artifactCount = (candidate) => (candidate.match(/[ÃÂ�]/g) || []).length;
+      if (artifactCount(decoded) < artifactCount(text)) {
+        text = decoded;
+      }
+    } catch {
+      // Keep original text when browser decoding is unavailable.
+    }
+  }
+
+  return text
+    .replace(/Formul\?rios/g, 'Formulários')
+    .replace(/formul\?rios/g, 'formulários')
+    .replace(/Observa\?\?o/g, 'Observação')
+    .replace(/observa\?\?o/g, 'observação')
+    .replace(/Refei\?\?o/g, 'Refeição')
+    .replace(/refei\?\?o/g, 'refeição')
+    .replace(/aprova\?\?o/g, 'aprovação')
+    .replace(/Aprova\?\?o/g, 'Aprovação')
+    .replace(/([A-Za-zÀ-ÿ]+)\?\?es/g, '$1ções')
+    .replace(/([A-Za-zÀ-ÿ]+)\?\?o/g, '$1ção');
+}
+
+function sanitizeApiPayload(value) {
+  if (typeof value === 'string') return repairEncodingArtifacts(value);
+  if (Array.isArray(value)) return value.map((item) => sanitizeApiPayload(item));
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, sanitizeApiPayload(item)]));
+  }
+  return value;
+}
+
+function isFormDataBody(body) {
+  return typeof FormData !== 'undefined'
+    && (body instanceof FormData || Object.prototype.toString.call(body) === '[object FormData]');
+}
+
 async function api(path, options = {}) {
+  const isFormData = isFormDataBody(options.body);
+  const headers = {
+    ...(session.token ? { Authorization: `Bearer ${session.token}` } : {}),
+    ...(options.headers ?? {})
+  };
+  if (!isFormData && !headers['Content-Type'] && !headers['content-type']) {
+    headers['Content-Type'] = 'application/json';
+  }
+  if (isFormData) {
+    delete headers['Content-Type'];
+    delete headers['content-type'];
+  }
+  const { headers: _ignoredHeaders, ...requestOptions } = options;
   const response = await fetch(path, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(session.token ? { Authorization: `Bearer ${session.token}` } : {}),
-      ...(options.headers ?? {})
-    },
-    ...options
+    ...requestOptions,
+    headers
   });
 
   const payload = await response.json().catch(() => ({}));
@@ -226,9 +524,9 @@ async function api(path, options = {}) {
     if (response.status === 403 && payload.error?.includes('senha')) {
       showPasswordChange();
     }
-    throw new Error(payload.error || 'Não foi possível concluir a ação.');
+    throw new Error(repairEncodingArtifacts(payload.error || 'Não foi possível concluir a ação.'));
   }
-  return payload;
+  return sanitizeApiPayload(payload);
 }
 
 
@@ -263,7 +561,7 @@ async function apiDownload(path, options = {}) {
 
 function toast(message) {
   const element = $('#toast');
-  element.textContent = message;
+  element.textContent = repairEncodingArtifacts(message);
   element.classList.add('visible');
   window.setTimeout(() => element.classList.remove('visible'), 2800);
 }
@@ -285,6 +583,7 @@ async function refresh() {
   state.currentUser = payload.currentUser ?? state.currentUser;
   render();
   showApp();
+  applyInitialRoute();
 }
 
 function upsertStateItem(collectionName, item) {
@@ -364,6 +663,7 @@ function showApp() {
   $('#passwordChangeScreen').classList.add('hidden');
   $('#passwordResetScreen')?.classList.add('hidden');
   $('#currentUserLabel').textContent = `${state.currentUser?.name ?? session.user?.name ?? 'Usuário'} · ${state.currentUser?.role ?? session.user?.role ?? 'Admin'}`;
+  applyRoleVisibility();
 }
 
 function opportunityLabel(opportunity) {
@@ -444,7 +744,7 @@ function matchesEveryTerm(text, rawQuery) {
 }
 
 function escapeHtml(value) {
-  return String(value ?? '')
+  return repairEncodingArtifacts(value)
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
@@ -1404,11 +1704,11 @@ function renderAllocatedPie() {
     <div class="pie-legend">
       ${entries
         .map(([label, value], index) => `
-          <div class="pie-legend-row">
+          <button class="pie-legend-row pie-legend-button" type="button" data-open-allocated-client="${escapeHtml(label)}" aria-label="Abrir alocados do cliente ${escapeHtml(label)}">
             <span class="legend-dot" style="background: ${colors[index % colors.length]}"></span>
             <strong>${label}</strong>
             <b>${value} (${formatPercent(Number(value || 0), total)})</b>
-          </div>
+          </button>
         `)
         .join('')}
     </div>
@@ -1449,6 +1749,18 @@ function getAllocatedsByClient() {
       values[clientName] = (values[clientName] ?? 0) + 1;
     });
   return values;
+}
+
+function openAllocatedMaintenance(clientName = '') {
+  const client = state.clients.find((item) => normalizeText(item.customerName) === normalizeText(clientName));
+  state.allocatedFilter = {
+    type: client ? 'client' : '',
+    value: client?.id || '',
+    status: 'active'
+  };
+  showView('allocateds');
+  renderAllocatedFilters();
+  renderAllocateds();
 }
 
 function renderPieSvg(entries, total, colors) {
@@ -1897,7 +2209,7 @@ function huntingCsvRows() {
   return getFilteredHuntingRows().map(({ opportunity, candidate }) => {
     const client = state.clients.find((item) => item.id === opportunity.clientId);
     return {
-      Candidato: candidate?.name || '-',
+      Consultor: candidate?.name || '-',
       Perfil: opportunity.opportunity || '-',
       'Data de início': opportunity.openingDate || '-',
       Cliente: client?.customerName || '-',
@@ -3213,7 +3525,7 @@ async function exportAllocatedDocuments(button) {
         templateIds: [templateId]
       })
     });
-    toast('Formul?rios gerados.');
+      toast('Formulários gerados.');
   } catch (error) {
     toast(error.message || 'N?o foi poss?vel gerar os formul?rios.');
   } finally {
@@ -3262,10 +3574,7 @@ function rateCardMaximum(rate) {
 }
 
 function formatRateValue(value) {
-  return Number(value || 0).toLocaleString('pt-BR', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  });
+  return formatCurrency(value);
 }
 
 function renderRateCardFilters() {
@@ -3295,9 +3604,9 @@ function getFilteredRateCards() {
 
 function syncRateCardMaximum(form = $('#rateCardForm')) {
   if (!form) return;
-  const rate = Number(form.elements.rate?.value || 0);
+  const rate = parseCurrencyInput(form.elements.rate?.value || 0);
   const maximumField = form.elements.maximum;
-  if (maximumField) maximumField.value = rate ? rateCardMaximum(rate).toFixed(2) : '';
+  if (maximumField) maximumField.value = rate ? formatCurrencyInput(rateCardMaximum(rate)) : '';
 }
 
 function renderRateCards() {
@@ -3633,6 +3942,670 @@ function renderUsers() {
     .join('');
 }
 
+function formDefinitionOptionLabel(definition) {
+  return `${definition.title} (${definition.fields?.length || 0} campo(s))`;
+}
+
+function activeFormDefinitions() {
+  return (state.formDefinitions || [])
+    .filter((definition) => definition.active !== false)
+    .slice()
+    .sort((first, second) => String(first.title || '').localeCompare(String(second.title || ''), 'pt-BR', { sensitivity: 'base' }));
+}
+
+function currentFormDefinition() {
+  const select = $('#formRequestDefinitionSelect');
+  return state.formDefinitions.find((definition) => definition.id === select?.value && definition.active !== false) || null;
+}
+
+function renderFormRequestPicker() {
+  const picker = $('#formRequestPicker');
+  const form = $('#formRequestForm');
+  const selectedTitle = $('#formRequestSelectedTitle');
+  const select = $('#formRequestDefinitionSelect');
+  if (!picker || !form || !select) return;
+
+  const definitions = activeFormDefinitions();
+  const selectedDefinition = currentFormDefinition();
+  if (select.value && !selectedDefinition) {
+    select.value = '';
+  }
+
+  if (!definitions.length) {
+    picker.hidden = false;
+    form.hidden = true;
+    picker.innerHTML = '<p class="empty-state">Nenhum formulário ativo disponível para requisição.</p>';
+    if (selectedTitle) selectedTitle.textContent = '';
+    select.value = '';
+    return;
+  }
+
+  if (selectedDefinition) {
+    picker.hidden = true;
+    form.hidden = false;
+    if (selectedTitle) selectedTitle.textContent = state.editing.formRequestId ? `Ajustar ${selectedDefinition.title || 'Formulário'}` : selectedDefinition.title || 'Formulário';
+    return;
+  }
+
+  picker.hidden = false;
+  form.hidden = true;
+  if (selectedTitle) selectedTitle.textContent = '';
+  picker.innerHTML = definitions.map((definition) => `
+    <button class="module-card form-request-card" type="button" data-select-form-request="${escapeHtml(definition.id)}">
+      <strong>${escapeHtml(definition.title || '-')}</strong>
+    </button>
+  `).join('');
+}
+
+function renderFormRequestOtherFields(root = $('#formRequestFields')) {
+  if (!root) return;
+  $$('[data-other-field-for]', root).forEach((otherField) => {
+    const source = $(`[name="field_${otherField.dataset.otherFieldFor}"]`, root);
+    const shouldShow = source?.value === 'Outro';
+    otherField.hidden = !shouldShow;
+    const input = $('input, textarea', otherField);
+    if (!shouldShow && input) input.value = '';
+  });
+}
+
+function renderFormRequestFields() {
+  const shell = $('#formRequestFields');
+  const definition = currentFormDefinition();
+  if (!shell) return;
+
+  if (!definition) {
+    shell.innerHTML = '';
+    return;
+  }
+
+  shell.innerHTML = (definition.fields || []).map((field) => {
+    const required = field.required ? 'required' : '';
+    const label = `${escapeHtml(field.label)}${field.required ? ' *' : ''}`;
+    if (field.type === 'lista') {
+      const options = (field.options || []).map((option) => `<option value="${escapeHtml(option)}">${escapeHtml(option)}</option>`).join('');
+      const otherOption = field.otherObservation ? '<option value="Outro">Outro</option>' : '';
+      return `
+        <label>${label}<select name="field_${field.id}" ${required}>
+          <option value="">Selecione</option>
+          ${options}
+          ${otherOption}
+        </select></label>
+        ${field.otherObservation ? `<label class="form-request-other-field" data-other-field-for="${escapeHtml(field.id)}" hidden>Observação - ${escapeHtml(field.label)}<input name="field_${field.id}_other" /></label>` : ''}
+      `;
+    }
+    if (field.type === 'arquivo') {
+      return `<label>${label}<input name="field_${field.id}" type="file" ${required} /></label>`;
+    }
+    if (field.type === 'textarea') {
+      return `<label>${label}<textarea name="field_${field.id}" rows="3" ${required}></textarea></label>`;
+    }
+    if (field.type === 'moeda') {
+      return `<label>${label}<input class="currency-input" name="field_${field.id}" inputmode="decimal" placeholder="R$ 0,00" ${required} /></label>`;
+    }
+    const type = field.type === 'numero' ? 'number' : field.type === 'data' ? 'date' : field.type === 'email' ? 'email' : 'text';
+    return `<label>${label}<input name="field_${field.id}" type="${type}" ${required} /></label>`;
+  }).join('');
+  bindCurrencyInputs(shell);
+  renderFormRequestOtherFields(shell);
+}
+
+function collectFormRequestPayload(form, definition, existingRequest = null) {
+  const values = {};
+  const files = [];
+  for (const field of definition.fields || []) {
+    const element = form.elements[`field_${field.id}`];
+    if (element?.type === 'file') {
+      const file = element.files?.[0];
+      if (file) {
+        files.push({ fieldId: field.id, file });
+        values[field.id] = {
+          name: file.name,
+          type: file.type || 'application/octet-stream',
+          size: file.size
+        };
+      } else {
+        values[field.id] = existingRequest?.values?.[field.id] || '';
+      }
+    } else {
+      values[field.id] = element?.classList?.contains('currency-input')
+        ? formatCurrencyInput(parseCurrencyInput(element.value))
+        : element?.value || '';
+    }
+    if (field.otherObservation) {
+      const otherValue = form.elements[`field_${field.id}_other`]?.value || '';
+      if (element?.value === 'Outro' && otherValue) {
+        values[`${field.id}_other`] = otherValue;
+      }
+    }
+  }
+  return { values, files };
+}
+
+async function fileToDataUrl(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
+  }
+  return `data:${file.type || 'application/octet-stream'};base64,${btoa(binary)}`;
+}
+
+async function attachFormRequestFiles(values, files) {
+  for (const item of files || []) {
+    values[item.fieldId] = {
+      name: item.file.name,
+      type: item.file.type || 'application/octet-stream',
+      size: item.file.size,
+      dataUrl: await fileToDataUrl(item.file),
+      uploadedAt: new Date().toISOString()
+    };
+  }
+  return values;
+}
+
+function buildFormRequestBody(definition, values, extra = {}) {
+  return JSON.stringify({
+    formDefinitionId: definition.id,
+    values,
+    ...extra
+  });
+}
+
+function fillFormRequestValues(requestItem, definition) {
+  const form = $('#formRequestForm');
+  if (!form || !requestItem || !definition) return;
+  for (const field of definition.fields || []) {
+    const element = form.elements[`field_${field.id}`];
+    if (!element || element.type === 'file') continue;
+    const value = requestItem.values?.[field.id] || '';
+    element.value = element.classList?.contains('currency-input') ? formatCurrencyInput(parseCurrencyInput(value)) : value;
+    if (field.otherObservation) {
+      const otherElement = form.elements[`field_${field.id}_other`];
+      if (otherElement) otherElement.value = requestItem.values?.[`${field.id}_other`] || '';
+    }
+  }
+  renderFormRequestOtherFields();
+}
+
+function openFormRequestAdjustment(requestItem) {
+  const definition = state.formDefinitions.find((item) => item.id === requestItem?.formDefinitionId);
+  const select = $('#formRequestDefinitionSelect');
+  if (!requestItem || !definition || !select) return;
+  state.activeFormsPanel = 'request';
+  state.editing.formRequestId = requestItem.id;
+  select.value = definition.id;
+  renderFormsPanel();
+  fillFormRequestValues(requestItem, definition);
+  const submitButton = $('button[type="submit"]', $('#formRequestForm'));
+  if (submitButton) submitButton.textContent = formRequestCurrentAction(requestItem) === 'Ajuste' ? 'Enviar ajuste' : 'Salvar alterações';
+}
+
+function canDecideFormRequest(requestItem) {
+  if (!requestItem) return false;
+  const status = String(requestItem.status || '').toLowerCase();
+  if (!status.includes('pendente') && status !== 'em processamento') return false;
+  const currentEmail = String(state.currentUser?.email || session.user?.email || '').trim().toLowerCase();
+  const approverEmail = String(requestItem.currentApproverEmail || '').trim().toLowerCase();
+  return Boolean(currentEmail && approverEmail && approverEmail === currentEmail);
+}
+
+function isFormRequestInProcessing(requestItem) {
+  return String(requestItem?.status || '').toLowerCase() === 'em processamento';
+}
+
+function normalizeWorkflowActionLabel(action) {
+  const value = String(action || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+  if (value.includes('ajuste') || value.includes('corrigir') || value.includes('correcao')) return 'Ajuste';
+  if (value.includes('process')) return 'Processado';
+  if (value.includes('final')) return 'Finalizado';
+  return 'Aprovar';
+}
+
+function formRequestCurrentAction(requestItem) {
+  if (requestItem?.currentAction) return requestItem.currentAction;
+  const definition = state.formDefinitions.find((item) => item.id === requestItem?.formDefinitionId);
+  return definition?.workflowSteps?.[requestItem?.currentStepIndex || 0]?.action || 'Aprovar';
+}
+
+function formRequestSlaLabel(requestItem) {
+  const slaDays = Number(requestItem?.currentSlaDays || 0);
+  if (!requestItem?.currentDueAt) return slaDays ? `${slaDays} dia(s)` : '-';
+  const dueDate = new Date(requestItem.currentDueAt);
+  if (!Number.isFinite(dueDate.getTime())) return slaDays ? `${slaDays} dia(s)` : '-';
+  const overdue = dueDate.getTime() < Date.now();
+  const prefix = slaDays ? `${slaDays} dia(s) - ` : '';
+  return `${prefix}${dueDate.toLocaleDateString('pt-BR')}${overdue ? ' vencida' : ''}`;
+}
+
+function formRequestElapsedLabel(requestItem) {
+  const startedAt = requestItem?.currentStepStartedAt || requestItem?.processingStartedAt || requestItem?.createdAt;
+  const startDate = new Date(startedAt || '');
+  if (!Number.isFinite(startDate.getTime())) return '-';
+  const elapsedMs = Math.max(0, Date.now() - startDate.getTime());
+  const elapsedHours = Math.floor(elapsedMs / (60 * 60 * 1000));
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  const remainingHours = elapsedHours % 24;
+  if (elapsedDays > 0) return `${elapsedDays} dia(s) ${remainingHours}h`;
+  return `${elapsedHours}h`;
+}
+
+function formRequestFieldDisplayValue(field, requestItem) {
+  const value = requestItem?.values?.[field.id];
+  if (field.type === 'arquivo') {
+    if (value && typeof value === 'object') {
+      return value.name || 'Arquivo anexado';
+    }
+    if (String(value || '') === '[object Object]') {
+      return 'Arquivo sem conteúdo armazenado';
+    }
+    return value || '-';
+  }
+  return value || '-';
+}
+
+function renderFormRequestAttachment(field, requestItem) {
+  const value = requestItem?.values?.[field.id];
+  if (field.type !== 'arquivo') return '';
+  const fileUrl = value && typeof value === 'object' ? value.url || value.dataUrl : '';
+  if (fileUrl) {
+    return `
+      <div class="stage-actions form-request-attachment-actions">
+        <a class="secondary-action compact-action" href="${escapeHtml(fileUrl)}" target="_blank" rel="noopener">Abrir</a>
+        <a class="secondary-action compact-action" href="${escapeHtml(fileUrl)}" download="${escapeHtml(value.name || 'anexo')}">Baixar</a>
+      </div>
+    `;
+  }
+  if (String(value || '') === '[object Object]') {
+    return '<small class="muted-text">Este anexo foi gravado sem conteúdo. Reanexe o arquivo para habilitar abrir/baixar.</small>';
+  }
+  if (value) {
+    return '<small class="muted-text">Arquivo legado sem conteúdo armazenado para download.</small>';
+  }
+  return '';
+}
+
+function formRequestObservationsForRequest(requestItem) {
+  const requestId = String(requestItem?.id || '');
+  const observationKey = (observation = {}) => [
+    observation.requestId || '',
+    observation.date || observation.createdAt || '',
+    observation.userId || observation.userEmail || observation.userName || '',
+    observation.action || '',
+    observation.observation || ''
+  ].map((part) => String(part).trim()).join('|');
+  const stored = (state.formRequestObservations || [])
+    .filter((observation) => String(observation.requestId || '') === requestId);
+  const storedKeys = new Set(stored.map((observation) => observationKey(observation)));
+  const legacy = (Array.isArray(requestItem?.history) ? requestItem.history : [])
+    .filter((entry) => String(entry.observation || '').trim())
+    .map((entry) => ({
+      id: entry.id || [
+        requestId,
+        entry.date || entry.createdAt,
+        entry.userId || entry.userName,
+        entry.observation
+      ].join('|'),
+      requestId,
+      observation: entry.observation,
+      date: entry.date || entry.createdAt || requestItem.createdAt,
+      userId: entry.userId || '',
+      userName: entry.userName || '',
+      userEmail: entry.userEmail || '',
+      action: entry.status || ''
+    }))
+    .filter((observation) => !storedKeys.has(observationKey(observation)));
+  return stored.concat(legacy)
+    .filter((observation) => String(observation.observation || '').trim())
+    .sort((left, right) => String(left.date || '').localeCompare(String(right.date || '')));
+}
+
+function renderFormRequestObservations(requestItem) {
+  const observations = formRequestObservationsForRequest(requestItem);
+  if (!observations.length) {
+    return '<p class="empty-state">Nenhuma observação registrada.</p>';
+  }
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Data</th>
+            <th>Usuário</th>
+            <th>Ação</th>
+            <th>Observação</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${observations.map((observation) => `
+            <tr>
+              <td>${formatObservationDate(observation.date || observation.createdAt)}</td>
+              <td>${escapeHtml(observation.userName || observation.userEmail || observation.userId || '-')}</td>
+              <td>${escapeHtml(observation.action || '-')}</td>
+              <td>${escapeHtml(observation.observation || '-')}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderFormRequestDetail(requestItem) {
+  const panel = $('#formRequestDetailPanel');
+  if (!panel) return;
+  const definition = state.formDefinitions.find((item) => item.id === requestItem?.formDefinitionId);
+  if (!requestItem || !definition) {
+    panel.hidden = true;
+    panel.innerHTML = '';
+    return;
+  }
+
+  const fields = (definition.fields || []).map((field) => `
+    <div class="detail-field">
+      <strong>${escapeHtml(field.label || '-')}</strong>
+      <span>${escapeHtml(formRequestFieldDisplayValue(field, requestItem))}</span>
+      ${renderFormRequestAttachment(field, requestItem)}
+    </div>
+  `).join('');
+  panel.hidden = false;
+  panel.innerHTML = `
+    <div class="panel-heading compact-heading">
+      <h3>${escapeHtml(requestItem.formTitle || definition.title || 'Requisição')}</h3>
+      <button class="secondary-action compact-action" type="button" data-close-form-request-detail>Fechar</button>
+    </div>
+    <div class="form-request-detail-grid">
+      <div class="detail-field"><strong>Status</strong><span>${escapeHtml(requestItem.status || '-')}</span></div>
+      <div class="detail-field"><strong>Solicitante</strong><span>${escapeHtml(requestItem.requesterName || '-')}</span></div>
+      <div class="detail-field"><strong>Responsável atual</strong><span>${escapeHtml(requestItem.currentApproverEmail || '-')}</span></div>
+      <div class="detail-field"><strong>Pagto previsto</strong><span>${requestItem.expectedPaymentDate ? new Date(`${requestItem.expectedPaymentDate}T00:00:00`).toLocaleDateString('pt-BR') : '-'}</span></div>
+      ${fields}
+    </div>
+    <div class="form-request-observations">
+      <h4>Observações</h4>
+      ${renderFormRequestObservations(requestItem)}
+    </div>
+  `;
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function normalizePromptDate(value) {
+  const text = String(value || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const match = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (match) return `${match[3]}-${match[2]}-${match[1]}`;
+  return text;
+}
+
+function requestFormDecisionDetails(decision) {
+  if (decision === 'approve') {
+    const observation = window.prompt('Observação da aprovação:', '') ?? null;
+    if (observation === null) return null;
+    const expectedPaymentDate = window.prompt('Data prevista para pagamento (aaaa-mm-dd):', new Date().toISOString().slice(0, 10)) ?? null;
+    if (expectedPaymentDate === null) return null;
+    return { observation, expectedPaymentDate: normalizePromptDate(expectedPaymentDate) };
+  }
+  if (decision === 'finish') {
+    const observation = window.prompt('Observação de finalização:', '') ?? null;
+    if (observation === null) return null;
+    return { observation };
+  }
+  if (decision === 'process') {
+    const observation = window.prompt('Observação do processamento:', '') ?? null;
+    if (observation === null) return null;
+    const expectedPaymentDate = window.prompt('Data prevista para pagamento (aaaa-mm-dd):', new Date().toISOString().slice(0, 10)) ?? null;
+    if (expectedPaymentDate === null) return null;
+    return { observation, expectedPaymentDate: normalizePromptDate(expectedPaymentDate) };
+  }
+  if (decision === 'reject') {
+    const observation = window.prompt('Observação da reprovação:', '') ?? null;
+    if (observation === null) return null;
+    return { observation };
+  }
+  return {};
+}
+
+function renderFormRequestActions(requestItem) {
+  const openButton = `<button class="secondary-action compact-action" type="button" data-open-form-request="${escapeHtml(requestItem.id)}">Abrir</button>`;
+  if (!canDecideFormRequest(requestItem)) return openButton;
+  const action = normalizeWorkflowActionLabel(formRequestCurrentAction(requestItem));
+  if (action === 'Ajuste') {
+    return `<div class="stage-actions">${openButton}<button class="primary-action compact-action" type="button" data-adjust-form-request="${escapeHtml(requestItem.id)}">Ajustar</button></div>`;
+  }
+  if (action === 'Processado') {
+    return `
+      <div class="stage-actions">
+        ${openButton}
+        <button class="primary-action compact-action" type="button" data-process-form-request="${escapeHtml(requestItem.id)}">Processado</button>
+        <button class="danger-action compact-action" type="button" data-reject-form-request="${escapeHtml(requestItem.id)}">Reprovar</button>
+      </div>
+    `;
+  }
+  if (action === 'Finalizado') {
+    return `<div class="stage-actions">${openButton}<button class="primary-action compact-action" type="button" data-finish-form-request="${escapeHtml(requestItem.id)}">Finalizar</button></div>`;
+  }
+  return `
+    <div class="stage-actions">
+      ${openButton}
+      <button class="primary-action compact-action" type="button" data-approve-form-request="${escapeHtml(requestItem.id)}">Aprovar</button>
+      <button class="danger-action compact-action" type="button" data-reject-form-request="${escapeHtml(requestItem.id)}">Reprovar</button>
+    </div>
+  `;
+}
+
+function renderFormRequests() {
+  const table = $('#formRequestTable');
+  const count = $('#formRequestCount');
+  const title = $('#formRequestPanelTitle');
+  if (!table || !count) return;
+
+  const allRequests = state.activeFormsPanel === 'pending'
+    ? (state.formRequests || []).filter(canDecideFormRequest)
+    : (state.formRequests || []);
+  const requests = allRequests.slice().sort((first, second) => String(second.createdAt).localeCompare(String(first.createdAt)));
+  if (title) {
+    title.textContent = state.activeFormsPanel === 'pending'
+      ? 'Requisições Pendentes'
+      : isCurrentUserAdmin() ? 'Todas as requisições' : 'Minhas requisições';
+  }
+  count.textContent = requests.length;
+  table.innerHTML = requests.length
+    ? requests.map((requestItem) => `
+      <tr>
+        <td><strong>${escapeHtml(requestItem.formTitle || '-')}</strong></td>
+        <td>${escapeHtml(requestItem.requesterName || '-')}</td>
+        <td>${escapeHtml(requestItem.status || '-')}</td>
+        <td>${escapeHtml(requestItem.currentApproverEmail || '-')}</td>
+        <td>${escapeHtml(formRequestSlaLabel(requestItem))}</td>
+        <td>${escapeHtml(formRequestElapsedLabel(requestItem))}</td>
+        <td>${requestItem.expectedPaymentDate ? new Date(`${requestItem.expectedPaymentDate}T00:00:00`).toLocaleDateString('pt-BR') : '-'}</td>
+        <td>${requestItem.createdAt ? new Date(requestItem.createdAt).toLocaleDateString('pt-BR') : '-'}</td>
+        <td>${renderFormRequestActions(requestItem)}</td>
+      </tr>
+    `).join('')
+    : `<tr><td colspan="9">${state.activeFormsPanel === 'pending' ? 'Nenhuma requisição pendente para sua ação.' : 'Nenhuma requisição cadastrada.'}</td></tr>`;
+}
+
+function renderFormDefinitions() {
+  const count = $('#formDefinitionCount');
+  const table = $('#formDefinitionTable');
+  if (!count || !table) return;
+
+  const definitions = (state.formDefinitions || [])
+    .slice()
+    .sort((first, second) => String(first.title || '').localeCompare(String(second.title || ''), 'pt-BR', { sensitivity: 'base' }));
+
+  count.textContent = definitions.length;
+  table.innerHTML = definitions.length
+    ? definitions.map((definition) => `
+      <tr class="clickable-row" data-edit-form-definition="${escapeHtml(definition.id)}">
+        <td><strong>${escapeHtml(definition.title || '-')}</strong><br>${escapeHtml(definition.description || '')}</td>
+        <td>${definition.fields?.length || 0}</td>
+        <td>${definition.workflowSteps?.length || 0}</td>
+        <td>${definition.active === false ? 'Não' : 'Sim'}</td>
+        <td>${definition.updatedAt ? new Date(definition.updatedAt).toLocaleDateString('pt-BR') : '-'}</td>
+        <td><button class="danger-action compact-action" type="button" data-delete-form-definition="${escapeHtml(definition.id)}">Excluir</button></td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="6">Nenhum formulário cadastrado.</td></tr>';
+}
+
+function adminUserOptions(selectedEmail = '') {
+  const admins = (state.users || []).filter((user) => String(user.role || '').toLowerCase() === 'admin');
+  return '<option value="">Selecione</option>' + admins
+    .map((user) => `<option value="${escapeHtml(user.email)}" ${user.email === selectedEmail ? 'selected' : ''}>${escapeHtml(user.name)} - ${escapeHtml(user.email)}</option>`)
+    .join('');
+}
+
+function workflowResponsibleOptions(selectedEmail = '') {
+  return `<option value="__requester__" ${selectedEmail === '__requester__' ? 'selected' : ''}>Solicitante da requisição</option>${adminUserOptions(selectedEmail)}`;
+}
+
+function addFormFieldBuilderRow(data = {}) {
+  const shell = $('#formFieldBuilderRows');
+  if (!shell) return;
+  const row = document.createElement('div');
+  row.className = 'form-builder-row form-field-builder-row';
+  row.innerHTML = `
+    <label>Nome do campo<input data-form-field-label value="${escapeHtml(data.label || '')}" placeholder="Ex.: Valor despesa" /></label>
+    <label>Tipo<select data-form-field-type>
+      ${[
+        ['texto', 'Texto'],
+        ['textarea', 'Texto longo'],
+        ['numero', 'Número'],
+        ['moeda', 'Moeda/R$'],
+        ['data', 'Data'],
+        ['email', 'E-mail'],
+        ['lista', 'Lista de valores'],
+        ['arquivo', 'Arquivo']
+      ].map(([value, label]) => `<option value="${value}" ${data.type === value ? 'selected' : ''}>${label}</option>`).join('')}
+    </select></label>
+    <label>Obrigatório<select data-form-field-required>
+      <option value="sim" ${data.required ? 'selected' : ''}>Sim</option>
+      <option value="nao" ${!data.required ? 'selected' : ''}>Não</option>
+    </select></label>
+    <label>Lista de valores<input data-form-field-options value="${escapeHtml((data.options || []).join(', '))}" placeholder="Quilometragem, Passagem" /></label>
+    <label>Outro abre obs.<select data-form-field-other>
+      <option value="nao" ${!data.otherObservation ? 'selected' : ''}>Não</option>
+      <option value="sim" ${data.otherObservation ? 'selected' : ''}>Sim</option>
+    </select></label>
+    <button class="danger-action compact-action" type="button" data-remove-builder-row>Remover</button>
+  `;
+  shell.appendChild(row);
+}
+
+function addWorkflowBuilderRow(data = {}) {
+  const shell = $('#workflowBuilderRows');
+  if (!shell) return;
+  const row = document.createElement('div');
+  row.className = 'form-builder-row workflow-builder-row';
+  row.innerHTML = `
+    <label>Tarefa<input data-workflow-task value="${escapeHtml(data.name || '')}" placeholder="Ex.: Aprovar despesa" /></label>
+    <label>Ação<select data-workflow-action>
+      <option value="Aprovar" ${normalizeWorkflowActionLabel(data.action) === 'Aprovar' ? 'selected' : ''}>Aprovar</option>
+      <option value="Ajuste" ${normalizeWorkflowActionLabel(data.action) === 'Ajuste' ? 'selected' : ''}>Ajuste</option>
+      <option value="Processado" ${normalizeWorkflowActionLabel(data.action) === 'Processado' ? 'selected' : ''}>Processado</option>
+      <option value="Finalizado" ${normalizeWorkflowActionLabel(data.action) === 'Finalizado' ? 'selected' : ''}>Finalizado</option>
+    </select></label>
+    <label>Responsável<select data-workflow-responsible>${workflowResponsibleOptions(data.approverEmail || '')}</select></label>
+    <label>SLA dias<input data-workflow-sla type="number" min="0" step="1" value="${escapeHtml(data.slaDays || '')}" placeholder="Ex.: 2" /></label>
+    <button class="danger-action compact-action" type="button" data-remove-builder-row>Remover</button>
+  `;
+  shell.appendChild(row);
+}
+
+function clearFormBuilderRows() {
+  $('#formFieldBuilderRows')?.replaceChildren();
+  $('#workflowBuilderRows')?.replaceChildren();
+}
+
+function loadFormDefinitionForEdit(definition) {
+  if (!definition) return;
+  state.activeFormsPanel = 'builder';
+  state.editing.formDefinitionId = definition.id;
+  fillForm('#formDefinitionForm', {
+    title: definition.title,
+    active: definition.active === false ? 'false' : 'true',
+    description: definition.description,
+    fieldsText: definition.fieldsText || '',
+    workflowText: definition.workflowText || ''
+  }, 'Atualizar formulário');
+  clearFormBuilderRows();
+  (definition.fields || []).forEach((field) => addFormFieldBuilderRow(field));
+  (definition.workflowSteps || []).forEach((step) => addWorkflowBuilderRow(step));
+  ensureFormBuilderRows();
+  renderFormsPanel();
+  toast('Formulário carregado para manutenção.');
+}
+
+function ensureFormBuilderRows() {
+  if ($('#formFieldBuilderRows') && !$$('.form-field-builder-row').length) {
+    addFormFieldBuilderRow();
+  }
+  if ($('#workflowBuilderRows') && !$$('.workflow-builder-row').length) {
+    addWorkflowBuilderRow();
+  }
+}
+
+function buildFormDefinitionStructuredPayload(form) {
+  const fieldsText = $$('.form-field-builder-row').map((row) => {
+    const label = $('[data-form-field-label]', row)?.value.trim() || '';
+    const type = $('[data-form-field-type]', row)?.value || 'texto';
+    const required = $('[data-form-field-required]', row)?.value === 'sim' ? 'sim' : 'nao';
+    const options = $('[data-form-field-options]', row)?.value.trim() || '';
+    const other = $('[data-form-field-other]', row)?.value === 'sim' ? 'sim' : 'nao';
+    return label ? `${label}|${type}|${required}|${options}|${other}` : '';
+  }).filter(Boolean).join('\n');
+
+  const workflowText = $$('.workflow-builder-row').map((row) => {
+    const task = $('[data-workflow-task]', row)?.value.trim() || '';
+    const action = $('[data-workflow-action]', row)?.value.trim() || '';
+    const responsible = $('[data-workflow-responsible]', row)?.value.trim() || '';
+    const slaDays = $('[data-workflow-sla]', row)?.value.trim() || '';
+    return task ? `${task}|${action || 'Aprovar'}|${responsible}|${slaDays}` : '';
+  }).filter(Boolean).join('\n');
+
+  form.elements.fieldsText.value = fieldsText;
+  form.elements.workflowText.value = workflowText;
+}
+
+function renderFormsPanel() {
+  if (!isCurrentUserAdmin() && state.activeFormsPanel === 'builder') {
+    state.activeFormsPanel = 'request';
+  }
+  $$('[data-admin-only]').forEach((element) => {
+    element.hidden = !isCurrentUserAdmin();
+  });
+  $$('[data-forms-panel]').forEach((element) => {
+    const panel = element.dataset.formsPanel;
+    const shouldShow = state.activeFormsPanel === 'builder'
+      ? panel === 'builder'
+      : state.activeFormsPanel === 'pending'
+        ? panel === 'requests'
+        : panel === 'request' || panel === 'requests';
+    element.hidden = element.matches('[data-admin-only]') && !isCurrentUserAdmin() ? true : !shouldShow;
+  });
+
+  const select = $('#formRequestDefinitionSelect');
+  if (select) {
+    const previous = select.dataset.preferredDefinitionId || select.value;
+    const activeDefinitions = activeFormDefinitions();
+    select.value = activeDefinitions.some((definition) => definition.id === previous) ? previous : '';
+    delete select.dataset.preferredDefinitionId;
+  }
+
+  renderFormRequestPicker();
+  renderFormRequestFields();
+  const requestSubmitButton = $('button[type="submit"]', $('#formRequestForm'));
+  if (requestSubmitButton) requestSubmitButton.textContent = state.editing.formRequestId ? 'Enviar ajuste' : 'Enviar requisição';
+  renderFormRequests();
+  renderFormDefinitions();
+  ensureFormBuilderRows();
+}
+
 function stageIndex(stage) {
   return state.stages.indexOf(stage);
 }
@@ -3651,6 +4624,12 @@ function renderCandidateStageActions(candidate) {
 }
 
 function render() {
+  applyRoleVisibility();
+  renderFavoriteCards();
+  renderFavoriteMaintenance();
+  if (!$('#dashboard')?.classList.contains('dashboard-drill-active')) {
+    renderLauncherDrill();
+  }
   renderOptions();
   renderDashboardFilters();
   renderFaturamentoChart();
@@ -3679,6 +4658,8 @@ function render() {
   renderCandidatePoolFilters();
   renderCandidatePool();
   renderUsers();
+  renderFormsPanel();
+  bindCurrencyInputs();
 }
 
 function setNavGroupOpen(groupId, open) {
@@ -3701,11 +4682,26 @@ function syncNavGroups(viewId) {
   });
 }
 
+function setDashboardInsightsVisible(visible) {
+  $('#dashboard')?.classList.toggle('dashboard-insights-active', visible);
+  $('#dashboard')?.classList.toggle('dashboard-drill-active', visible);
+}
+
 function showView(viewId) {
+  if (!canAccessView(viewId)) {
+    toast('Acesso restrito a administradores.');
+    showView('dashboard');
+    return;
+  }
   $$('.view').forEach((view) => view.classList.toggle('active', view.id === viewId));
   $$('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === viewId));
   syncNavGroups(viewId);
+  if (viewId === 'dashboard') setDashboardInsightsVisible(false);
+  document.body.classList.toggle('home-view-active', viewId === 'dashboard');
+  document.body.classList.toggle('module-view-active', viewId !== 'dashboard');
   $('#viewTitle').textContent = viewTitles[viewId] || 'Gestão do Negócio Alcateia';
+  if (viewId === 'forms') renderFormsPanel();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function setSubmitLabel(form, label) {
@@ -3738,7 +4734,9 @@ function setFieldValue(form, name, value) {
     return;
   }
 
-  field.value = value ?? '';
+  field.value = field.classList?.contains('currency-input')
+    ? formatCurrencyInput(value)
+    : value ?? '';
 }
 
 function fillForm(selector, values, submitLabel) {
@@ -4231,6 +5229,211 @@ function initSurfaceControlsObserver() {
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
+function launcherLeafIds(nodeId = launcherRootId) {
+  const node = launcherNodes[nodeId];
+  if (!node || !canAccessLauncherNode(node)) return [];
+  if (node.view || node.action) return [nodeId];
+  return (node.children || []).flatMap((childId) => launcherLeafIds(childId));
+}
+
+function launcherPathTo(targetId, nodeId = launcherRootId, path = []) {
+  const node = launcherNodes[nodeId];
+  if (!node) return [];
+  const nextPath = [...path, nodeId];
+  if (nodeId === targetId) return nextPath;
+  for (const childId of node.children || []) {
+    const childPath = launcherPathTo(targetId, childId, nextPath);
+    if (childPath.length) return childPath;
+  }
+  return [];
+}
+
+function readLauncherFavoriteIds() {
+  const validLeafIds = new Set(launcherLeafIds());
+  const rawFavorites = readStorage(launcherFavoriteStorageKey);
+  if (!rawFavorites) return defaultLauncherFavoriteIds;
+
+  try {
+    const parsed = JSON.parse(rawFavorites);
+    if (!Array.isArray(parsed)) return defaultLauncherFavoriteIds;
+    const favoriteIds = parsed.filter((id) => validLeafIds.has(id));
+    return favoriteIds.length ? favoriteIds : defaultLauncherFavoriteIds;
+  } catch {
+    return defaultLauncherFavoriteIds;
+  }
+}
+
+function createLauncherCard(nodeId, className) {
+  const node = launcherNodes[nodeId];
+  const button = document.createElement('button');
+  button.className = className;
+  button.type = 'button';
+
+  const eyebrow = document.createElement('span');
+  eyebrow.textContent = node.eyebrow || 'Menu';
+  const label = document.createElement('strong');
+  label.textContent = node.label;
+  const description = document.createElement('small');
+  description.textContent = node.description || '';
+
+  button.append(eyebrow, label, description);
+  button.addEventListener('click', () => {
+    if (node.view) {
+      if (node.view === 'forms' && node.panel) {
+        state.activeFormsPanel = node.panel;
+      }
+      showView(node.view);
+      return;
+    }
+    if (node.action === 'dashboard') {
+      openDashboardDrill();
+      return;
+    }
+    renderLauncherDrill(nodeId);
+  });
+
+  return button;
+}
+
+function renderFavoriteCards() {
+  const grid = $('#favoriteCards');
+  if (!grid) return;
+
+  grid.replaceChildren();
+  readLauncherFavoriteIds().forEach((favoriteId) => {
+    const node = launcherNodes[favoriteId];
+    if (node?.view) {
+      grid.appendChild(createLauncherCard(favoriteId, 'shortcut-card'));
+    }
+  });
+}
+
+function renderFavoriteMaintenance() {
+  const grid = $('#favoriteMaintenanceGrid');
+  if (!grid) return;
+
+  const selected = new Set(readLauncherFavoriteIds());
+  grid.replaceChildren();
+  launcherLeafIds().forEach((nodeId) => {
+    const node = launcherNodes[nodeId];
+    const label = document.createElement('label');
+    label.className = 'favorite-option';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.value = nodeId;
+    checkbox.checked = selected.has(nodeId);
+
+    const text = document.createElement('span');
+    text.textContent = node.label;
+
+    label.append(checkbox, text);
+    grid.appendChild(label);
+  });
+}
+
+function saveFavoriteMaintenance() {
+  const checkedIds = $$('#favoriteMaintenanceGrid input:checked').map((input) => input.value);
+  writeStorage(launcherFavoriteStorageKey, JSON.stringify(checkedIds));
+  renderFavoriteCards();
+  renderFavoriteMaintenance();
+  const panel = $('#favoriteMaintenancePanel');
+  if (panel) panel.hidden = true;
+}
+
+function resetFavoriteMaintenance() {
+  removeStorage(launcherFavoriteStorageKey);
+  renderFavoriteCards();
+  renderFavoriteMaintenance();
+}
+
+function openDashboardDrill() {
+  const title = $('#moduleWorkspaceTitle');
+  const subtitle = $('#moduleWorkspaceSubtitle');
+  const backButton = $('#moduleBackButton');
+  const cards = $('#moduleDrillCards');
+
+  setDashboardInsightsVisible(true);
+  if (title) title.textContent = 'Dashboard';
+  if (subtitle) subtitle.textContent = 'Indicadores e acompanhamento do negócio';
+  $('#moduleBreadcrumb')?.replaceChildren();
+  if (cards) cards.replaceChildren();
+  if (backButton) {
+    backButton.hidden = false;
+    backButton.onclick = () => {
+      setDashboardInsightsVisible(false);
+      renderLauncherDrill(launcherRootId);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+  }
+  $('#dashboard')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderLauncherBreadcrumb(nodeId) {
+  const breadcrumb = $('#moduleBreadcrumb');
+  if (!breadcrumb) return;
+
+  breadcrumb.replaceChildren();
+  launcherPathTo(nodeId).forEach((pathNodeId, index, path) => {
+    const node = launcherNodes[pathNodeId];
+    const item = document.createElement(pathNodeId === nodeId ? 'span' : 'button');
+    item.textContent = pathNodeId === launcherRootId ? 'Início' : node.label;
+    if (item.tagName === 'BUTTON') {
+      item.type = 'button';
+      item.addEventListener('click', () => renderLauncherDrill(pathNodeId));
+    }
+    breadcrumb.appendChild(item);
+    if (index < path.length - 1) {
+      const separator = document.createElement('span');
+      separator.textContent = '/';
+      separator.className = 'module-breadcrumb-separator';
+      breadcrumb.appendChild(separator);
+    }
+  });
+}
+
+function renderLauncherDrill(nodeId = launcherRootId) {
+  setDashboardInsightsVisible(false);
+  const node = launcherNodes[nodeId] || launcherNodes[launcherRootId];
+  const title = $('#moduleWorkspaceTitle');
+  const subtitle = $('#moduleWorkspaceSubtitle');
+  const backButton = $('#moduleBackButton');
+  const cards = $('#moduleDrillCards');
+  if (!cards) return;
+
+  if (title) title.textContent = node.label;
+  if (subtitle) subtitle.textContent = node.description || '';
+  if (backButton) {
+    const path = launcherPathTo(nodeId);
+    const parentId = path.length > 1 ? path[path.length - 2] : launcherRootId;
+    backButton.hidden = nodeId === launcherRootId;
+    backButton.onclick = () => renderLauncherDrill(parentId);
+  }
+
+  renderLauncherBreadcrumb(nodeId);
+  cards.replaceChildren();
+  (node.children || []).forEach((childId) => {
+    if (canAccessLauncherNode(launcherNodes[childId])) {
+      cards.appendChild(createLauncherCard(childId, 'module-card'));
+    }
+  });
+}
+
+function bindLauncherHome() {
+  renderFavoriteCards();
+  renderFavoriteMaintenance();
+  renderLauncherDrill();
+
+  $('#manageFavoritesButton')?.addEventListener('click', () => {
+    const panel = $('#favoriteMaintenancePanel');
+    if (!panel) return;
+    renderFavoriteMaintenance();
+    panel.hidden = !panel.hidden;
+  });
+  $('#saveFavoritesButton')?.addEventListener('click', saveFavoriteMaintenance);
+  $('#resetFavoritesButton')?.addEventListener('click', resetFavoriteMaintenance);
+}
+
 function bindNavigation() {
   $$('[data-nav-toggle]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -4243,6 +5446,13 @@ function bindNavigation() {
   $$('.nav-item').forEach((button) => {
     button.addEventListener('click', () => showView(button.dataset.view));
   });
+
+  $$('[data-module-view]').forEach((button) => {
+    button.addEventListener('click', () => showView(button.dataset.moduleView));
+  });
+
+  bindLauncherHome();
+  $('#homeViewButton')?.addEventListener('click', () => showView('dashboard'));
 }
 
 async function getCitiesForUf(uf) {
@@ -4366,6 +5576,10 @@ function bindForms() {
       toast('Informe o mês/ano do faturamento.');
       return;
     }
+    if (state.faturamento.some((item) => item.id !== editingId && item.monthYear === payload.monthYear)) {
+      toast('Já existe faturamento cadastrado para esse mês/ano.');
+      return;
+    }
 
     const originalText = setSubmitButtonBusy(submitButton, editingId ? 'Atualizando...' : 'Salvando...');
     try {
@@ -4389,12 +5603,14 @@ function bindForms() {
     const form = event.currentTarget;
     const submitButton = $('button[type="submit"]', form);
     const editingId = state.editing.opportunityId;
+    const payload = formPayload(form);
+    payload.contractValue = parseCurrencyInput(payload.contractValue);
 
     try {
       if (submitButton) submitButton.disabled = true;
       await api(editingId ? `/api/opportunities/${editingId}` : '/api/opportunities', {
         method: editingId ? 'PATCH' : 'POST',
-        body: JSON.stringify(formPayload(form))
+        body: JSON.stringify(payload)
       });
       clearEditing(form, 'opportunityId', 'Salvar oportunidade');
       toast(editingId ? 'Oportunidade atualizada.' : 'Oportunidade cadastrada.');
@@ -4487,7 +5703,7 @@ function bindForms() {
       if (savedCandidate.placement?.type === 'allocated') {
         toast(savedCandidate.placement.action === 'created' ? 'Candidato aprovado e alocado criado.' : 'Candidato aprovado e alocado atualizado.');
       } else if (savedCandidate.placement?.type === 'hunting') {
-        toast('Candidato aprovado e hunting atualizado.');
+        toast('Consultor aprovado e hunting atualizado.');
       } else {
         toast(editingId ? 'Candidato atualizado.' : 'Candidato cadastrado.');
       }
@@ -4556,6 +5772,7 @@ function bindForms() {
     syncRateCardMaximum(form);
     const payload = formPayload(form);
     payload.active = form.elements.active.checked;
+    payload.rate = parseCurrencyInput(payload.rate);
     payload.maximum = rateCardMaximum(payload.rate);
     const editingId = state.editing.rateCardId;
 
@@ -4644,7 +5861,7 @@ function bindForms() {
     const payload = formPayload(form);
 
     if (!String(payload.candidateName || '').trim()) {
-      toast('Informe o candidato do hunting.');
+      toast('Informe o consultor do hunting.');
       return;
     }
     if (!String(payload.profile || '').trim()) {
@@ -4748,6 +5965,218 @@ function bindForms() {
     } finally {
       restoreSubmitButton(submitButton, state.editing.userId ? (originalText || 'Atualizar usuário') : 'Salvar usuário');
     }
+  });
+
+  $('#formDefinitionForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submitButton = $('button[type="submit"]', form);
+    const editingId = state.editing.formDefinitionId;
+    buildFormDefinitionStructuredPayload(form);
+    const payload = formPayload(form);
+    payload.active = payload.active !== 'false';
+
+    if (!String(payload.title || '').trim()) {
+      toast('Informe o nome do formulário.');
+      return;
+    }
+    if (!String(payload.fieldsText || '').trim()) {
+      toast('Inclua ao menos um campo no formulário.');
+      return;
+    }
+
+    const originalText = setSubmitButtonBusy(submitButton, editingId ? 'Atualizando...' : 'Salvando...');
+    try {
+      const savedDefinition = await api(editingId ? `/api/form-definitions/${encodeURIComponent(editingId)}` : '/api/form-definitions', {
+        method: editingId ? 'PATCH' : 'POST',
+        body: JSON.stringify(payload)
+      });
+      upsertStateItem('formDefinitions', savedDefinition);
+      clearEditing(form, 'formDefinitionId', 'Salvar formulário');
+      clearFormBuilderRows();
+      addFormFieldBuilderRow();
+      addWorkflowBuilderRow();
+      state.activeFormsPanel = 'builder';
+      toast(editingId ? 'Formulário atualizado.' : 'Formulário cadastrado.');
+      render();
+    } catch (error) {
+      toast(error.message || 'Não foi possível salvar o formulário.');
+    } finally {
+      restoreSubmitButton(submitButton, state.editing.formDefinitionId ? (originalText || 'Atualizar formulário') : 'Salvar formulário');
+    }
+  });
+
+  $('#addFormFieldButton')?.addEventListener('click', () => addFormFieldBuilderRow());
+  $('#addWorkflowStepButton')?.addEventListener('click', () => addWorkflowBuilderRow());
+  $('#formDefinitionForm')?.addEventListener('click', (event) => {
+    const removeButton = event.target.closest('[data-remove-builder-row]');
+    if (!removeButton) return;
+    removeButton.closest('.form-builder-row')?.remove();
+    ensureFormBuilderRows();
+  });
+
+  $('#formDefinitionForm')?.addEventListener('change', (event) => {
+    const actionSelect = event.target.closest('[data-workflow-action]');
+    if (!actionSelect) return;
+    const row = actionSelect.closest('.workflow-builder-row');
+    const responsible = $('[data-workflow-responsible]', row);
+    if (responsible && actionSelect.value === 'Ajuste') {
+      responsible.value = '__requester__';
+    }
+  });
+
+  $('#formRequestPicker')?.addEventListener('click', (event) => {
+    const card = event.target.closest('[data-select-form-request]');
+    if (!card) return;
+    const form = $('#formRequestForm');
+    const select = $('#formRequestDefinitionSelect');
+    state.editing.formRequestId = '';
+    if (form) form.reset();
+    if (select) select.value = card.dataset.selectFormRequest || '';
+    renderFormsPanel();
+  });
+
+  $('#formRequestBackButton')?.addEventListener('click', () => {
+    const form = $('#formRequestForm');
+    const select = $('#formRequestDefinitionSelect');
+    state.editing.formRequestId = '';
+    if (form) form.reset();
+    if (select) select.value = '';
+    renderFormsPanel();
+  });
+
+  $('#formRequestFields')?.addEventListener('change', () => renderFormRequestOtherFields());
+
+  $('#formRequestForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submitButton = $('button[type="submit"]', form);
+    const definition = currentFormDefinition();
+    if (!definition) {
+      toast('Selecione um formulário válido.');
+      return;
+    }
+
+    const editingRequestId = state.editing.formRequestId;
+    const existingRequest = state.formRequests.find((item) => item.id === editingRequestId) || null;
+
+    const originalText = setSubmitButtonBusy(submitButton, editingRequestId ? 'Enviando ajuste...' : 'Enviando...');
+    try {
+      const { values, files } = collectFormRequestPayload(form, definition, existingRequest);
+      await attachFormRequestFiles(values, files);
+      const adjustmentObservation = editingRequestId
+        ? window.prompt('Observação do ajuste:', '') ?? null
+        : '';
+      if (adjustmentObservation === null) {
+        return;
+      }
+      const body = buildFormRequestBody(definition, values, editingRequestId ? { observation: adjustmentObservation } : {});
+      const savedRequest = editingRequestId
+        ? await api(`/api/form-requests/${encodeURIComponent(editingRequestId)}/values`, {
+          method: 'PATCH',
+          body
+        })
+        : await api('/api/form-requests', {
+          method: 'POST',
+          body
+        });
+      upsertStateItem('formRequests', savedRequest);
+      form.reset();
+      state.editing.formRequestId = '';
+      const select = $('#formRequestDefinitionSelect');
+      if (select) select.value = '';
+      renderFormsPanel();
+      toast(editingRequestId ? 'Requisição atualizada.' : 'Requisição enviada.');
+    } catch (error) {
+      toast(error.message || 'Não foi possível enviar a requisição.');
+    } finally {
+      restoreSubmitButton(submitButton, originalText || (editingRequestId ? 'Enviar ajuste' : 'Enviar requisição'));
+    }
+  });
+
+  $('#formRequestTable')?.addEventListener('click', async (event) => {
+    const openButton = event.target.closest('[data-open-form-request]');
+    if (openButton) {
+      const requestItem = state.formRequests.find((item) => item.id === openButton.dataset.openFormRequest);
+      renderFormRequestDetail(requestItem);
+      return;
+    }
+
+    const adjustButton = event.target.closest('[data-adjust-form-request]');
+    if (adjustButton) {
+      const requestItem = state.formRequests.find((item) => item.id === adjustButton.dataset.adjustFormRequest);
+      openFormRequestAdjustment(requestItem);
+      return;
+    }
+
+    const approveButton = event.target.closest('[data-approve-form-request]');
+    const rejectButton = event.target.closest('[data-reject-form-request]');
+    const processButton = event.target.closest('[data-process-form-request]');
+    const finishButton = event.target.closest('[data-finish-form-request]');
+    const actionButton = approveButton || rejectButton || processButton || finishButton;
+    if (!actionButton) return;
+
+    const decision = approveButton ? 'approve' : processButton ? 'process' : finishButton ? 'finish' : 'reject';
+    const decisionDetails = requestFormDecisionDetails(decision);
+    if (!decisionDetails) return;
+
+    actionButton.disabled = true;
+    try {
+      const requestId = actionButton.dataset.approveFormRequest || actionButton.dataset.rejectFormRequest || actionButton.dataset.processFormRequest || actionButton.dataset.finishFormRequest;
+      const savedRequest = await api(`/api/form-requests/${encodeURIComponent(requestId)}/decision`, {
+        method: 'POST',
+        body: JSON.stringify({ decision, ...decisionDetails })
+      });
+      upsertStateItem('formRequests', savedRequest);
+      toast(approveButton ? 'Aprovação registrada.' : processButton ? 'Requisição processada.' : finishButton ? 'Requisição finalizada.' : 'Requisição reprovada.');
+      renderFormsPanel();
+    } catch (error) {
+      toast(error.message || 'Não foi possível registrar a decisão.');
+    } finally {
+      actionButton.disabled = false;
+    }
+  });
+
+  $('#formRequestDetailPanel')?.addEventListener('click', (event) => {
+    if (!event.target.closest('[data-close-form-request-detail]')) return;
+    const panel = $('#formRequestDetailPanel');
+    if (panel) {
+      panel.hidden = true;
+      panel.innerHTML = '';
+    }
+  });
+
+  $('#formDefinitionTable')?.addEventListener('click', async (event) => {
+    const deleteButton = event.target.closest('[data-delete-form-definition]');
+    if (deleteButton) {
+      const definition = state.formDefinitions.find((item) => item.id === deleteButton.dataset.deleteFormDefinition);
+      if (!definition) return;
+      if (!window.confirm(`Excluir o formulário "${definition.title || '-'}"?`)) return;
+
+      deleteButton.disabled = true;
+      try {
+        await api(`/api/form-definitions/${encodeURIComponent(definition.id)}`, { method: 'DELETE' });
+        removeStateItem('formDefinitions', definition.id);
+        if (state.editing.formDefinitionId === definition.id) {
+          clearEditing($('#formDefinitionForm'), 'formDefinitionId', 'Salvar formulário');
+          clearFormBuilderRows();
+          addFormFieldBuilderRow();
+          addWorkflowBuilderRow();
+        }
+        toast('Formulário excluído.');
+        renderFormsPanel();
+      } catch (error) {
+        toast(error.message || 'Não foi possível excluir o formulário.');
+      } finally {
+        deleteButton.disabled = false;
+      }
+      return;
+    }
+
+    if (event.target.closest('button, a, input, select, textarea')) return;
+    const row = event.target.closest('[data-edit-form-definition]');
+    const definition = state.formDefinitions.find((item) => item.id === row?.dataset.editFormDefinition);
+    if (definition) loadFormDefinitionForEdit(definition);
   });
 }
 
@@ -5161,6 +6590,14 @@ function bindHuntingFilters() {
 }
 
 function bindDashboardFilters() {
+  $('#openAllocatedDashboardButton')?.addEventListener('click', () => openAllocatedMaintenance());
+
+  $('#allocatedPie')?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-open-allocated-client]');
+    if (!button) return;
+    openAllocatedMaintenance(button.dataset.openAllocatedClient || '');
+  });
+
   $('#metrics')?.addEventListener('click', (event) => {
     const card = event.target.closest('[data-dashboard-analytics]');
     if (!card) return;
