@@ -3474,7 +3474,7 @@ function allocatedCsvRows(rows = getFilteredAllocateds()) {
   return rows.map((allocated) => {
     const client = state.clients.find((item) => item.id === allocated.clientId);
     return {
-      ID: allocated.externalId || allocated.id,
+      'ID origem': allocated.externalId || '',
       'Codigo': allocated.code || '',
       Consultor: allocated.consultant || '',
       Skill: allocated.skill || '',
@@ -3546,7 +3546,7 @@ function renderAllocateds() {
       return `
         <tr class="clickable-row" data-edit-allocated="${allocated.id}">
           <td><input type="checkbox" data-select-allocated="${allocated.id}" aria-label="Selecionar ${allocated.consultant || allocated.code || 'alocado'}" ${checked} /></td>
-          <td>${allocated.externalId || allocated.id}</td>
+          <td>${allocated.externalId || '-'}</td>
           <td><strong>${allocated.code}</strong></td>
           <td>${allocated.consultant || '-'}</td>
           <td>${allocated.skill || '-'}</td>

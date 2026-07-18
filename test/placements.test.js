@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   advanceSelectedCandidateToInterview,
+  duplicatedAllocatedCodeGroups,
+  findAllocatedByCode,
   findCurriculumForCandidateResult,
   findUserByName,
   resolveCandidateCurriculum,
@@ -86,6 +88,39 @@ test('candidato aprovado cria ou atualiza alocado sem duplicar', () => {
   assert.equal(updated.type, 'allocated');
   assert.equal(updated.action, 'updated');
   assert.equal(db.allocateds.length, 1);
+});
+
+test('codigo de alocado duplicado e detectado de forma normalizada', () => {
+  const allocateds = [
+    { id: 'alloc_1', code: ' P-00126-A ', consultant: 'Ana' },
+    { id: 'alloc_2', code: 'p 00126 a', consultant: 'Bruno' },
+    { id: 'alloc_3', code: 'P-00126-B', consultant: 'Carla' }
+  ];
+
+  assert.equal(findAllocatedByCode(allocateds, 'P-00126-A')?.id, 'alloc_1');
+  assert.equal(findAllocatedByCode(allocateds, 'P-00126-A', 'alloc_1')?.id, 'alloc_2');
+  assert.equal(findAllocatedByCode(allocateds, 'P-00126-B', 'alloc_3'), null);
+  assert.equal(duplicatedAllocatedCodeGroups(allocateds).length, 1);
+});
+
+test('candidato aprovado gera codigo unico quando codigo automatico colide', () => {
+  const db = buildDb();
+  db.curriculums[0].id_controle = 'DUP-1';
+  db.curriculums[0].id = 'DUP-1';
+  db.allocateds.push({
+    id: 'alloc_existente',
+    code: 'DUP-1',
+    consultant: 'Outra Pessoa',
+    clientId: 'client_a',
+    active: true
+  });
+
+  const candidate = buildCandidate({ curriculumId: 'DUP-1' });
+  const placement = syncApprovedCandidatePlacement(candidate, db);
+
+  assert.equal(placement.action, 'created');
+  assert.equal(db.allocateds.length, 2);
+  assert.equal(db.allocateds[1].code, 'DUP-1-2');
 });
 
 test('candidato aprovado em hunting atualiza oportunidade sem criar alocado', () => {

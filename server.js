@@ -403,6 +403,57 @@ function simplifyFormText(value) {
     .toLowerCase();
 }
 
+function comparableAllocatedCode(value) {
+  return simplifyFormText(value).replace(/[^a-z0-9]+/g, '').trim();
+}
+
+export function findAllocatedByCode(allocateds = [], code = '', exceptId = '') {
+  const targetCode = comparableAllocatedCode(code);
+  if (!targetCode) return null;
+  const ignoredId = String(exceptId || '').trim();
+  return (allocateds || []).find((allocated) => (
+    String(allocated?.id || '').trim() !== ignoredId
+    && comparableAllocatedCode(allocated?.code) === targetCode
+  )) || null;
+}
+
+export function duplicatedAllocatedCodeGroups(allocateds = []) {
+  const groups = new Map();
+  for (const allocated of allocateds || []) {
+    const code = comparableAllocatedCode(allocated?.code);
+    if (!code) continue;
+    if (!groups.has(code)) groups.set(code, []);
+    groups.get(code).push(allocated);
+  }
+  return [...groups.entries()]
+    .filter(([, items]) => items.length > 1)
+    .map(([code, items]) => ({ code, items }));
+}
+
+function validateAllocatedUniqueCode(response, allocateds, allocated, exceptId = '') {
+  const duplicate = findAllocatedByCode(allocateds, allocated?.code, exceptId);
+  if (!duplicate) return false;
+  sendError(
+    response,
+    409,
+    `Ja existe alocado com o codigo ${allocated.code}: ${duplicate.consultant || duplicate.id || '-'}`
+  );
+  return true;
+}
+
+function uniqueAllocatedCode(allocateds = [], baseCode = '', exceptId = '') {
+  const originalCode = String(baseCode || 'ALOCADO').trim() || 'ALOCADO';
+  if (!findAllocatedByCode(allocateds, originalCode, exceptId)) return originalCode;
+
+  for (let index = 2; index < 1000; index += 1) {
+    const suffix = `-${index}`;
+    const candidate = `${originalCode.slice(0, Math.max(1, 24 - suffix.length))}${suffix}`;
+    if (!findAllocatedByCode(allocateds, candidate, exceptId)) return candidate;
+  }
+
+  return `${originalCode.slice(0, 18)}-${Date.now().toString(36).slice(-5)}`;
+}
+
 function formFieldListOptions(value) {
   const match = repairEncodingArtifacts(value).match(/lista de valores\s*-\s*([^)]+)/i);
   return match
@@ -2008,6 +2059,7 @@ export function syncApprovedCandidatePlacement(candidate, db) {
     return { type: 'allocated', action: 'updated', allocatedId: allocated.id };
   }
 
+  synced.code = uniqueAllocatedCode(db.allocateds, synced.code);
   db.allocateds.push(synced);
   return { type: 'allocated', action: 'created', allocatedId: synced.id };
 }
@@ -2485,6 +2537,17 @@ async function handleApi(request, response) {
       const invalidAllocated = importedAllocateds.find((item) => !item.code || !item.consultant || !validClientIds.has(item.clientId));
       if (invalidAllocated) {
         sendError(response, 422, `Alocado invalido ou sem cliente valido: ${invalidAllocated?.consultant || invalidAllocated?.code || '-'}`);
+        return;
+      }
+      const duplicatedImportedAllocatedCodes = duplicatedAllocatedCodeGroups(importedAllocateds);
+      if (duplicatedImportedAllocatedCodes.length) {
+        const duplicate = duplicatedImportedAllocatedCodes[0].items[0];
+        sendError(response, 409, `Importacao bloqueada: codigo de alocado duplicado (${duplicate.code}). Corrija a origem antes de importar.`);
+        return;
+      }
+      const duplicatedExistingAllocated = importedAllocateds.find((item) => findAllocatedByCode(auth.db.allocateds, item.code));
+      if (duplicatedExistingAllocated) {
+        sendError(response, 409, `Importacao bloqueada: ja existe alocado com o codigo ${duplicatedExistingAllocated.code}.`);
         return;
       }
 
@@ -4269,6 +4332,9 @@ async function handleApi(request, response) {
         sendError(response, 422, 'Selecione um cliente valido.');
         return;
       }
+      if (validateAllocatedUniqueCode(response, db.allocateds, allocated)) {
+        return;
+      }
 
       moveCandidateStage(candidate, 'Aprovado');
       candidate.approved = true;
@@ -4303,6 +4369,9 @@ async function handleApi(request, response) {
       }
       if (!allocated.clientId || !db.clients.some((client) => client.id === allocated.clientId)) {
         sendError(response, 422, 'Selecione um cliente valido.');
+        return;
+      }
+      if (validateAllocatedUniqueCode(response, db.allocateds, allocated)) {
         return;
       }
 
@@ -4341,6 +4410,9 @@ async function handleApi(request, response) {
       }
       if (!updated.clientId || !db.clients.some((client) => client.id === updated.clientId)) {
         sendError(response, 422, 'Selecione um cliente valido.');
+        return;
+      }
+      if (validateAllocatedUniqueCode(response, db.allocateds, updated, allocated.id)) {
         return;
       }
 
