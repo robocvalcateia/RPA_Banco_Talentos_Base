@@ -6891,11 +6891,16 @@ function selectedCandidateIdsForSending() {
   return $$('[data-send-selected-candidate]:checked').map((checkbox) => checkbox.dataset.sendSelectedCandidate);
 }
 
-function openNextWhatsappLink() {
+function openNextWhatsappLink(targetWindow = null) {
   const next = state.whatsappQueue.shift();
   if (!next) return false;
 
-  window.open(next.url, '_blank', 'noopener');
+  if (targetWindow && !targetWindow.closed) {
+    targetWindow.location.href = next.url;
+  } else {
+    window.open(next.url, '_blank', 'noopener');
+  }
+
   const button = $('#openSelectedCandidateWhatsappButton');
   if (button) {
     button.textContent = state.whatsappQueue.length
@@ -7017,9 +7022,14 @@ function bindSelectedCandidateActions() {
     }
 
     const button = $('#openSelectedCandidateWhatsappButton');
+    let pendingWhatsappWindow = null;
     if (button) {
       button.disabled = true;
       button.textContent = 'Preparando WhatsApp...';
+    }
+    pendingWhatsappWindow = window.open('about:blank', '_blank');
+    if (pendingWhatsappWindow) {
+      pendingWhatsappWindow.opener = null;
     }
 
     try {
@@ -7034,8 +7044,12 @@ function bindSelectedCandidateActions() {
       if (result.missing?.length) {
         toast(`${result.missing.length} candidato(s) sem telefone/WhatsApp encontrado.`);
       }
-      openNextWhatsappLink();
+      openNextWhatsappLink(pendingWhatsappWindow);
+      pendingWhatsappWindow = null;
     } catch (error) {
+      if (pendingWhatsappWindow && !pendingWhatsappWindow.closed) {
+        pendingWhatsappWindow.close();
+      }
       toast(error.message || 'Não foi possível preparar o WhatsApp.');
     } finally {
       if (button) {
