@@ -3935,6 +3935,7 @@ function renderUsers() {
           <td><strong>${user.name}</strong></td>
           <td>${user.email}</td>
           <td>${user.role}</td>
+          <td>${String(user.emailSignature || '').trim() ? 'Sim' : 'Não'}</td>
           <td>${user.mustChangePassword ? 'Sim' : 'Não'}</td>
         </tr>
       `
@@ -5060,7 +5061,8 @@ function loadUserForEdit(user) {
   fillForm('#userForm', {
     name: user.name,
     email: user.email,
-    role: user.role
+    role: user.role,
+    emailSignature: user.emailSignature || ''
   }, 'Atualizar usuário');
   toast('Usuário carregado para atualização.');
 }
@@ -5943,6 +5945,10 @@ function bindForms() {
     }
     if (!String(payload.email || '').trim()) {
       toast('Informe o e-mail do usuário.');
+      return;
+    }
+    if (!String(payload.email || '').trim().toLowerCase().endsWith('@alcateiaconsulting.com.br')) {
+      toast('O e-mail do usuário deve ser @alcateiaconsulting.com.br.');
       return;
     }
 

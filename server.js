@@ -91,6 +91,7 @@ const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
 const APP_VERSION = '20260714-contact-client-messaging';
+const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 
 async function loadLocalEnv() {
   try {
@@ -277,6 +278,14 @@ function normalizeUserRole(role) {
   const value = String(role || '').trim();
   const match = USER_ROLES.find((item) => item.toLowerCase() === value.toLowerCase());
   return match || 'Gestão';
+}
+
+export function isAlcateiaSenderEmail(email) {
+  return String(email || '').trim().toLowerCase().endsWith(`@${ALCATEIA_EMAIL_DOMAIN}`);
+}
+
+function normalizeEmailSignature(value = '') {
+  return repairEncodingArtifacts(value).trim();
 }
 
 function isAdminUser(user) {
@@ -1024,13 +1033,15 @@ async function extractCandidatePhones(candidate, credentials, db) {
   }
 }
 
-function buildCandidateEmailBody(rows, candidateMessage = '') {
+export function buildCandidateEmailBody(rows, candidateMessage = '', signature = '') {
   const names = rows.map((row) => row.name).filter(Boolean);
   const greetingName = names.length === 1 ? names[0] : names.join(', ');
   return [
     `Olá, ${greetingName || 'candidato'}.`,
     '',
-    candidateMessage || ''
+    candidateMessage || '',
+    '',
+    normalizeEmailSignature(signature)
   ].join('\n').trim();
 }
 
@@ -2960,6 +2971,7 @@ async function handleApi(request, response) {
         id: createId('user', payload.name || email),
         name: String(payload.name ?? '').trim(),
         email,
+        emailSignature: normalizeEmailSignature(payload.emailSignature || payload.signature || ''),
         role: normalizeUserRole(payload.role || 'Gestão'),
         passwordHash: hashPassword('Alcateia123'),
         mustChangePassword: false,
@@ -2968,6 +2980,10 @@ async function handleApi(request, response) {
 
       if (!user.name || !user.email) {
         sendError(response, 422, 'Informe nome e e-mail do usuario.');
+        return;
+      }
+      if (!isAlcateiaSenderEmail(user.email)) {
+        sendError(response, 422, `O e-mail do usuario deve ser @${ALCATEIA_EMAIL_DOMAIN}.`);
         return;
       }
       if (db.users.some((item) => item.email.toLowerCase() === user.email)) {
@@ -2996,6 +3012,10 @@ async function handleApi(request, response) {
         sendError(response, 422, 'Informe nome e e-mail do usuario.');
         return;
       }
+      if (!isAlcateiaSenderEmail(email)) {
+        sendError(response, 422, `O e-mail do usuario deve ser @${ALCATEIA_EMAIL_DOMAIN}.`);
+        return;
+      }
       if (db.users.some((item) => item.id !== userId && item.email.toLowerCase() === email)) {
         sendError(response, 409, 'Ja existe um usuario com esse e-mail.');
         return;
@@ -3003,6 +3023,7 @@ async function handleApi(request, response) {
 
       user.name = String(payload.name).trim();
       user.email = email;
+      user.emailSignature = normalizeEmailSignature(payload.emailSignature || payload.signature || '');
       user.role = normalizeUserRole(payload.role || user.role);
       if (payload.resetPassword === true) {
         const defaultPassword = String(payload.password || 'Alcateia123');
@@ -4003,13 +4024,57 @@ async function handleApi(request, response) {
       }
 
       const subject = 'Oportunidade Alocação de Profissional - Alcateia';
-      const body = buildCandidateEmailBody(foundRows, candidateMessage);
+      const senderEmail = String(auth.user.email || '').trim().toLowerCase();
+      if (!isAlcateiaSenderEmail(senderEmail)) {
+        sendError(response, 403, `O remetente deve ser um e-mail @${ALCATEIA_EMAIL_DOMAIN}.`);
+        return;
+      }
+
       const recipients = Array.from(new Set(foundRows.flatMap((row) => row.emails)));
+      const smtpConfig = getSmtpConfigFromEnv();
+      const smtpSenderEmail = String(smtpConfig.from || '').trim().toLowerCase();
+      const deliverySenderEmail = isSmtpAccountConfigured(smtpConfig) && isAlcateiaSenderEmail(smtpSenderEmail)
+        ? smtpSenderEmail
+        : senderEmail;
+      if (!isAlcateiaSenderEmail(deliverySenderEmail)) {
+        sendError(response, 403, `O remetente deve ser um e-mail @${ALCATEIA_EMAIL_DOMAIN}.`);
+        return;
+      }
+
+      const body = buildCandidateEmailBody(foundRows, candidateMessage, auth.user.emailSignature || auth.user.signature || '');
       const mailto = buildCandidateMailto(recipients, subject, body);
+
+      if (isSmtpAccountConfigured(smtpConfig)) {
+        try {
+          await withTimeout(sendMail({
+            ...smtpConfig,
+            from: deliverySenderEmail,
+            to: recipients,
+            subject,
+            text: body
+          }), 30000, 'Tempo esgotado no envio SMTP.');
+        } catch (error) {
+          sendError(response, 502, `Nao foi possivel enviar o e-mail pelo SMTP: ${error.message}`);
+          return;
+        }
+
+        sendJson(response, 200, {
+          to: recipients.join(', '),
+          from: deliverySenderEmail,
+          fromAccountHint: deliverySenderEmail,
+          found: foundRows,
+          missing: missingRows,
+          sent: true,
+          delivery: 'smtp',
+          smtpConfigured: true
+        });
+        return;
+      }
 
       sendJson(response, 200, {
         to: recipients.join(', '),
-        fromAccountHint: auth.user.email,
+        from: senderEmail,
+        fromAccountHint: senderEmail,
         found: foundRows,
         missing: missingRows,
         mailto,

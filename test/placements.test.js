@@ -2,11 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   advanceSelectedCandidateToInterview,
+  buildCandidateEmailBody,
   databaseWithSelectedCandidateCurriculums,
   duplicatedAllocatedCodeGroups,
   findAllocatedByCode,
   findCurriculumForCandidateResult,
   findUserByName,
+  isAlcateiaSenderEmail,
   resolveCandidateCurriculum,
   shouldSyncLegacyAfterProcessing,
   shouldResetEnvUserPasswords,
@@ -202,6 +204,23 @@ test('envio de candidato selecionado usa curriculo resolvido fora do cache local
   assert.equal(resolved.curriculums.length, 1);
   assert.equal(resolved.curriculums[0].email, 'marcio@example.com');
   assert.equal(resolved.curriculums[0].telefone, '11999999999');
+});
+
+test('email de candidato selecionado inclui assinatura gravada', () => {
+  const body = buildCandidateEmailBody(
+    [{ name: 'Pessoa Teste' }],
+    'Segue oportunidade.',
+    'Gerson Scholz\nAlcateia Consulting'
+  );
+
+  assert.match(body, /Oportunidade|Segue oportunidade/);
+  assert.match(body, /Gerson Scholz/);
+  assert.match(body, /Alcateia Consulting/);
+});
+
+test('remetente de candidato selecionado deve ser dominio Alcateia', () => {
+  assert.equal(isAlcateiaSenderEmail('gerson@alcateiaconsulting.com.br'), true);
+  assert.equal(isAlcateiaSenderEmail('gerson@gmail.com'), false);
 });
 
 test('processamento de emails vazio nao dispara sincronizacao completa', () => {
