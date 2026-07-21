@@ -441,7 +441,8 @@ export const __mongoTalentosTest = {
   normalizeLegacySyncPayload,
   removeConflictingLegacyIdentityFields,
   writeLegacySyncUpdate,
-  duplicateKeyQueryFromError
+  duplicateKeyQueryFromError,
+  selectedCandidateToMongoPayload
 };
 
 function buildCandidateIdentifierQuery(identifier) {
@@ -530,6 +531,17 @@ export async function updateCurriculumInMongo(identifier, payload = {}) {
     { returnDocument: 'after' }
   );
 
+  const doc = result?.value || result;
+  return doc ? mongoCandidateToCurriculum(doc) : null;
+}
+
+export async function deleteCurriculumFromMongo(identifier) {
+  await loadMongoDriver();
+  const collection = await getMongoTalentosCollection();
+  const query = buildCandidateIdentifierQuery(identifier);
+  if (!query) return null;
+
+  const result = await collection.findOneAndDelete(query);
   const doc = result?.value || result;
   return doc ? mongoCandidateToCurriculum(doc) : null;
 }
@@ -648,24 +660,28 @@ function selectedCandidateToMongoPayload(candidate = {}, context = {}) {
 
   const skills = [
     candidate.skills,
-    cvFilter.mandatorySkills,
     titulo
   ]
     .filter(Boolean)
     .join(', ');
 
-  const conhecimentoTecnico = [
-    cvFilter.jobDescription,
-    candidate.observation
-  ]
-    .filter(Boolean)
-    .join('\n\n');
+  const conhecimentoTecnico = String(
+    candidate.conhecimento_tecnico
+    || candidate.conhecimentoTecnico
+    || candidate.technicalKnowledge
+    || candidate.technical_knowledge
+    || ''
+  ).trim();
+  const experienciaProfissional = String(
+    candidate.experiencia_profissional
+    || candidate.experienciaProfissional
+    || candidate.professionalExperience
+    || candidate.professional_experience
+    || ''
+  ).trim();
 
   const payload = {
     nome,
-    skills,
-    conhecimento_tecnico: conhecimentoTecnico,
-    experiencia_profissional: String(candidate.observation || '').trim(),
     fonte: fonteBusca,
     data_atualizacao: now,
 
@@ -683,6 +699,18 @@ function selectedCandidateToMongoPayload(candidate = {}, context = {}) {
     cv_filter_id: String(cvFilter.id || '').trim(),
     salvo_por: String(user.email || user.name || '').trim()
   };
+
+  if (skills) {
+    payload.skills = skills;
+  }
+
+  if (conhecimentoTecnico) {
+    payload.conhecimento_tecnico = conhecimentoTecnico;
+  }
+
+  if (experienciaProfissional) {
+    payload.experiencia_profissional = experienciaProfissional;
+  }
 
   const email = String(candidate.email || '').trim().toLowerCase();
   const telefone = String(candidate.telefone || candidate.phone || '').trim();

@@ -73,6 +73,7 @@ import {
 } from './allocated-documents.js';
 import {
   createCurriculumInMongo,
+  deleteCurriculumFromMongo,
   getCurriculumsFromMongo,
   getCurriculumFromMongo,
   getMongoTalentStats,
@@ -1603,7 +1604,8 @@ function databaseWithResolvedCurriculum(db, curriculum) {
 }
 
 async function updateCurriculumByIdentifier(db, identifier, payload) {
-  const normalized = buildCurriculumPayload(payload);
+  const current = await getCurriculumByIdentifier(db, identifier);
+  const normalized = buildCurriculumPayload(current ? { ...current, ...payload } : payload);
   if (!normalized.nome) {
     throw new Error('Informe o nome do candidato.');
   }
@@ -2768,6 +2770,61 @@ async function handleApi(request, response) {
       }
 
       sendJson(response, 200, updated);
+      return;
+    }
+
+    if (request.method === 'DELETE' && /^\/api\/curriculums\/[^/]+$/.test(pathname)) {
+      if (String(auth.user.role || '').toLowerCase() !== 'admin') {
+        sendError(response, 403, 'Apenas administradores podem apagar curriculos.');
+        return;
+      }
+
+      await ensureAuthDatabase(auth);
+      const curriculumId = pathname.split('/').at(-1);
+      const payload = await readJsonBody(request).catch(() => ({}));
+      if (String(payload.confirm || '').trim() !== 'APAGAR_CURRICULO') {
+        sendError(response, 422, 'Informe confirm=APAGAR_CURRICULO para apagar o curriculo.');
+        return;
+      }
+
+      const existing = await getCurriculumByIdentifier(auth.db, curriculumId);
+      if (!existing) {
+        sendError(response, 404, 'Candidato nao encontrado no Banco de Talentos.');
+        return;
+      }
+
+      let deleted = null;
+      if (isMongoTalentosConfigured()) {
+        deleted = await deleteCurriculumFromMongo(curriculumId);
+      }
+
+      if (!deleted) {
+        const index = auth.db.curriculums.findIndex((item) => (
+          item.id === curriculumId ||
+          item.id_controle === curriculumId ||
+          item.mongoId === curriculumId ||
+          `mongo_${item.mongoId}` === curriculumId
+        ));
+        if (index >= 0) {
+          [deleted] = auth.db.curriculums.splice(index, 1);
+          await writeDatabase(auth.db);
+        }
+      }
+
+      if (!deleted) {
+        sendError(response, 404, 'Candidato nao encontrado no Banco de Talentos.');
+        return;
+      }
+
+      sendJson(response, 200, {
+        ok: true,
+        deleted: {
+          id: deleted.id,
+          id_controle: deleted.id_controle,
+          nome: deleted.nome,
+          email: deleted.email
+        }
+      });
       return;
     }
 

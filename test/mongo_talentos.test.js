@@ -100,3 +100,37 @@ test('sincronizacao legado monta query a partir da chave duplicada do MongoDB', 
     email: 'pessoa@example.com'
   });
 });
+
+test('candidato selecionado nao usa observacao como experiencia ou conhecimento tecnico', () => {
+  const payload = __mongoTalentosTest.selectedCandidateToMongoPayload(
+    {
+      name: 'Rodrigo Aparecido de Castro Moura',
+      observation: 'CV encaminhado para avaliacao em 21/07/26'
+    },
+    {
+      cvFilter: {
+        mandatorySkills: '.NET, React',
+        jobDescription: 'Desenvolver integrações'
+      }
+    }
+  );
+
+  assert.equal(payload.nome, 'Rodrigo Aparecido de Castro Moura');
+  assert.equal(payload.observacao_busca, 'CV encaminhado para avaliacao em 21/07/26');
+  assert.equal(Object.hasOwn(payload, 'experiencia_profissional'), false);
+  assert.equal(Object.hasOwn(payload, 'conhecimento_tecnico'), false);
+  assert.equal(Object.hasOwn(payload, 'skills'), false);
+});
+
+test('candidato selecionado preserva campos estruturados quando vierem explicitamente do curriculo', () => {
+  const payload = __mongoTalentosTest.selectedCandidateToMongoPayload({
+    name: 'Pessoa Técnica',
+    skills: 'Node.js',
+    technicalKnowledge: 'APIs REST e MongoDB',
+    professionalExperience: 'Desenvolvimento de microsserviços'
+  });
+
+  assert.equal(payload.skills, 'Node.js');
+  assert.equal(payload.conhecimento_tecnico, 'APIs REST e MongoDB');
+  assert.equal(payload.experiencia_profissional, 'Desenvolvimento de microsserviços');
+});
