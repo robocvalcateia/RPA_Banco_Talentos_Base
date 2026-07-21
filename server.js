@@ -3990,6 +3990,7 @@ async function handleApi(request, response) {
       const candidates = db.selectedCandidates.filter((candidate) => ids.includes(candidate.id));
       const credentials = getApinfoCredentials();
       const candidateMessage = String(payload.candidateMessage ?? candidates[0]?.candidateMessage ?? '').trim();
+      const dryRun = payload.dryRun === true;
 
       if (!candidates.length) {
         sendError(response, 422, 'Selecione pelo menos um candidato para enviar.');
@@ -4044,7 +4045,7 @@ async function handleApi(request, response) {
       const body = buildCandidateEmailBody(foundRows, candidateMessage, auth.user.emailSignature || auth.user.signature || '');
       const mailto = buildCandidateMailto(recipients, subject, body);
 
-      if (isSmtpAccountConfigured(smtpConfig)) {
+      if (isSmtpAccountConfigured(smtpConfig) && !dryRun) {
         try {
           await withTimeout(sendMail({
             ...smtpConfig,
@@ -4073,14 +4074,14 @@ async function handleApi(request, response) {
 
       sendJson(response, 200, {
         to: recipients.join(', '),
-        from: senderEmail,
-        fromAccountHint: senderEmail,
+        from: dryRun && isSmtpAccountConfigured(smtpConfig) ? deliverySenderEmail : senderEmail,
+        fromAccountHint: dryRun && isSmtpAccountConfigured(smtpConfig) ? deliverySenderEmail : senderEmail,
         found: foundRows,
         missing: missingRows,
         mailto,
         sent: false,
-        delivery: 'mailto',
-        smtpConfigured: false
+        delivery: dryRun && isSmtpAccountConfigured(smtpConfig) ? 'smtp-dry-run' : 'mailto',
+        smtpConfigured: isSmtpAccountConfigured(smtpConfig)
       });
       return;
     }
