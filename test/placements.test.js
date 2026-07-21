@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   advanceSelectedCandidateToInterview,
+  databaseWithSelectedCandidateCurriculums,
   duplicatedAllocatedCodeGroups,
   findAllocatedByCode,
   findCurriculumForCandidateResult,
@@ -178,6 +179,29 @@ test('vinculo de candidato aceita curriculo resolvido fora do cache local', asyn
 
   assert.equal(curriculum?.id_controle, '1921');
   assert.equal(curriculum?.nome, 'Márcio Ribeiro');
+});
+
+test('envio de candidato selecionado usa curriculo resolvido fora do cache local', async () => {
+  const db = buildDb();
+  db.curriculums = [];
+  const selected = [{
+    id: 'sel_1921',
+    name: 'Marcio Ribeiro',
+    curriculumId: '1921',
+    opportunityId: 'opp_a'
+  }];
+
+  const resolved = await databaseWithSelectedCandidateCurriculums(db, selected, async (_db, identifier) => ({
+    id: identifier,
+    id_controle: identifier,
+    nome: 'Marcio Ribeiro',
+    email: 'marcio@example.com',
+    telefone: '11999999999'
+  }));
+
+  assert.equal(resolved.curriculums.length, 1);
+  assert.equal(resolved.curriculums[0].email, 'marcio@example.com');
+  assert.equal(resolved.curriculums[0].telefone, '11999999999');
 });
 
 test('processamento de emails vazio nao dispara sincronizacao completa', () => {

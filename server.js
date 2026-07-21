@@ -1603,6 +1603,17 @@ function databaseWithResolvedCurriculum(db, curriculum) {
   };
 }
 
+export async function databaseWithSelectedCandidateCurriculums(db, candidates = [], lookup = getCurriculumByIdentifier) {
+  let resolvedDb = db;
+  for (const candidate of candidates) {
+    const identifier = String(candidate?.curriculumId || '').trim();
+    if (!identifier || findLocalCurriculum(resolvedDb, identifier)) continue;
+    const curriculum = await lookup(resolvedDb, identifier);
+    resolvedDb = databaseWithResolvedCurriculum(resolvedDb, curriculum);
+  }
+  return resolvedDb;
+}
+
 async function updateCurriculumByIdentifier(db, identifier, payload) {
   const current = await getCurriculumByIdentifier(db, identifier);
   const normalized = buildCurriculumPayload(current ? { ...current, ...payload } : payload);
@@ -3902,11 +3913,12 @@ async function handleApi(request, response) {
       const foundRows = [];
       const missingRows = [];
       const links = [];
+      const dbWithCurriculums = await databaseWithSelectedCandidateCurriculums(db, candidates);
 
       for (const candidate of candidates) {
-        const phones = await extractCandidatePhones(candidate, credentials, db);
+        const phones = await extractCandidatePhones(candidate, credentials, dbWithCurriculums);
         if (phones.length) {
-          const message = buildCandidateWhatsappBody(candidate, db, auth.user, candidateMessage);
+          const message = buildCandidateWhatsappBody(candidate, dbWithCurriculums, auth.user, candidateMessage);
           const row = {
             id: candidate.id,
             name: candidate.name,
@@ -3965,9 +3977,10 @@ async function handleApi(request, response) {
 
       const foundRows = [];
       const missingRows = [];
+      const dbWithCurriculums = await databaseWithSelectedCandidateCurriculums(db, candidates);
 
       for (const candidate of candidates) {
-        const emails = await extractCandidateEmails(candidate, credentials, db);
+        const emails = await extractCandidateEmails(candidate, credentials, dbWithCurriculums);
         if (emails.length) {
           foundRows.push({
             id: candidate.id,
