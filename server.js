@@ -2787,18 +2787,20 @@ async function handleApi(request, response) {
         return;
       }
 
-      const existing = await getCurriculumByIdentifier(auth.db, curriculumId);
-      if (!existing) {
-        sendError(response, 404, 'Candidato nao encontrado no Banco de Talentos.');
-        return;
-      }
-
       let deleted = null;
       if (isMongoTalentosConfigured()) {
         deleted = await deleteCurriculumFromMongo(curriculumId);
-      }
+        if (!deleted) {
+          sendError(response, 404, 'Candidato nao encontrado no Banco de Talentos.');
+          return;
+        }
+      } else {
+        const existing = await getCurriculumByIdentifier(auth.db, curriculumId);
+        if (!existing) {
+          sendError(response, 404, 'Candidato nao encontrado no Banco de Talentos.');
+          return;
+        }
 
-      if (!deleted) {
         const index = auth.db.curriculums.findIndex((item) => (
           item.id === curriculumId ||
           item.id_controle === curriculumId ||
@@ -2809,11 +2811,11 @@ async function handleApi(request, response) {
           [deleted] = auth.db.curriculums.splice(index, 1);
           await writeDatabase(auth.db);
         }
-      }
 
-      if (!deleted) {
-        sendError(response, 404, 'Candidato nao encontrado no Banco de Talentos.');
-        return;
+        if (!deleted) {
+          sendError(response, 404, 'Candidato nao encontrado no Banco de Talentos.');
+          return;
+        }
       }
 
       sendJson(response, 200, {
