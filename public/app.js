@@ -3866,12 +3866,14 @@ function renderSelectedCandidates() {
   typeSelect.value = type;
   const clientOptions = '<option value="">Todos</option>' + state.clients
     .slice()
+    .filter((client) => client.active !== false)
     .sort((first, second) => String(first.customerName || '').localeCompare(String(second.customerName || ''), 'pt-BR', { sensitivity: 'base' }))
     .map((client) => `<option value="${client.id}">${escapeHtml(client.customerName || client.id)}</option>`)
     .join('');
   clientSelect.innerHTML = clientOptions;
   const opportunityOptions = '<option value="">Todos</option>' + state.opportunities
     .slice()
+    .filter((opportunity) => opportunity.status === 'Open')
     .sort(byOpportunityCode)
     .map((opportunity) => `<option value="${opportunity.id}">${escapeHtml(opportunityLabel(opportunity))}</option>`)
     .join('');
@@ -3889,6 +3891,14 @@ function renderSelectedCandidates() {
   valueInput.value = type && !isClientFilter && !isOpportunityFilter ? state.selectedCandidateFilter.value : '';
   clientSelect.value = isClientFilter ? state.selectedCandidateFilter.value : '';
   opportunitySelect.value = isOpportunityFilter ? state.selectedCandidateFilter.value : '';
+  if (
+    (isClientFilter && state.selectedCandidateFilter.value && clientSelect.value !== state.selectedCandidateFilter.value)
+    || (isOpportunityFilter && state.selectedCandidateFilter.value && opportunitySelect.value !== state.selectedCandidateFilter.value)
+  ) {
+    state.selectedCandidateFilter.value = '';
+    clientSelect.value = '';
+    opportunitySelect.value = '';
+  }
 
   const candidates = getFilteredSelectedCandidates();
   count.textContent = candidates.length;
