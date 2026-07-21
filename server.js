@@ -4033,54 +4033,18 @@ async function handleApi(request, response) {
 
       const recipients = Array.from(new Set(foundRows.flatMap((row) => row.emails)));
       const smtpConfig = getSmtpConfigFromEnv();
-      const smtpSenderEmail = String(smtpConfig.from || '').trim().toLowerCase();
-      const deliverySenderEmail = isSmtpAccountConfigured(smtpConfig) && isAlcateiaSenderEmail(smtpSenderEmail)
-        ? smtpSenderEmail
-        : senderEmail;
-      if (!isAlcateiaSenderEmail(deliverySenderEmail)) {
-        sendError(response, 403, `O remetente deve ser um e-mail @${ALCATEIA_EMAIL_DOMAIN}.`);
-        return;
-      }
-
       const body = buildCandidateEmailBody(foundRows, candidateMessage, auth.user.emailSignature || auth.user.signature || '');
       const mailto = buildCandidateMailto(recipients, subject, body);
 
-      if (isSmtpAccountConfigured(smtpConfig) && !dryRun) {
-        try {
-          await withTimeout(sendMail({
-            ...smtpConfig,
-            from: deliverySenderEmail,
-            to: recipients,
-            subject,
-            text: body
-          }), 30000, 'Tempo esgotado no envio SMTP.');
-        } catch (error) {
-          sendError(response, 502, `Nao foi possivel enviar o e-mail pelo SMTP: ${error.message}`);
-          return;
-        }
-
-        sendJson(response, 200, {
-          to: recipients.join(', '),
-          from: deliverySenderEmail,
-          fromAccountHint: deliverySenderEmail,
-          found: foundRows,
-          missing: missingRows,
-          sent: true,
-          delivery: 'smtp',
-          smtpConfigured: true
-        });
-        return;
-      }
-
       sendJson(response, 200, {
         to: recipients.join(', '),
-        from: dryRun && isSmtpAccountConfigured(smtpConfig) ? deliverySenderEmail : senderEmail,
-        fromAccountHint: dryRun && isSmtpAccountConfigured(smtpConfig) ? deliverySenderEmail : senderEmail,
+        from: senderEmail,
+        fromAccountHint: senderEmail,
         found: foundRows,
         missing: missingRows,
         mailto,
         sent: false,
-        delivery: dryRun && isSmtpAccountConfigured(smtpConfig) ? 'smtp-dry-run' : 'mailto',
+        delivery: dryRun ? 'mailto-dry-run' : 'mailto',
         smtpConfigured: isSmtpAccountConfigured(smtpConfig)
       });
       return;
