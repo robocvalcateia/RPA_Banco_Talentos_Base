@@ -550,7 +550,11 @@
             </select></label>
             <label>Valor Hora<input name="hourlyRate" type="number" min="0" step="0.01" /></label>
             <label>Data Acordo<input name="agreementDate" type="date" /></label>
-            <label class="checkbox-field"><input name="active" type="checkbox" checked /> Ativo</label>
+            <label>Status<select name="status" required>
+              <option value="Ativo">Ativo</option>
+              <option value="Inativo">Inativo</option>
+              <option value="Alocado">Alocado</option>
+            </select></label>
             <fieldset class="full checkbox-group candidate-pool-skills">
               <legend>Skills TOTVS</legend>
               <label class="checkbox-field"><input name="protheusFinanceiro" type="checkbox" /> Protheus Financeiro</label>
@@ -602,7 +606,7 @@
                   <th>Perfil</th>
                   <th>Valor Hora</th>
                   <th>Data Acordo</th>
-                  <th>Ativo</th>
+                  <th>Status</th>
                   <th>Skills</th>
                   <th>Ações</th>
                 </tr>

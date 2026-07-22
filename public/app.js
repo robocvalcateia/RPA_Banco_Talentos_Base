@@ -41,6 +41,7 @@
   rateCardFilter: { clientId: '' },
   candidatePoolFilter: { clientId: '' },
   candidatePoolProfiles: ['Técnico', 'Funcional'],
+  candidatePoolStatuses: ['Ativo', 'Inativo', 'Alocado'],
   candidatePoolSkillFields: [],
   curriculumSearch: { name: '', skills: '', hasSearched: false },
   selectedCurriculumId: '',
@@ -792,6 +793,9 @@ function renderOptions() {
     .join('');
   const statusOptions = emptyOption + state.opportunityStatuses.map((status) => `<option>${status}</option>`).join('');
   const modelOptions = emptyOption + state.opportunityModels.map((model) => `<option>${model}</option>`).join('');
+  const candidatePoolStatusOptions = (state.candidatePoolStatuses?.length ? state.candidatePoolStatuses : ['Ativo', 'Inativo', 'Alocado'])
+    .map((status) => `<option value="${escapeHtml(status)}">${escapeHtml(status)}</option>`)
+    .join('');
   const stageOptions = emptyOption + state.stages.map((stage) => `<option>${stage}</option>`).join('');
   const aderenciaOptions = emptyOption + state.aderenciaOptions.map((value) => `<option value="${value}">${value}</option>`).join('');
   const userOptions = emptyOption + state.users
@@ -848,6 +852,14 @@ function renderOptions() {
   $$('select[name="stage"]').forEach((select) => {
     select.innerHTML = stageOptions;
   });
+  const candidatePoolStatusSelect = $('#candidatePoolForm select[name="status"]');
+  if (candidatePoolStatusSelect) {
+    const currentValue = candidatePoolStatusSelect.value || 'Ativo';
+    candidatePoolStatusSelect.innerHTML = candidatePoolStatusOptions;
+    candidatePoolStatusSelect.value = [...candidatePoolStatusSelect.options].some((option) => option.value === currentValue)
+      ? currentValue
+      : 'Ativo';
+  }
   $$('select[name="aderencia"]').forEach((select) => {
     select.innerHTML = aderenciaOptions;
   });
@@ -1736,7 +1748,7 @@ function allocatedNamesLikelyReferToSamePerson(firstName, secondName) {
 
 function isAllocatedAlsoActiveInCandidatePool(allocated) {
   return state.candidatePool.some((poolItem) => (
-    poolItem.active === true
+    candidatePoolIsAvailable(poolItem)
     && poolItem.clientId === allocated.clientId
     && allocatedNamesLikelyReferToSamePerson(allocated.consultant, poolItem.candidateName)
   ));
@@ -3655,6 +3667,15 @@ function candidatePoolSkillFields() {
     : defaultCandidatePoolSkillFields;
 }
 
+function candidatePoolStatus(item) {
+  if (item.status) return item.status;
+  return item.active === false ? 'Inativo' : 'Ativo';
+}
+
+function candidatePoolIsAvailable(item) {
+  return candidatePoolStatus(item) === 'Ativo';
+}
+
 function candidatePoolSkills(item) {
   if (Array.isArray(item.activeSkills) && item.activeSkills.length) return item.activeSkills;
   return candidatePoolSkillFields()
@@ -3713,7 +3734,7 @@ function renderCandidatePool() {
           <td>${escapeHtml(item.profile || '-')}</td>
           <td>${formatCurrency(item.hourlyRate)}</td>
           <td>${item.agreementDate ? new Date(`${item.agreementDate}T00:00:00`).toLocaleDateString('pt-BR') : '-'}</td>
-          <td>${item.active ? 'Sim' : 'Não'}</td>
+          <td>${escapeHtml(candidatePoolStatus(item))}</td>
           <td>${skills.length ? escapeHtml(skills.join(', ')) : '-'}</td>
           <td>${renderCurriculumObservationsButton(item)}</td>
         </tr>
@@ -4931,7 +4952,7 @@ function loadCandidatePoolForEdit(item) {
     profile: item.profile,
     hourlyRate: item.hourlyRate,
     agreementDate: item.agreementDate,
-    active: item.active
+    status: candidatePoolStatus(item)
   };
   for (const [field] of candidatePoolSkillFields()) {
     values[field] = Boolean(item[field]);
@@ -5747,7 +5768,8 @@ function bindForms() {
     const form = event.currentTarget;
     const submitButton = $('button[type="submit"]', form);
     const payload = formPayload(form);
-    payload.active = form.elements.active.checked;
+    payload.status = payload.status || 'Ativo';
+    payload.active = payload.status === 'Ativo';
     const editingId = state.editing.allocatedId;
 
     if (!String(payload.code || '').trim()) {
@@ -5850,6 +5872,10 @@ function bindForms() {
     }
     if (!String(payload.profile || '').trim()) {
       toast('Selecione um perfil válido.');
+      return;
+    }
+    if (!String(payload.status || '').trim()) {
+      toast('Selecione um status válido.');
       return;
     }
 

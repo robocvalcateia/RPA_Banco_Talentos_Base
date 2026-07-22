@@ -116,6 +116,7 @@ const DEFAULT_RATE_CARDS = [
 ];
 
 export const CANDIDATE_POOL_PROFILES = ['Técnico', 'Funcional'];
+export const CANDIDATE_POOL_STATUSES = ['Ativo', 'Inativo', 'Alocado'];
 export const CANDIDATE_POOL_SKILL_FIELDS = [
   ['protheusFinanceiro', 'Protheus Financeiro'],
   ['protheusFiscal', 'Protheus Fiscal'],
@@ -1231,6 +1232,12 @@ export function normalizeCandidatePool(item) {
   const hourlyRate = Number(item.hourlyRate ?? item.valorHora ?? item['Valor Hora (Currency)'] ?? 0);
   const rawDate = String(item.agreementDate ?? item.dataAcordo ?? item['Data Acordo (Date)'] ?? '').trim();
   const agreementDate = rawDate.includes('T') ? rawDate.slice(0, 10) : rawDate.slice(0, 10);
+  const rawStatus = String(item.status ?? item.situacao ?? item['Status'] ?? '').trim();
+  const normalizedStatus = CANDIDATE_POOL_STATUSES.includes(rawStatus)
+    ? rawStatus
+    : normalizeBoolean(item.active ?? item.ativo ?? item['Ativo (Checkbox)'] ?? true)
+      ? 'Ativo'
+      : 'Inativo';
 
   const normalized = {
     ...item,
@@ -1240,7 +1247,8 @@ export function normalizeCandidatePool(item) {
     profile: normalizedProfile,
     hourlyRate: Number.isFinite(hourlyRate) ? hourlyRate : 0,
     agreementDate,
-    active: normalizeBoolean(item.active ?? item.ativo ?? item['Ativo (Checkbox)'] ?? true),
+    status: normalizedStatus,
+    active: normalizedStatus === 'Ativo',
     createdAt: String(item.createdAt ?? toISODate()).trim(),
     updatedAt: String(item.updatedAt ?? '').trim()
   };
@@ -1538,7 +1546,7 @@ function namesLikelyReferToSamePerson(firstName, secondName) {
 
 function isAllocatedAlsoActiveInCandidatePool(allocated, db) {
   return (db.candidatePool ?? []).some((poolItem) => (
-    poolItem.active === true
+    poolItem.status === 'Ativo'
     && poolItem.clientId === allocated.clientId
     && namesLikelyReferToSamePerson(allocated.consultant, poolItem.candidateName)
   ));

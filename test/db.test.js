@@ -214,6 +214,7 @@ test('indicadores nao contam bolsao ativo como alocado ativo', () => {
       id: 'pool_1',
       clientId: 'client_1',
       candidateName: 'Carlos Silva',
+      status: 'Ativo',
       active: true
     }
   ];
@@ -222,6 +223,25 @@ test('indicadores nao contam bolsao ativo como alocado ativo', () => {
 
   assert.equal(indicators.totals.activeAllocateds, 1);
   assert.equal(indicators.allocatedsByClient['Cliente Teste'], 1);
+});
+
+test('indicadores contam alocado quando bolsao esta com status alocado', () => {
+  const db = sampleDb();
+  db.allocateds[0].consultant = 'Carlos Alberto Silva';
+  db.candidatePool = [
+    {
+      id: 'pool_1',
+      clientId: 'client_1',
+      candidateName: 'Carlos Silva',
+      status: 'Alocado',
+      active: false
+    }
+  ];
+
+  const indicators = calculateIndicators(normalizeDatabase(db), new Date('2026-05-21T00:00:00.000Z'));
+
+  assert.equal(indicators.totals.activeAllocateds, 2);
+  assert.equal(indicators.allocatedsByClient['Cliente Teste'], 2);
 });
 
 test('normalizacao consolida clientes duplicados por nome e remapeia referencias', () => {
@@ -469,11 +489,26 @@ test('bolsao de candidatos normaliza campos da planilha TOTVS', () => {
   assert.equal(normalized.profile, 'Técnico');
   assert.equal(normalized.hourlyRate, 85);
   assert.equal(normalized.agreementDate, '2026-05-22');
+  assert.equal(normalized.status, 'Ativo');
   assert.equal(normalized.active, true);
   assert.equal(normalized.tecnicoAdvpl, true);
   assert.equal(normalized.scrumMaster, false);
   assert.equal(enriched.clientName, 'Cliente Teste');
   assert.deepEqual(enriched.activeSkills, ['Técnico ADVPL']);
+});
+
+test('bolsao de candidatos aceita status alocado como indisponivel', () => {
+  const normalized = normalizeCandidatePool({
+    id: 'pool_alocado',
+    clientId: 'client_1',
+    candidateName: 'Pessoa Alocada',
+    profile: 'Técnico',
+    status: 'Alocado',
+    active: true
+  });
+
+  assert.equal(normalized.status, 'Alocado');
+  assert.equal(normalized.active, false);
 });
 
 test('bolsao de candidatos aceita flag Scrum Master', () => {

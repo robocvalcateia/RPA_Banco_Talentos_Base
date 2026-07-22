@@ -36,6 +36,7 @@ import {
   normalizeRateCard,
   normalizeStage,
   CANDIDATE_POOL_PROFILES,
+  CANDIDATE_POOL_STATUSES,
   CANDIDATE_POOL_SKILL_FIELDS,
   OPPORTUNITY_MODELS,
   OPPORTUNITY_STATUSES,
@@ -2704,6 +2705,7 @@ async function handleApi(request, response) {
         stages: CANDIDATE_STAGES,
         aderenciaOptions: CANDIDATE_ADERENCIA_OPTIONS,
         candidatePoolProfiles: CANDIDATE_POOL_PROFILES,
+        candidatePoolStatuses: CANDIDATE_POOL_STATUSES,
         candidatePoolSkillFields: CANDIDATE_POOL_SKILL_FIELDS,
         opportunityModels: OPPORTUNITY_MODELS,
         opportunityStatuses: OPPORTUNITY_STATUSES,
@@ -4097,6 +4099,10 @@ async function handleApi(request, response) {
         sendError(response, 422, 'Selecione um perfil valido.');
         return;
       }
+      if (!CANDIDATE_POOL_STATUSES.includes(item.status)) {
+        sendError(response, 422, 'Selecione um status valido.');
+        return;
+      }
       if (db.candidatePool.some((existing) => (
         existing.clientId === item.clientId
         && existing.candidateName.toLowerCase() === item.candidateName.toLowerCase()
@@ -4140,6 +4146,10 @@ async function handleApi(request, response) {
       }
       if (!CANDIDATE_POOL_PROFILES.includes(updated.profile)) {
         sendError(response, 422, 'Selecione um perfil valido.');
+        return;
+      }
+      if (!CANDIDATE_POOL_STATUSES.includes(updated.status)) {
+        sendError(response, 422, 'Selecione um status valido.');
         return;
       }
       if (db.candidatePool.some((existing) => (
