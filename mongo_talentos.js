@@ -441,6 +441,7 @@ export const __mongoTalentosTest = {
   normalizeLegacySyncPayload,
   removeConflictingLegacyIdentityFields,
   writeLegacySyncUpdate,
+  curriculumPayloadToMongoUpdate,
   duplicateKeyQueryFromError,
   selectedCandidateToMongoPayload
 };
@@ -478,7 +479,7 @@ export async function getCurriculumFromMongo(identifier) {
 }
 
 function curriculumPayloadToMongoUpdate(payload = {}) {
-  const allowedFields = [
+  const stringFields = [
     'id_controle',
     'nome',
     'email',
@@ -500,13 +501,33 @@ function curriculumPayloadToMongoUpdate(payload = {}) {
     'cargo_alvo',
     'observacoes_entrevista',
     'feedback_entrevista_ingles',
-    'disponibilidade_viagem'
+    'disponibilidade_viagem',
+    'hash_documento',
+    'search_text',
+    'search_text_all',
+    'texto_pesquisa',
+    'texto_pesquisavel'
+  ];
+  const passthroughFields = [
+    'versoes',
+    'experiencias',
+    'experiences',
+    'atividades',
+    'atividades_exercidas',
+    'empresas',
+    'projetos',
+    'tecnologias'
   ];
 
   const update = {};
-  for (const field of allowedFields) {
+  for (const field of stringFields) {
     if (Object.prototype.hasOwnProperty.call(payload, field)) {
       update[field] = String(payload[field] ?? '').trim();
+    }
+  }
+  for (const field of passthroughFields) {
+    if (Object.prototype.hasOwnProperty.call(payload, field)) {
+      update[field] = payload[field];
     }
   }
 
@@ -514,9 +535,20 @@ function curriculumPayloadToMongoUpdate(payload = {}) {
   return update;
 }
 
+async function getMongoTalentosCollectionsForWrite() {
+  const config = readMongoConfig();
+  const client = await getMongoClient(config);
+  const db = client.db(config.dbName);
+  const collections = [db.collection(config.collectionName)];
+  if (config.legacyCollectionName) {
+    collections.push(db.collection(config.legacyCollectionName));
+  }
+  return collections;
+}
+
 export async function updateCurriculumInMongo(identifier, payload = {}) {
   await loadMongoDriver();
-  const collection = await getMongoTalentosCollection();
+  const collections = await getMongoTalentosCollectionsForWrite();
   const query = buildCandidateIdentifierQuery(identifier);
   if (!query) return null;
 
@@ -525,14 +557,19 @@ export async function updateCurriculumInMongo(identifier, payload = {}) {
     throw new Error('Informe o nome do candidato.');
   }
 
-  const result = await collection.findOneAndUpdate(
-    query,
-    { $set: update },
-    { returnDocument: 'after' }
-  );
+  let updatedDoc = null;
+  for (const collection of collections) {
+    const existing = await collection.findOne(query);
+    if (!existing) continue;
+    const result = await collection.findOneAndUpdate(
+      { _id: existing._id },
+      { $set: update },
+      { returnDocument: 'after' }
+    );
+    updatedDoc = result?.value || result || updatedDoc;
+  }
 
-  const doc = result?.value || result;
-  return doc ? mongoCandidateToCurriculum(doc) : null;
+  return updatedDoc ? mongoCandidateToCurriculum(updatedDoc) : null;
 }
 
 export async function deleteCurriculumFromMongo(identifier) {

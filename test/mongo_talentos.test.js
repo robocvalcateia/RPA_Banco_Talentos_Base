@@ -134,3 +134,19 @@ test('candidato selecionado preserva campos estruturados quando vierem explicita
   assert.equal(payload.conhecimento_tecnico, 'APIs REST e MongoDB');
   assert.equal(payload.experiencia_profissional, 'Desenvolvimento de microsserviços');
 });
+
+test('update de curriculo no Mongo preserva texto integral e estruturas ricas', () => {
+  const update = __mongoTalentosTest.curriculumPayloadToMongoUpdate({
+    nome: 'Pessoa Completa',
+    experiencia_profissional: 'Experiencia resumida',
+    search_text_all: 'Texto integral com projetos, resultados e bullets',
+    hash_documento: 'hash-1',
+    versoes: [{ dados: { Experiencia_Profissional: 'Historico completo' } }],
+    experiencias: [{ empresa: 'Empresa A', detalhes: ['Projeto A'] }]
+  });
+
+  assert.equal(update.search_text_all, 'Texto integral com projetos, resultados e bullets');
+  assert.equal(update.hash_documento, 'hash-1');
+  assert.equal(update.versoes.length, 1);
+  assert.equal(update.experiencias.length, 1);
+});
