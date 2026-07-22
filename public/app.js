@@ -155,7 +155,7 @@ const viewTitles = {
   faturamento: 'Financeiro/Faturamento',
   forms: 'Formulários',
   opportunities: 'Deals/Oportunidades',
-  candidatePool: 'Deals/Bolsão de Candidatos',
+  candidatePool: 'Contratos/Bolsão de Candidatos',
   huntings: 'Contratos/Huntings',
   rateCards: 'Contratos/Rate Cards',
   cvFilters: 'Deals/Filtro de CVs',
@@ -186,13 +186,13 @@ const launcherNodes = {
     label: 'Candidatos',
     eyebrow: 'Deals',
     description: 'Triagem, seleção, entrevista e vínculo com oportunidades',
-    children: ['candidatePool', 'selectedCandidates', 'candidates']
+    children: ['selectedCandidates', 'candidates']
   },
   contracts: {
     label: 'Contratos',
     eyebrow: 'Seção',
-    description: 'Alocados, huntings e rate cards',
-    children: ['allocateds', 'huntings', 'rateCards']
+    description: 'Alocados, bolsão de candidatos, huntings e rate cards',
+    children: ['allocateds', 'candidatePool', 'huntings', 'rateCards']
   },
   finance: {
     label: 'Financeiro',
@@ -227,7 +227,7 @@ const launcherNodes = {
   },
   candidatePool: {
     label: 'Bolsão de Candidatos',
-    eyebrow: 'Deals',
+    eyebrow: 'Contratos',
     description: 'Disponíveis por cliente, perfil e skills',
     view: 'candidatePool'
   },
