@@ -415,12 +415,15 @@ GRAPH_CLIENT_SECRET=
 GRAPH_TENANT_ID=
 GRAPH_EMAIL=
 GRAPH_EMAIL_TO=
+PROCESSING_LOGS_ENABLED=false
 DIAS_ATRAS=7
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-2.5-flash-lite
 ```
 
 O botão chama `POST /api/processar-emails`, executa `legacy_banco_talentos/run_process_emails.py` em background, bloqueia novo processamento enquanto estiver rodando e consulta o status em `/api/processamento-status/:job_id`.
+
+Em ambiente local/homologacao, mantenha `PROCESSING_LOGS_ENABLED=false` para nao gerar arquivo de log nem enviar resumo por e-mail. Em PROD, configure `PROCESSING_LOGS_ENABLED=true` ou use a URL/servico oficial de producao.
 
 ### Busca na tela
 

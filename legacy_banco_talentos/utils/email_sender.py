@@ -2,6 +2,7 @@ import os
 import requests
 from config.mongodb import get_candidate_collection_name
 from config.microsoft_graph import get_microsoft_graph
+from utils.environment import is_production_environment
 
 def montar_html_erros(stats):
     erros_por_tipo = stats.get("erros_por_tipo", {})
@@ -61,6 +62,10 @@ def montar_html_erros(stats):
     """
 
 def enviar_email_resumo_graph(stats, total_candidatos):
+    if not is_production_environment():
+        print("Resumo de processamento nao enviado: ambiente nao produtivo.")
+        return False
+
     graph_config = get_microsoft_graph()
     headers = graph_config.get_headers()
     email_from = graph_config.get_email()
@@ -112,3 +117,5 @@ def enviar_email_resumo_graph(stats, total_candidatos):
 
     if response.status_code != 202:
         raise Exception(f"Erro ao enviar email: {response.text}")
+
+    return True
