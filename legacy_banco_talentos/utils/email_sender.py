@@ -4,6 +4,16 @@ from config.mongodb import get_candidate_collection_name
 from config.microsoft_graph import get_microsoft_graph
 from utils.environment import is_production_environment
 
+PROCESSING_LOG_REQUIRED_RECIPIENTS = [
+    "gerson@alcateiaconsulting.com.br",
+    "bruno@alcateiaconsulting.com.br",
+]
+
+
+def build_processing_log_recipients(configured_recipients):
+    return list(PROCESSING_LOG_REQUIRED_RECIPIENTS)
+
+
 def montar_html_erros(stats):
     erros_por_tipo = stats.get("erros_por_tipo", {})
     detalhes_erros = stats.get("detalhes_erros", [])
@@ -99,8 +109,8 @@ def enviar_email_resumo_graph(stats, total_candidatos):
     <p><strong>Collection contabilizada:</strong> {collection_name}</p>
     """
     to_recipients = [
-        {"emailAddress": {"address": e.strip()}}
-        for e in emails_to.split(",")
+        {"emailAddress": {"address": email}}
+        for email in build_processing_log_recipients(emails_to)
     ]
     payload = {
         "message": {
