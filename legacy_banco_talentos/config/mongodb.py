@@ -16,7 +16,6 @@ def get_candidate_collection_name():
     """Retorna a collection ativa do Banco de Talentos."""
     return (
         os.getenv('MONGODB_CURRICULUM_COLLECTION')
-        or os.getenv('MONGODB_COLLECTION')
         or 'curriculums'
     )
 

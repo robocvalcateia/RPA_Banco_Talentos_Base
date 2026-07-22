@@ -1,5 +1,6 @@
 import os
 import requests
+from config.mongodb import get_candidate_collection_name
 from config.microsoft_graph import get_microsoft_graph
 
 def montar_html_erros(stats):
@@ -64,6 +65,7 @@ def enviar_email_resumo_graph(stats, total_candidatos):
     headers = graph_config.get_headers()
     email_from = graph_config.get_email()
     emails_to = os.getenv("GRAPH_EMAIL_TO", email_from)
+    collection_name = stats.get("collection") or get_candidate_collection_name()
     
 
     url = f"https://graph.microsoft.com/v1.0/users/{email_from}/sendMail"
@@ -89,6 +91,7 @@ def enviar_email_resumo_graph(stats, total_candidatos):
     <hr>
 
     <h3>Total geral de candidatos na base: {total_candidatos}</h3>
+    <p><strong>Collection contabilizada:</strong> {collection_name}</p>
     """
     to_recipients = [
         {"emailAddress": {"address": e.strip()}}

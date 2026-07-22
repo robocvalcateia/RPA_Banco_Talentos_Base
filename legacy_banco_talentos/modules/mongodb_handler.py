@@ -186,7 +186,8 @@ class MongoDBHandler:
     def __init__(self):
         """Inicializa o gerenciador MongoDB"""
         self.db = get_mongodb().get_db()
-        self.collection = self.db[get_candidate_collection_name()]
+        self.collection_name = get_candidate_collection_name()
+        self.collection = self.db[self.collection_name]
         self.ensure_indexes()
     
     def get_all_candidates(self, limit=None):
@@ -290,6 +291,7 @@ class MongoDBHandler:
             
             stats = {
                 'total_candidatos': total,
+                'collection': self.collection_name,
                 'origem_email': email_count,
                 'origem_whatsapp': whatsapp_count,
                 'com_email': with_email,

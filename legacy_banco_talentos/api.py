@@ -9,6 +9,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from bson import ObjectId
 from modules.mongodb_handler import get_mongodb_handler
+from config.mongodb import get_candidate_collection_name
 from auth_utils import generate_token, verify_token, token_required
 import os
 from dotenv import load_dotenv
@@ -422,7 +423,7 @@ def get_candidatos():
         if collection is None:
             db = getattr(handler, "db", None)
             if db is not None:
-                collection = db["candidatos"]
+                collection = db[get_candidate_collection_name()]
 
         if collection is None:
             raise Exception("Não foi possível localizar a collection de candidatos no MongoDBHandler.")
