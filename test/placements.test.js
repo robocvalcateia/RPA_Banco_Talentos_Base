@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   advanceSelectedCandidateToInterview,
   buildCandidateEmailBody,
+  buildCurriculumPayload,
   databaseWithSelectedCandidateCurriculums,
   duplicatedAllocatedCodeGroups,
   findAllocatedByCode,
@@ -46,6 +47,22 @@ function buildDb() {
     allocateds: []
   };
 }
+
+test('payload de exportacao de curriculo preserva texto integral e estruturas ricas', () => {
+  const payload = buildCurriculumPayload({
+    id: '1954',
+    id_controle: '1954',
+    nome: 'Edivaldo De Fabio',
+    experiencia_profissional: 'Empresa Atual - Gerente.',
+    search_text_all: 'Empresa Atual - Gerente\n• Implantou governanca de projetos.\n• Liderou integracoes SAP.',
+    versoes: [{ dados: { Experiencia_Profissional: 'Experiencia historica detalhada' } }],
+    experiencias: [{ empresa: 'Empresa Antiga', detalhes: ['Estruturou PMO'] }]
+  });
+
+  assert.match(payload.search_text_all, /Implantou governanca/);
+  assert.equal(payload.versoes.length, 1);
+  assert.equal(payload.experiencias.length, 1);
+});
 
 function buildCandidate(overrides = {}) {
   return {

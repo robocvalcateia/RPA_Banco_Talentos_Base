@@ -1554,7 +1554,7 @@ function findLocalCurriculum(db, identifier) {
   )) || null;
 }
 
-function buildCurriculumPayload(payload = {}) {
+export function buildCurriculumPayload(payload = {}) {
   return normalizeCurriculum({
     id: payload.id,
     mongoId: payload.mongoId,
@@ -1579,6 +1579,18 @@ function buildCurriculumPayload(payload = {}) {
     feedback_entrevista_ingles: payload.feedback_entrevista_ingles,
     disponibilidade_viagem: payload.disponibilidade_viagem,
     fonte: payload.fonte,
+    versoes: payload.versoes,
+    experiencias: payload.experiencias,
+    experiences: payload.experiences,
+    atividades: payload.atividades,
+    atividades_exercidas: payload.atividades_exercidas,
+    empresas: payload.empresas,
+    projetos: payload.projetos,
+    tecnologias: payload.tecnologias,
+    search_text: payload.search_text,
+    search_text_all: payload.search_text_all,
+    texto_pesquisa: payload.texto_pesquisa,
+    texto_pesquisavel: payload.texto_pesquisavel,
     data_criacao: payload.data_criacao,
     data_origem: payload.data_origem,
     data_nascimento: payload.data_nascimento,

@@ -45,7 +45,7 @@ REGRAS IMPORTANTES:
 3. Se não encontrar um valor, retornar "" (string vazia).
 4. Cada chave deve conter apenas um valor do tipo string.
 5. Não incluir listas, objetos aninhados ou múltiplos valores.
-6. Não incluir quebras de linha no JSON.
+6. O JSON deve ser válido. Pode usar "\\n" dentro das strings para preservar bullets e detalhes do currículo.
 7. Não incluir ```json ou ```.
 
 CRITÉRIOS DE EXTRAÇÃO:
@@ -117,11 +117,18 @@ Conhecimento_Tecnico:
 - Não usar listas JSON
 
 Experiencia_Profissional:
-- Listar cada experiência separada por " | "
-- Formato obrigatório:
+- Preservar todas as experiências profissionais, inclusive as antigas, em ordem cronológica inversa.
+- Para cada experiência, preservar empresa, segmento/cliente quando existir, cargo, período, equipe, projetos, responsabilidades, tecnologias, indicadores e resultados descritos no currículo.
+- Separar empresas diferentes com quebra de linha "\\n\\n".
+- Dentro de cada empresa, separar responsabilidades relevantes com bullets usando "•".
+- Formato recomendado:
   Empresa - Cargo (Período)
+  • Responsabilidade/projeto/resultado 1
+  • Responsabilidade/projeto/resultado 2
 - Exemplo:
-  Algar - Analista de Negócios TI e Telecom (2025) | Reply - Analista de Negócios TI (2020 a 2025) | Truckpad - Analista de Qualidade de Software (2019 a 2020)
+  Algar - Analista de Negócios TI e Telecom (2025)
+  • Gestão de demandas e relacionamento com áreas de negócio.
+  • Mapeamento de processos e apoio à implantação de sistemas.
 - Não juntar empresas diferentes no mesmo bloco
 - Não usar listas JSON
 

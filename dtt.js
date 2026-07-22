@@ -72,15 +72,68 @@ Objetivo: reorganizar, detalhar e traduzir o currículo fornecido, produzindo o 
 
 Regras de evidência:
 - Use somente fatos presentes nos dados do currículo e nas observações da entrevista.
+- Use o campo texto_integral_original como fonte principal quando ele existir, especialmente para experiências, projetos, responsabilidades, resultados, ferramentas, cursos e certificações.
+- Os campos resumidos existem apenas para orientação. Nunca descarte detalhes existentes no texto_integral_original porque uma versão resumida também foi enviada.
 - Não invente empresas, períodos, cargos, clientes, ferramentas, resultados, números, formação, certificações ou nível de idioma.
-- Você pode corrigir gramática, expandir abreviações inequívocas, separar responsabilidades que estejam aglutinadas e tornar a descrição mais clara.
+- Você pode corrigir gramática, expandir abreviações inequívocas, separar responsabilidades que estejam aglutinadas e tornar a descrição mais clara, mas sem reduzir o conteúdo factual.
 - Quando uma informação não existir, use lista vazia ou string vazia. Nunca escreva "Não informado", "Nao informado" ou "Not informed" nos textos finais.
 - Preserve nomes próprios, marcas e tecnologias. Traduza cargos, períodos e descrições para o inglês, mas não traduza nomes de empresas.
 - O resumo da entrevista deve usar as observações registradas. Se não houver observações, informe explicitamente que não há entrevista registrada; não simule uma entrevista.
 - O feedback de inglês e a disponibilidade para viagem devem ficar vazios quando não estiverem registrados.
-- Cada responsabilidade profissional deve ocupar um item separado em details_pt/details_en.
+- Cada responsabilidade profissional deve ocupar um item separado em details_pt/details_en. Para cada empresa, preserve os principais bullets de atuação, projetos, sistemas, governança, gestão, indicadores e resultados presentes no texto original.
 - Não inclua dados pessoais de contato nos textos de perfil.
 `.trim();
+
+function compactSourceText(value, maxChars = 50000) {
+  return String(value ?? '')
+    .replace(/\r/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, maxChars);
+}
+
+function sourceTextFromValue(value, seen = new WeakSet()) {
+  if (value === null || value === undefined) return '';
+  if (value instanceof Date) return value.toISOString();
+
+  if (Array.isArray(value)) {
+    return value.map((item) => sourceTextFromValue(item, seen)).filter(Boolean).join('\n');
+  }
+
+  if (typeof value === 'object') {
+    if (seen.has(value)) return '';
+    seen.add(value);
+    return Object.entries(value)
+      .filter(([key]) => key !== '_id')
+      .map(([, item]) => sourceTextFromValue(item, seen))
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  return String(value);
+}
+
+function fullSourceText(curriculum) {
+  const parts = [
+    curriculum.search_text_all,
+    curriculum.search_text,
+    curriculum.texto_pesquisavel,
+    curriculum.texto_pesquisa,
+    curriculum.atividades,
+    curriculum.atividades_exercidas,
+    Array.isArray(curriculum.experiencias) ? curriculum.experiencias : '',
+    Array.isArray(curriculum.experiences) ? curriculum.experiences : '',
+    Array.isArray(curriculum.empresas) ? curriculum.empresas : '',
+    Array.isArray(curriculum.projetos) ? curriculum.projetos : '',
+    Array.isArray(curriculum.tecnologias) ? curriculum.tecnologias : '',
+    Array.isArray(curriculum.versoes) ? curriculum.versoes : ''
+  ]
+    .map((item) => compactSourceText(sourceTextFromValue(item), 20000))
+    .filter(Boolean);
+
+  return compactSourceText([...new Set(parts)].join('\n\n'), 50000);
+}
 
 function sourceCurriculum(curriculum) {
   return {
@@ -95,7 +148,8 @@ function sourceCurriculum(curriculum) {
     nivel_espanhol: String(curriculum.nivel_espanhol ?? '').trim(),
     observacoes_entrevista: String(curriculum.observacoes_entrevista ?? '').trim(),
     feedback_entrevista_ingles: String(curriculum.feedback_entrevista_ingles ?? '').trim(),
-    disponibilidade_viagem: String(curriculum.disponibilidade_viagem ?? '').trim()
+    disponibilidade_viagem: String(curriculum.disponibilidade_viagem ?? '').trim(),
+    texto_integral_original: fullSourceText(curriculum)
   };
 }
 
@@ -104,7 +158,7 @@ export function buildOpenAIRequest(curriculum, model = process.env.OPENAI_MODEL 
     model,
     store: false,
     reasoning: { effort: 'medium' },
-    max_output_tokens: 16000,
+    max_output_tokens: 24000,
     input: [
       { role: 'developer', content: AI_INSTRUCTIONS },
       {

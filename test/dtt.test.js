@@ -97,6 +97,25 @@ test('requisição de IA usa Responses API estruturada e não armazena o curríc
   assert.match(request.input[1].content, /Empresa Antiga/);
 });
 
+test('requisição de IA envia texto integral original para preservar detalhes do CV', () => {
+  const request = buildOpenAIRequest({
+    ...curriculum,
+    experiencia_profissional: 'Empresa Atual - Gerente.',
+    search_text_all: [
+      'Empresa Atual - Gerente',
+      '• Implantou governança de projetos.',
+      '• Liderou integrações SAP e Power BI.',
+      'Empresa Antiga - Coordenadora',
+      '• Estruturou PMO e indicadores executivos.'
+    ].join('\n')
+  });
+
+  const source = JSON.parse(request.input[1].content.split('\n').slice(1).join('\n'));
+  assert.match(source.texto_integral_original, /Implantou governança de projetos/);
+  assert.match(source.texto_integral_original, /Estruturou PMO/);
+  assert.equal(request.max_output_tokens, 24000);
+});
+
 test('resposta estruturada da IA é extraída e recusas são tratadas', () => {
   assert.equal(extractOpenAIText({ output: [{ content: [{ type: 'output_text', text: '{"ok":true}' }] }] }), '{"ok":true}');
   assert.throws(
