@@ -5,6 +5,7 @@ import re
 import json
 import time
 import logging
+import unicodedata
 from pathlib import Path
 from google.genai import types
 from docx import Document
@@ -411,7 +412,7 @@ FORMATO FINAL OBRIGATÓRIO:
             reader = PyPDF2.PdfReader(file)
             for page in reader.pages:
                 text_parts.append(page.extract_text() or "")
-        return "\n".join(text_parts)
+        return self._sanitize_cv_text("\n".join(text_parts))
 
     def _extract_text_from_docx(self, docx_path):
         document = Document(docx_path)
@@ -421,7 +422,7 @@ FORMATO FINAL OBRIGATÓRIO:
                 for cell in row.cells:
                     if cell.text:
                         parts.append(cell.text)
-        return "\n".join(parts)
+        return self._sanitize_cv_text("\n".join(parts))
 
     def _extract_text_local(self, file_path):
         suffix = Path(file_path).suffix.lower()
@@ -481,7 +482,49 @@ FORMATO FINAL OBRIGATÓRIO:
                     return line[delimiter.end():].strip()
         return ""
 
+    def _sanitize_cv_text(self, value):
+        text = unicodedata.normalize("NFKC", str(value or ""))
+        replacements = {
+            "\ufb00": "ff",
+            "\ufb01": "fi",
+            "\ufb02": "fl",
+            "\ufb03": "ffi",
+            "\ufb04": "ffl",
+            "\ufb05": "st",
+            "\ufb06": "st",
+            "\u2018": "'",
+            "\u2019": "'",
+            "\u201a": "'",
+            "\u201b": "'",
+            "\u2032": "'",
+            "\u201c": '"',
+            "\u201d": '"',
+            "\u201e": '"',
+            "\u201f": '"',
+            "\u2033": '"',
+            "\u2010": "-",
+            "\u2011": "-",
+            "\u2012": "-",
+            "\u2013": "-",
+            "\u2014": "-",
+            "\u2015": "-",
+            "\u2212": "-",
+        }
+        for source, target in replacements.items():
+            text = text.replace(source, target)
+        text = re.sub(r"[\u2022\u2023\u2043\u2219\u25AA\u25CF\u25E6\u00B7]", "•", text)
+        text = re.sub(r"[\u200B-\u200D\u2060\uFEFF\u00AD]", "", text)
+        text = re.sub(r"[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]", " ", text)
+        text = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", " ", text)
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        lines = [
+            re.sub(r"[ \t]{2,}", " ", line).strip()
+            for line in text.splitlines()
+        ]
+        return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
     def _compact_multiline(self, value, max_chars=6000):
+        value = self._sanitize_cv_text(value)
         lines = [
             re.sub(r"\s+", " ", line).strip(" -\t")
             for line in str(value or "").splitlines()
@@ -491,7 +534,7 @@ FORMATO FINAL OBRIGATÓRIO:
         return text[:max_chars].strip()
 
     def _clean_cv_line(self, value):
-        line = re.sub(r"\s+", " ", str(value or "")).strip()
+        line = re.sub(r"\s+", " ", self._sanitize_cv_text(value)).strip()
         if not line:
             return ""
         if re.fullmatch(r"page\s+\d+", line, flags=re.IGNORECASE):
@@ -580,7 +623,7 @@ FORMATO FINAL OBRIGATÓRIO:
         return len(text) < 1200 or (bullet_count < 8 and sentence_count < 8)
 
     def _enrich_with_local_text(self, dados, text):
-        raw_text = str(text or "")
+        raw_text = self._sanitize_cv_text(text)
         if not isinstance(dados, dict):
             return dados
 
@@ -652,7 +695,7 @@ FORMATO FINAL OBRIGATÓRIO:
         return ""
 
     def _fallback_extract_from_text(self, text, file_path):
-        raw_text = str(text or "")
+        raw_text = self._sanitize_cv_text(text)
         clean_lines = [self._clean_cv_line(line) for line in raw_text.splitlines()]
         clean_lines = [line for line in clean_lines if line]
         compact_text = re.sub(r"\s+", " ", raw_text).strip()

@@ -84,12 +84,36 @@ Regras de evidência:
 - Não inclua dados pessoais de contato nos textos de perfil.
 `.trim();
 
-function compactSourceText(value, maxChars = 50000) {
+export function sanitizeCvText(value = '') {
   return String(value ?? '')
-    .replace(/\r/g, '\n')
+    .normalize('NFKC')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
+    .replace(/[\u200B-\u200D\u2060\uFEFF\u00AD]/g, '')
+    .replace(/[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/g, ' ')
+    .replace(/[\uFB00-\uFB06]/g, (match) => ({
+      '\uFB00': 'ff',
+      '\uFB01': 'fi',
+      '\uFB02': 'fl',
+      '\uFB03': 'ffi',
+      '\uFB04': 'ffl',
+      '\uFB05': 'st',
+      '\uFB06': 'st'
+    }[match] || match))
+    .replace(/[\u2018\u2019\u201A\u201B\u2032]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F\u2033]/g, '"')
+    .replace(/[\u2010-\u2015\u2212]/g, '-')
+    .replace(/[\u2022\u2023\u2043\u2219\u25AA\u25CF\u25E6\u00B7]/g, '\u2022')
     .replace(/[ \t]+\n/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/[ \t]{2,}/g, ' ').trim())
+    .join('\n')
     .replace(/\n{3,}/g, '\n\n')
-    .trim()
+    .trim();
+}
+
+function compactSourceText(value, maxChars = 50000) {
+  return sanitizeCvText(value)
     .slice(0, maxChars);
 }
 
@@ -111,7 +135,7 @@ function sourceTextFromValue(value, seen = new WeakSet()) {
       .join('\n');
   }
 
-  return String(value);
+  return sanitizeCvText(value);
 }
 
 function fullSourceText(curriculum) {
@@ -146,7 +170,7 @@ function normalizeKey(value = '') {
 }
 
 function cleanSourceLine(value = '') {
-  return String(value ?? '')
+  return sanitizeCvText(value)
     .replace(/^Page\s+\d+\s*$/i, '')
     .replace(/This resume contains.+$/i, '')
     .replace(/^[•\-\u2022]\s*/, '')
@@ -596,7 +620,7 @@ function sanitizeDocumentValue(value) {
   }
 
   if (isUnavailableText(value)) return '';
-  return value;
+  return sanitizeCvText(value);
 }
 
 export function prepareDocumentData(curriculum, generated) {

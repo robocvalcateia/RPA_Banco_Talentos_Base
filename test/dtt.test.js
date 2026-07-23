@@ -13,7 +13,8 @@ import {
   extractOpenAIText,
   generateCurriculumContent,
   prepareDocumentData,
-  renderCurriculumDocuments
+  renderCurriculumDocuments,
+  sanitizeCvText
 } from '../dtt.js';
 
 
@@ -114,6 +115,19 @@ test('requisição de IA envia texto integral original para preservar detalhes d
   assert.match(source.texto_integral_original, /Implantou governança de projetos/);
   assert.match(source.texto_integral_original, /Estruturou PMO/);
   assert.equal(request.max_output_tokens, 24000);
+});
+
+test('higienizacao de CV remove lixo invisivel e preserva termos tecnicos', () => {
+  const text = sanitizeCvText([
+    'C\u200B#  .NET\u00A0 C++ Node.js SAP S/4HANA',
+    '\u2023 Liderou roadmap\u2014PMO com aspas \u201csmart\u201d',
+    'Texto com ligatura \uFB01nanceiro e controle\u0007'
+  ].join('\r\n'));
+
+  assert.match(text, /C# \.NET C\+\+ Node\.js SAP S\/4HANA/);
+  assert.match(text, /• Liderou roadmap-PMO com aspas "smart"/);
+  assert.match(text, /financeiro e controle/);
+  assert.doesNotMatch(text, /[\u200B\u00A0\u0007]/);
 });
 
 test('resposta estruturada da IA é extraída e recusas são tratadas', () => {
