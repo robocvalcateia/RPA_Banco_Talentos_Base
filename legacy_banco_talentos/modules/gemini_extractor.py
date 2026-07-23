@@ -324,6 +324,12 @@ FORMATO FINAL OBRIGATÓRIO:
             logger.warning("Gemini nao configurado. Usando fallback local.")
             return None
 
+        local_text = ""
+        try:
+            local_text = self._extract_text_from_pdf(pdf_path)
+        except Exception as e:
+            logger.warning(f"Nao foi possivel extrair texto local do PDF antes do Gemini: {e}")
+
         for tentativa in range(1, max_tentativas + 1):
             try:
                 logger.info(f" Processando PDF (tentativa {tentativa}/{max_tentativas}): {pdf_path}")
@@ -360,6 +366,7 @@ FORMATO FINAL OBRIGATÓRIO:
                     dados[campo] = self._normalizar_campo_multilinha(dados.get(campo, ""),usar_bullet=True)
 
                 dados["Link_Linkedin"] = self._normalizar_linkedin(dados.get("Link_Linkedin", ""))
+                dados = self._enrich_with_local_text(dados, local_text)
                 
                 logger.info(f" Dados extraídos com sucesso")
                 return dados
@@ -483,6 +490,16 @@ FORMATO FINAL OBRIGATÓRIO:
         text = "\n".join(lines)
         return text[:max_chars].strip()
 
+    def _clean_cv_line(self, value):
+        line = re.sub(r"\s+", " ", str(value or "")).strip()
+        if not line:
+            return ""
+        if re.fullmatch(r"page\s+\d+", line, flags=re.IGNORECASE):
+            return ""
+        if re.search(r"confidential and proprietary|not to be duplicated|prior written consent", line, flags=re.IGNORECASE):
+            return ""
+        return line
+
     def _extract_section(self, clean_lines, target_aliases, all_heading_aliases, max_chars=6000):
         parts = []
         collecting = False
@@ -505,6 +522,89 @@ FORMATO FINAL OBRIGATÓRIO:
                 parts.append(line)
 
         return self._compact_multiline("\n".join(parts), max_chars=max_chars)
+
+    def _section_groups(self):
+        return {
+            "perfil": [
+                "perfil", "perfil profissional", "resumo", "resumo profissional",
+                "resumo das qualificacoes", "resumo das qualificações",
+                "summary", "professional summary", "objetivo", "objetivo profissional",
+                "qualificacoes", "qualificações", "qualificacoes profissionais",
+                "sobre mim"
+            ],
+            "formacao": [
+                "formacao", "formação", "formacao academica", "formação acadêmica",
+                "educacao", "educação", "education", "escolaridade",
+                "academic background", "graduacao", "graduação"
+            ],
+            "cursos": [
+                "cursos", "certificacoes", "certificações", "certificados", "treinamentos",
+                "cursos e certificacoes", "cursos e certificações",
+                "certificacoes e cursos", "certificações e cursos",
+                "treinamentos e certificacoes", "treinamentos e certificações",
+                "courses", "certifications", "certificates"
+            ],
+            "tecnico": [
+                "conhecimentos tecnicos", "conhecimentos técnicos",
+                "conhecimento tecnico", "conhecimento técnico", "competencias tecnicas",
+                "competências técnicas", "habilidades tecnicas", "habilidades técnicas",
+                "principais competencias", "principais competências",
+                "conhecimentos e habilidades tecnicas", "conhecimentos e habilidades técnicas",
+                "habilidades e conhecimentos tecnicos", "habilidades e conhecimentos técnicos",
+                "tecnologias", "ferramentas", "skills", "technical skills", "hard skills",
+                "stack", "sistemas"
+            ],
+            "experiencia": [
+                "experiencia", "experiência", "experiencia profissional",
+                "experiência profissional", "experiencias profissionais",
+                "experiências profissionais", "historico profissional",
+                "histórico profissional", "trajetoria profissional", "trajetória profissional",
+                "professional experience", "work experience", "experiencia corporativa",
+                "experiência corporativa", "atuacao profissional", "atuação profissional"
+            ],
+            "idiomas": [
+                "idiomas", "languages"
+            ],
+            "dados": [
+                "dados pessoais", "informacoes pessoais", "informações pessoais",
+                "contato", "contact"
+            ],
+        }
+
+    def _experience_is_sparse(self, value):
+        text = str(value or "").strip()
+        if not text:
+            return True
+        bullet_count = len(re.findall(r"(?:^|\n)\s*[•\-]", text))
+        sentence_count = len(re.findall(r"[.!?]\s", text))
+        return len(text) < 1200 or (bullet_count < 8 and sentence_count < 8)
+
+    def _enrich_with_local_text(self, dados, text):
+        raw_text = str(text or "")
+        if not isinstance(dados, dict):
+            return dados
+
+        clean_lines = [self._clean_cv_line(line) for line in raw_text.splitlines()]
+        clean_lines = [line for line in clean_lines if line]
+        section_groups = self._section_groups()
+        all_headings = [alias for aliases in section_groups.values() for alias in aliases]
+        local_experience = self._extract_section(
+            clean_lines,
+            section_groups["experiencia"],
+            all_headings,
+            max_chars=18000,
+        )
+
+        current_experience = dados.get("Experiencia_Profissional", "")
+        if (
+            local_experience
+            and len(local_experience) > len(str(current_experience or "")) * 1.35
+            and self._experience_is_sparse(current_experience)
+        ):
+            dados["Experiencia_Profissional"] = local_experience
+
+        dados["Texto_Integral_Original"] = self._compact_multiline(raw_text, max_chars=50000)
+        return dados
 
     def _join_unique_sections(self, sections, max_chars=7000):
         seen = set()
@@ -553,11 +653,8 @@ FORMATO FINAL OBRIGATÓRIO:
 
     def _fallback_extract_from_text(self, text, file_path):
         raw_text = str(text or "")
-        clean_lines = [
-            re.sub(r"\s+", " ", line).strip()
-            for line in raw_text.splitlines()
-            if re.sub(r"\s+", " ", line).strip()
-        ]
+        clean_lines = [self._clean_cv_line(line) for line in raw_text.splitlines()]
+        clean_lines = [line for line in clean_lines if line]
         compact_text = re.sub(r"\s+", " ", raw_text).strip()
 
         email_match = re.search(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", compact_text)
@@ -603,40 +700,7 @@ FORMATO FINAL OBRIGATÓRIO:
         phone = phone_match.group(0).strip() if phone_match else ""
         email = email_match.group(0).strip().lower() if email_match else ""
 
-        section_groups = {
-            "perfil": [
-                "perfil", "perfil profissional", "resumo", "resumo profissional",
-                "summary", "professional summary", "objetivo", "objetivo profissional",
-                "qualificacoes", "qualificacoes profissionais", "sobre mim"
-            ],
-            "formacao": [
-                "formacao", "formacao academica", "educacao", "education",
-                "escolaridade", "academic background", "graduacao"
-            ],
-            "cursos": [
-                "cursos", "certificacoes", "certificados", "treinamentos",
-                "cursos e certificacoes", "cursos certificacoes",
-                "certificacoes e cursos", "treinamentos e certificacoes",
-                "courses", "certifications", "certificates"
-            ],
-            "tecnico": [
-                "conhecimentos tecnicos", "conhecimento tecnico", "competencias tecnicas",
-                "habilidades tecnicas", "conhecimentos e habilidades tecnicas",
-                "habilidades e conhecimentos tecnicos", "tecnologias", "ferramentas", "skills",
-                "technical skills", "hard skills", "stack", "sistemas"
-            ],
-            "experiencia": [
-                "experiencia", "experiencia profissional", "experiencias profissionais",
-                "historico profissional", "trajetoria profissional", "professional experience",
-                "work experience", "experiencia corporativa", "atuacao profissional"
-            ],
-            "idiomas": [
-                "idiomas", "languages"
-            ],
-            "dados": [
-                "dados pessoais", "informacoes pessoais", "contato", "contact"
-            ],
-        }
+        section_groups = self._section_groups()
         all_headings = [alias for aliases in section_groups.values() for alias in aliases]
 
         perfil = self._extract_section(clean_lines, section_groups["perfil"], all_headings, max_chars=2500)
@@ -672,7 +736,7 @@ FORMATO FINAL OBRIGATÓRIO:
         ingles = self._extract_language_level(clean_lines, ["ingles", "inglês", "english"])
         espanhol = self._extract_language_level(clean_lines, ["espanhol", "spanish"])
 
-        return {
+        return self._enrich_with_local_text({
             "Nome": name,
             "Nacionalidade": nacionalidade,
             "Estado_Civil": estado_civil,
@@ -688,7 +752,7 @@ FORMATO FINAL OBRIGATÓRIO:
             "Cursos_Certificacoes": cursos,
             "Conhecimento_Tecnico": tecnico,
             "Experiencia_Profissional": experiencia,
-        }
+        }, raw_text)
 
     def extract_with_local_fallback(self, file_path):
         try:

@@ -135,6 +135,152 @@ function fullSourceText(curriculum) {
   return compactSourceText([...new Set(parts)].join('\n\n'), 50000);
 }
 
+function normalizeKey(value = '') {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function cleanSourceLine(value = '') {
+  return String(value ?? '')
+    .replace(/^Page\s+\d+\s*$/i, '')
+    .replace(/This resume contains.+$/i, '')
+    .replace(/^[•\-\u2022]\s*/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function extractExperienceSection(text = '') {
+  const lines = String(text || '')
+    .replace(/\r/g, '\n')
+    .split('\n')
+    .map(cleanSourceLine)
+    .filter(Boolean);
+
+  const startIndex = lines.findIndex((line) => /^experi[eê]ncia profissional$/i.test(line));
+  const scopedLines = startIndex >= 0 ? lines.slice(startIndex + 1) : lines;
+  const stopIndex = scopedLines.findIndex((line) => /^(forma[cç][aã]o|educa[cç][aã]o|cursos|certifica[cç][oõ]es|idiomas|languages)\b/i.test(line));
+  return (stopIndex >= 0 ? scopedLines.slice(0, stopIndex) : scopedLines).join('\n');
+}
+
+function looksLikeExperienceHeader(line = '') {
+  const text = cleanSourceLine(line);
+  if (!text || text.length > 180) return false;
+  if (/^(cargo|empresa|resumo|principais compet[eê]ncias)$/i.test(text)) return false;
+  return /(\b\d{4}\b|jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez|atual|present)/i.test(text)
+    && /(\||-|–|—|\))/.test(text);
+}
+
+function parseSourceExperiences(text = '') {
+  const section = extractExperienceSection(text);
+  const lines = section
+    .split('\n')
+    .map(cleanSourceLine)
+    .filter(Boolean);
+  const blocks = [];
+  let current = null;
+
+  const pushCurrent = () => {
+    if (!current) return;
+    const details = current.details.map(cleanSourceLine).filter((line) => line.length > 8);
+    if (!current.role_pt && details.length && details[0].length <= 95 && !/[.;:]$/.test(details[0])) {
+      current.role_pt = details.shift();
+    }
+    if (details.length) {
+      blocks.push({
+        company: current.company || current.header,
+        role_pt: current.role_pt || '',
+        role_en: current.role_pt || '',
+        period_pt: current.period_pt || '',
+        period_en: current.period_pt || '',
+        details_pt: details,
+        details_en: details
+      });
+    }
+  };
+
+  for (const line of lines) {
+    if (looksLikeExperienceHeader(line)) {
+      pushCurrent();
+      const periodMatch = line.match(/((?:jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[a-z./]*\s*\/?\s*\d{4}\s*[–-]\s*(?:atual|present|(?:jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[a-z./]*\s*\/?\s*\d{4}|\d{4})|\d{4}\s*[–-]\s*(?:\d{4}|atual|present))/i);
+      const beforePeriod = periodMatch ? line.slice(0, periodMatch.index).replace(/[|–-]\s*$/, '').trim() : line;
+      const parts = beforePeriod.split(/\s*\|\s*/).map((part) => part.trim()).filter(Boolean);
+      current = {
+        header: line,
+        company: parts.slice(0, Math.min(2, parts.length || 1)).join(' | ') || beforePeriod,
+        role_pt: parts.length > 2 ? parts.slice(2).join(' | ') : '',
+        period_pt: periodMatch ? periodMatch[1].trim() : '',
+        details: []
+      };
+      continue;
+    }
+
+    if (current) {
+      current.details.push(line);
+    }
+  }
+
+  pushCurrent();
+  return blocks;
+}
+
+function experienceDetailsLength(experience = {}) {
+  return [...(experience.details_pt || []), ...(experience.details_en || [])]
+    .join(' ')
+    .length;
+}
+
+function mergeGeneratedWithSourceExperiences(curriculum, generated) {
+  const source = [
+    curriculum.experiencia_profissional,
+    fullSourceText(curriculum)
+  ].filter(Boolean).join('\n\n');
+  const sourceExperiences = parseSourceExperiences(source);
+  if (!sourceExperiences.length) return generated;
+
+  const generatedExperiences = Array.isArray(generated.experiences) ? generated.experiences : [];
+  const sourceDetailsLength = sourceExperiences.reduce((sum, item) => sum + experienceDetailsLength(item), 0);
+  const generatedDetailsLength = generatedExperiences.reduce((sum, item) => sum + experienceDetailsLength(item), 0);
+
+  if (sourceDetailsLength < 300 || sourceDetailsLength <= generatedDetailsLength * 1.25) {
+    return generated;
+  }
+
+  const merged = generatedExperiences.map((experience) => ({ ...experience }));
+  for (const sourceExperience of sourceExperiences) {
+    const sourceKey = normalizeKey(sourceExperience.company);
+    const index = merged.findIndex((experience) => {
+      const generatedKey = normalizeKey(experience.company);
+      return generatedKey && sourceKey && (generatedKey.includes(sourceKey) || sourceKey.includes(generatedKey));
+    });
+
+    if (index >= 0) {
+      const current = merged[index];
+      if ((current.details_pt || []).join(' ').length < sourceExperience.details_pt.join(' ').length * 0.8) {
+        current.details_pt = sourceExperience.details_pt;
+      }
+      if ((current.details_en || []).join(' ').length < sourceExperience.details_pt.join(' ').length * 0.8) {
+        current.details_en = sourceExperience.details_en;
+      }
+      current.role_pt = current.role_pt || sourceExperience.role_pt;
+      current.role_en = current.role_en || sourceExperience.role_en;
+      current.period_pt = current.period_pt || sourceExperience.period_pt;
+      current.period_en = current.period_en || sourceExperience.period_en;
+    } else {
+      merged.push(sourceExperience);
+    }
+  }
+
+  return {
+    ...generated,
+    experiences: merged
+  };
+}
+
 function sourceCurriculum(curriculum) {
   return {
     nome: String(curriculum.nome ?? '').trim(),
@@ -343,7 +489,7 @@ async function generateWithOpenAI(curriculum, options) {
     throw aiProviderError('OpenAI', response.status, payload);
   }
 
-  return JSON.parse(extractOpenAIText(payload));
+  return mergeGeneratedWithSourceExperiences(curriculum, JSON.parse(extractOpenAIText(payload)));
 }
 
 async function generateWithGemini(curriculum, options) {
@@ -365,7 +511,7 @@ async function generateWithGemini(curriculum, options) {
     throw aiProviderError('Gemini', response.status, payload);
   }
 
-  return JSON.parse(extractGeminiText(payload));
+  return mergeGeneratedWithSourceExperiences(curriculum, JSON.parse(extractGeminiText(payload)));
 }
 
 export async function generateCurriculumContent(curriculum, options = {}) {

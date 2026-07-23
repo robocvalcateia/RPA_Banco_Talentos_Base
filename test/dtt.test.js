@@ -139,6 +139,48 @@ test('geração de conteúdo aceita uma resposta mockada da Responses API', asyn
   assert.equal(result.experiences.length, 2);
 });
 
+test('geracao reidrata experiencias quando IA resume demais o texto original', async () => {
+  const richCurriculum = {
+    ...curriculum,
+    experiencia_profissional: [
+      'CRDC | Central de Registros | Mar/2022 - Mai/2026',
+      'Gerente de Projetos & Produtos',
+      'Liderou a gestao do ciclo de vida completo de produtos digitais do Product Discovery ao Delivery.',
+      'Estruturou roadmap de produto de medio e longo prazo e priorizacao estrategica de backlog.',
+      'Implantou governanca de portfolio com KPIs, gestao de riscos, cronograma e reporte executivo.',
+      'Coordenou squads ageis em iniciativas de alta complexidade com stakeholders internos e externos.',
+      'Foursys | Jun/2021 - Mar/2022',
+      'Gerente de Projetos, Tech Lead & Agile Master',
+      'Gerenciou projetos de transformacao digital para clientes de grande porte.',
+      'Monitorou velocity, lead time, cycle time e burn-down para reportes executivos.'
+    ].join('\n')
+  };
+  const sparseGenerated = {
+    ...generated,
+    experiences: [{
+      company: 'CRDC',
+      role_pt: 'Gerente de Projetos & Produtos',
+      role_en: 'Project and Product Manager',
+      period_pt: 'Mar/2022 - Mai/2026',
+      period_en: 'Mar/2022 - May/2026',
+      details_pt: ['Lideranca de iniciativas complexas de transformacao digital.'],
+      details_en: ['Led complex digital transformation initiatives.']
+    }]
+  };
+
+  const result = await generateCurriculumContent(richCurriculum, {
+    apiKey: 'teste',
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => ({ output: [{ content: [{ type: 'output_text', text: JSON.stringify(sparseGenerated) }] }] })
+    })
+  });
+
+  assert.match(result.experiences[0].details_pt.join(' '), /Product Discovery ao Delivery/);
+  assert.match(result.experiences[0].details_pt.join(' '), /reporte executivo/);
+  assert.ok(result.experiences.some((experience) => /Foursys/i.test(experience.company)));
+});
+
 test('geracao de conteudo tenta novamente quando a IA esta sobrecarregada', async () => {
   let calls = 0;
   const result = await generateCurriculumContent(curriculum, {

@@ -179,6 +179,10 @@ class DeduplicationHandler:
                 'cursos_certificacoes': candidate_data.get('Cursos_Certificacoes', '').strip(),
                 'conhecimento_tecnico': candidate_data.get('Conhecimento_Tecnico', '').strip(),
                 'experiencia_profissional': candidate_data.get('Experiencia_Profissional', '').strip(),
+                'search_text_all': (
+                    candidate_data.get('Texto_Integral_Original', '').strip()
+                    or candidate_data.get('Experiencia_Profissional', '').strip()
+                ),
                 'hash_documento': document_hash,
                 'fonte': source,
                 'data_criacao': now,
@@ -243,6 +247,10 @@ class DeduplicationHandler:
                 'nivel_espanhol': candidate_data.get('Nivel_Idioma_Espanhol', '').strip(),
                 'conhecimento_tecnico': candidate_data.get('Conhecimento_Tecnico', '').strip(),
                 'experiencia_profissional': candidate_data.get('Experiencia_Profissional', '').strip(),
+                'search_text_all': (
+                    candidate_data.get('Texto_Integral_Original', '').strip()
+                    or candidate_data.get('Experiencia_Profissional', '').strip()
+                ),
                 'data_atualizacao': now,
                 'data_origem': source_date
             }
