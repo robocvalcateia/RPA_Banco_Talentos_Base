@@ -1291,7 +1291,7 @@ export function normalizeCandidatePool(item) {
 export function normalizeCvFilter(filter) {
   const state = String(filter.state ?? filter.estado ?? '').trim().toUpperCase();
   const matchPercent = Number(filter.matchPercent ?? filter.percentualAcerto ?? filter.percentual_acerto ?? 0);
-  const mandatorySkills = String(filter.mandatorySkills ?? filter.habilidadesObrigatorias ?? filter.habilidades_obrigatorias ?? '').trim().slice(0, 20);
+  const mandatorySkills = String(filter.mandatorySkills ?? filter.habilidadesObrigatorias ?? filter.habilidades_obrigatorias ?? '').trim();
   const requestedLimit = Number(filter.resultLimit ?? filter.qtdeRetorno ?? filter.quantidadeRetorno ?? filter.quantidade_retorno ?? 10);
   const sourceValue = (camelName, snakeName) => filter[camelName] ?? filter.searchSources?.[camelName.replace(/^search/, '').toLowerCase()] ?? filter[snakeName];
   const defaultChecked = (value) => value === undefined ? true : normalizeBoolean(value);

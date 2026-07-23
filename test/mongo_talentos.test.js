@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { evaluateCandidateTextForFilter } from '../apinfo.js';
 import { __mongoTalentosTest } from '../mongo_talentos.js';
 
 function matchesQuery(doc, query) {
@@ -120,6 +121,44 @@ test('candidato selecionado nao usa observacao como experiencia ou conhecimento 
   assert.equal(Object.hasOwn(payload, 'experiencia_profissional'), false);
   assert.equal(Object.hasOwn(payload, 'conhecimento_tecnico'), false);
   assert.equal(Object.hasOwn(payload, 'skills'), false);
+});
+
+test('filtro de CV exige listas preenchidas, skills obrigatorias e percentual minimo da JD', () => {
+  const filter = {
+    state: 'SP',
+    city: 'Sao Paulo',
+    englishLevel: 'Fluente',
+    mandatorySkills: 'SAP, PMP',
+    jobDescription: 'Gerente de projetos Activate',
+    matchPercent: 80
+  };
+  const acceptedText = [
+    'Consultor em Sao Paulo SP',
+    'Ingles fluente',
+    'SAP PMP',
+    'Gerente de projetos Activate'
+  ].join('\n');
+  const missingMandatoryText = acceptedText.replace('PMP', '');
+  const lowScoreText = [
+    'Consultor em Sao Paulo SP',
+    'Ingles fluente',
+    'SAP PMP',
+    'Gerente de projetos'
+  ].join('\n');
+  const missingListText = [
+    'Consultor em Curitiba PR',
+    'Ingles fluente',
+    'SAP PMP',
+    'Gerente de projetos Activate'
+  ].join('\n');
+
+  assert.equal(evaluateCandidateTextForFilter(acceptedText, filter).accepted, true);
+  assert.equal(evaluateCandidateTextForFilter(missingMandatoryText, filter).accepted, false);
+  assert.match(evaluateCandidateTextForFilter(missingMandatoryText, filter).reason, /habilidade obrigatoria/i);
+  assert.equal(evaluateCandidateTextForFilter(lowScoreText, filter).accepted, false);
+  assert.match(evaluateCandidateTextForFilter(lowScoreText, filter).reason, /abaixo do minimo/i);
+  assert.equal(evaluateCandidateTextForFilter(missingListText, filter).accepted, false);
+  assert.match(evaluateCandidateTextForFilter(missingListText, filter).reason, /filtro obrigatorio/i);
 });
 
 test('candidato selecionado preserva campos estruturados quando vierem explicitamente do curriculo', () => {

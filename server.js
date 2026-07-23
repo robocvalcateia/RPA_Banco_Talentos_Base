@@ -59,6 +59,7 @@ import {
   extractApinfoCandidateEmails,
   extractApinfoCandidateText,
   extractEmailsFromText,
+  evaluateCandidateTextForFilter,
   searchApinfoAndLinkedinCandidates,
   sortCandidateRowsByFreshnessAndScore
 } from './apinfo.js';
@@ -1165,26 +1166,7 @@ function shortSearchText(value = '', maxLength = 180) {
 }
 
 function evaluateAlcateiaCurriculum(curriculum, filter) {
-  const terms = splitSearchTermsForCv(`${filter.mandatorySkills || ''} ${filter.jobDescription || ''}`);
-  const normalizedText = normalizeSearchText(curriculumTextForAlcateia(curriculum));
-
-  if (!terms.length) {
-    return {
-      score: 100,
-      hits: [],
-      missing: []
-    };
-  }
-
-  const hits = terms.filter((term) => normalizedText.includes(term));
-  const missing = terms.filter((term) => !normalizedText.includes(term));
-  const score = Math.round((hits.length / terms.length) * 100);
-
-  return {
-    score,
-    hits,
-    missing
-  };
+  return evaluateCandidateTextForFilter(curriculumTextForAlcateia(curriculum), filter);
 }
 
 async function searchAlcateiaCandidates(filter, limit = 10) {
@@ -1206,17 +1188,24 @@ async function searchAlcateiaCandidates(filter, limit = 10) {
   const evaluated = curriculums
     .map((curriculum) => {
       const evaluation = evaluateAlcateiaCurriculum(curriculum, filter);
-      const accepted = evaluation.score >= minimum;
+      const accepted = Boolean(evaluation.accepted);
 
-      const found = evaluation.hits.slice(0, 10).join(', ') || 'nenhum termo forte encontrado';
-      const missing = evaluation.missing.slice(0, 10).join(', ') || 'sem lacunas relevantes';
+      const found = evaluation.jobDescriptionHits?.slice(0, 10).join(', ') || 'nenhum termo forte encontrado';
+      const missing = evaluation.jobDescriptionMissing?.slice(0, 10).join(', ') || 'sem lacunas relevantes';
+      const mandatoryFound = evaluation.matchedMandatorySkills?.join(', ') || 'nenhuma habilidade obrigatoria informada';
+      const mandatoryMissing = evaluation.missingMandatorySkills?.join(', ') || 'nenhuma';
+      const listMissing = evaluation.missingListFilters?.join(', ') || 'nenhum';
 
       return {
         curriculum,
         accepted,
         score: evaluation.score,
         found,
-        missing
+        missing,
+        mandatoryFound,
+        mandatoryMissing,
+        listMissing,
+        reason: evaluation.reason || ''
       };
     })
     .sort((first, second) => {
@@ -1233,7 +1222,7 @@ async function searchAlcateiaCandidates(filter, limit = 10) {
   const acceptedRows = evaluated
     .filter((item) => item.accepted)
     .slice(0, requestedLimit)
-    .map(({ curriculum, score, found, missing }) => ({
+    .map(({ curriculum, score, found, missing, mandatoryFound }) => ({
       id: `alcateia_${curriculum.id || curriculum.id_controle || curriculum.mongoId}`,
       name: curriculum.nome || '-',
       source: 'ALCATEIA',
@@ -1253,7 +1242,7 @@ async function searchAlcateiaCandidates(filter, limit = 10) {
   const rejectedRows = evaluated
     .filter((item) => !item.accepted)
     .slice(0, requestedLimit)
-    .map(({ curriculum, score, found, missing }) => ({
+    .map(({ curriculum, score, found, missing, mandatoryMissing, listMissing, reason }) => ({
       id: `alcateia_rej_${curriculum.id || curriculum.id_controle || curriculum.mongoId}`,
       name: curriculum.nome || '-',
       source: 'ALCATEIA',

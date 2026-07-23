@@ -139,7 +139,7 @@ function extractCityCodes(html, city) {
 }
 
 function buildKeyword(filter) {
-  return String(filter.mandatorySkills || '').trim().slice(0, 20);
+  return String(filter.mandatorySkills || '').trim();
 }
 
 function linkedinQuery(filter) {
@@ -148,6 +148,35 @@ function linkedinQuery(filter) {
 
 function englishCode(level = '') {
   return ENGLISH_LEVELS[normalizeText(level)] || '';
+}
+
+function textContainsValue(normalizedText, value) {
+  const normalizedValue = normalizeText(value);
+  if (!normalizedValue) return true;
+
+  if (normalizedValue.length <= 2) {
+    return new RegExp(`(^| )${escapeRegex(normalizedValue)}( |$)`).test(normalizedText);
+  }
+
+  return normalizedText.includes(normalizedValue);
+}
+
+function evaluateRequiredListFilters(text, filter) {
+  const normalizedText = normalizeText(text);
+  const checks = [
+    ['estado', filter.state],
+    ['cidade', filter.city],
+    ['nivel de ingles', filter.englishLevel]
+  ].filter(([, value]) => String(value || '').trim());
+
+  const missing = checks
+    .filter(([, value]) => !textContainsValue(normalizedText, value))
+    .map(([label, value]) => `${label}: ${value}`);
+
+  return {
+    accepted: missing.length === 0,
+    missing
+  };
 }
 
 function parseResultLinks(html) {
@@ -213,6 +242,7 @@ function extractDetail(html, result) {
 }
 
 function filterAndScoreCandidate(detail, filter) {
+  const listFilters = evaluateRequiredListFilters(detail.text, filter);
   const mandatory = evaluateMandatorySkills(detail.text, filter.mandatorySkills);
   const match = calculateJobMatch(detail.text, filter.jobDescription);
   const jobScore = match.score;
@@ -227,8 +257,17 @@ function filterAndScoreCandidate(detail, filter) {
     matchedMandatorySkills: mandatory.hits,
     missingMandatorySkills: mandatory.missing,
     jobDescriptionHits: match.hits,
-    jobDescriptionMissing: match.missing
+    jobDescriptionMissing: match.missing,
+    missingListFilters: listFilters.missing
   };
+
+  if (!listFilters.accepted) {
+    return {
+      ...base,
+      accepted: false,
+      reason: `Reprovado por filtro obrigatorio nao atendido: ${listFilters.missing.join(', ')}. Aderencia da Job Description: ${jobScore}%.`
+    };
+  }
 
   if (!mandatory.accepted) {
     return {
@@ -552,7 +591,7 @@ class ApinfoSession {
       tcv: '1',
       pag: String(page),
       keyw: buildKeyword(filter),
-      estado: filter.state || 'SP',
+      estado: filter.state || '',
       ...extraFields
     });
   }
@@ -590,11 +629,6 @@ export async function searchApinfoCandidates(filter, credentials, limit = 10) {
     const pageLinks = parseResultLinks(pageSearch.html);
     if (!pageLinks.length) break;
     links.push(...pageLinks);
-  }
-
-  if (!links.length && (cityCodes.length || level)) {
-    const fallback = await session.search(filter);
-    links = parseResultLinks(fallback.html);
   }
 
   const uniqueLinks = Array.from(new Map(links.map((link) => [link.code || link.link, link])).values()).slice(0, targetScan);
@@ -712,6 +746,10 @@ export async function searchApinfoAndLinkedinCandidates(filter, credentials, lim
   };
 }
 
+export function evaluateCandidateTextForFilter(text, filter) {
+  return filterAndScoreCandidate({ text }, filter);
+}
+
 export function evaluateInternalCandidateForFilter(curriculum, filter) {
   const text = [
     curriculum.nome,
@@ -731,7 +769,7 @@ export function evaluateInternalCandidateForFilter(curriculum, filter) {
     curriculum.fonte,
     curriculum.id_controle
   ].filter(Boolean).join('\n');
-  const evaluation = filterAndScoreCandidate({ text }, filter);
+  const evaluation = evaluateCandidateTextForFilter(text, filter);
   const sourceUpdatedAt = curriculum.data_atualizacao || curriculum.data_criacao || '';
 
   return {
