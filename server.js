@@ -1275,20 +1275,13 @@ function clipLogs(value, maxLength = 12000) {
   return text.length > maxLength ? text.slice(text.length - maxLength) : text;
 }
 
-function buildGraphLogRecipients(options = {}) {
-  const configured = Array.isArray(options.logRecipients)
-    ? options.logRecipients.join(',')
-    : String(options.logRecipients || options.graphEmailTo || process.env.GRAPH_EMAIL_TO || process.env.GRAPH_EMAIL || '').trim();
-  const recipients = configured
-    .split(',')
-    .map((email) => email.trim().toLowerCase())
-    .filter(Boolean);
+const PROCESSING_LOG_RECIPIENTS = Object.freeze([
+  'gerson@alcateiaconsulting.com.br',
+  'bruno@alcateiaconsulting.com.br'
+]);
 
-  if (!recipients.includes('bruno@alcateiaconsulting.com.br')) {
-    recipients.push('bruno@alcateiaconsulting.com.br');
-  }
-
-  return Array.from(new Set(recipients)).join(',');
+function buildGraphLogRecipients() {
+  return PROCESSING_LOG_RECIPIENTS.join(',');
 }
 
 function parseLegacyProcessResult(output) {
