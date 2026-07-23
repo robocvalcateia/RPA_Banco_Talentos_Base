@@ -522,7 +522,9 @@ function curriculumPayloadToMongoUpdate(payload = {}) {
   const update = {};
   for (const field of stringFields) {
     if (Object.prototype.hasOwnProperty.call(payload, field)) {
-      update[field] = String(payload[field] ?? '').trim();
+      const value = String(payload[field] ?? '').trim();
+      if (field === 'hash_documento' && !value) continue;
+      update[field] = value;
     }
   }
   for (const field of passthroughFields) {

@@ -189,3 +189,12 @@ test('update de curriculo no Mongo preserva texto integral e estruturas ricas', 
   assert.equal(update.versoes.length, 1);
   assert.equal(update.experiencias.length, 1);
 });
+
+test('update de curriculo no Mongo ignora hash_documento vazio', () => {
+  const update = __mongoTalentosTest.curriculumPayloadToMongoUpdate({
+    nome: 'Pessoa Sem Hash',
+    hash_documento: ''
+  });
+
+  assert.equal(Object.hasOwn(update, 'hash_documento'), false);
+});
