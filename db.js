@@ -2,6 +2,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { sanitizeUnicodeValue } from './text-utils.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const DATA_FILE = path.join(__dirname, 'data', 'database.json');
@@ -78,6 +79,9 @@ const REQUIRED_COLLECTIONS = [
   'curriculums',
   'candidates',
   'allocateds',
+  'workHours',
+  'workHourClosures',
+  'businessCalendar',
   'rateCards',
   'candidatePool',
   'contactClients',
@@ -358,6 +362,9 @@ function mergeDuplicateClients(data) {
       for (const field of ['primaryContactName', 'primaryContactEmail', 'primaryContactPhone', 'observation']) {
         mergeClientTextField(canonical, client, field);
       }
+      if (!canonical.managerContactId && client.managerContactId) {
+        canonical.managerContactId = client.managerContactId;
+      }
     }
 
     mergedClients.push(canonical);
@@ -450,6 +457,7 @@ export function normalizeDatabase(data = {}) {
   if (!data || typeof data !== 'object') {
     data = {};
   }
+  data = sanitizeUnicodeValue(data);
 
   if (!Array.isArray(data.clients) && Array.isArray(data.companies)) {
     data.clients = data.companies.map((company) => ({
@@ -508,6 +516,7 @@ export function normalizeDatabase(data = {}) {
   }
 
   mergeDuplicateClients(data);
+  data.clients = data.clients.map((client) => normalizeClient(client));
 
   data.opportunities = data.opportunities.map((opportunity) => ({
     ...opportunity,
@@ -521,6 +530,9 @@ export function normalizeDatabase(data = {}) {
   data.candidates = data.candidates.map((candidate) => normalizeCandidate(candidate));
   syncCandidatesWithOpportunityClosures(data);
   data.allocateds = data.allocateds.map((allocated) => normalizeAllocated(allocated));
+  data.workHours = data.workHours.map((entry) => normalizeWorkHourEntry(entry));
+  data.workHourClosures = data.workHourClosures.map((closure) => normalizeWorkHourClosure(closure));
+  data.businessCalendar = data.businessCalendar.map((entry) => normalizeBusinessCalendarEntry(entry));
   data.rateCards = data.rateCards.map((rateCard) => normalizeRateCard(rateCard));
   ensureDefaultRateCards(data);
   data.candidatePool = data.candidatePool.map((item) => normalizeCandidatePool(item));
@@ -1029,6 +1041,23 @@ export function normalizeCurriculum(curriculum) {
   };
 }
 
+export function normalizeClient(client) {
+  const customerName = String(client.customerName ?? client.name ?? '').trim();
+
+  return {
+    ...client,
+    id: String(client.id ?? createId('client', customerName)).trim(),
+    customerName,
+    primaryContactName: String(client.primaryContactName ?? '').trim(),
+    primaryContactEmail: String(client.primaryContactEmail ?? '').trim(),
+    primaryContactPhone: String(client.primaryContactPhone ?? '').trim(),
+    managerContactId: String(client.managerContactId ?? client.gestorContatoId ?? client.nomeGestorId ?? '').trim(),
+    observation: String(client.observation ?? client.observacao ?? '').trim(),
+    createdAt: String(client.createdAt ?? toISODate()).trim(),
+    updatedAt: String(client.updatedAt ?? '').trim()
+  };
+}
+
 export function normalizeContactClient(contact) {
   const name = String(contact.name ?? contact.nome ?? '').trim();
   const clientId = String(contact.clientId ?? contact.client_id ?? '').trim();
@@ -1036,6 +1065,7 @@ export function normalizeContactClient(contact) {
   return {
     id: String(contact.id ?? createId('contact_client', name || clientId || 'contato')).trim(),
     clientId,
+    parentContactId: String(contact.parentContactId ?? contact.managerContactId ?? contact.gestorContatoId ?? '').trim(),
     name,
     area: String(contact.area ?? '').trim(),
     role: String(contact.role ?? contact.cargo ?? '').trim(),
@@ -1185,6 +1215,80 @@ export function normalizeAllocated(allocated) {
     managerEmail: String(allocated.managerEmail ?? allocated.emailGestor ?? '').trim(),
     managerPhone: String(allocated.managerPhone ?? allocated.foneGestor ?? '').trim(),
     createdAt: String(allocated.createdAt ?? toISODate()).trim()
+  };
+}
+
+export function normalizeWorkHourEntry(entry = {}) {
+  const date = String(entry.date ?? entry.data ?? '').trim();
+  const allocatedId = String(entry.allocatedId ?? entry.alocadoId ?? entry.consultorId ?? '').trim();
+  const hours = Number(entry.hours ?? entry.horasTrabalhadas ?? entry.horas ?? 0);
+
+  return {
+    ...entry,
+    id: String(entry.id ?? createId('work_hour', `${allocatedId}-${date}`)).trim(),
+    allocatedId,
+    consultantName: String(entry.consultantName ?? entry.consultor ?? '').trim(),
+    consultantEmail: String(entry.consultantEmail ?? entry.emailConsultor ?? '').trim().toLowerCase(),
+    date,
+    hours: Number.isFinite(hours) ? hours : 0,
+    clientId: String(entry.clientId ?? entry.clienteId ?? '').trim(),
+    project: String(entry.project ?? entry.projeto ?? '').trim(),
+    observation: String(entry.observation ?? entry.observacao ?? '').trim(),
+    createdById: String(entry.createdById ?? entry.usuarioId ?? '').trim(),
+    createdByName: String(entry.createdByName ?? entry.usuario ?? '').trim(),
+    createdByEmail: String(entry.createdByEmail ?? entry.usuarioEmail ?? '').trim().toLowerCase(),
+    createdAt: String(entry.createdAt ?? toISODate()).trim(),
+    updatedAt: String(entry.updatedAt ?? entry.createdAt ?? toISODate()).trim()
+  };
+}
+
+export function normalizeWorkHourClosure(closure = {}) {
+  const monthYear = String(closure.monthYear ?? closure.mesAno ?? '').trim();
+  const allocatedId = String(closure.allocatedId ?? closure.alocadoId ?? closure.consultorId ?? '').trim();
+  const missingBusinessDays = Array.isArray(closure.missingBusinessDays)
+    ? closure.missingBusinessDays.map((day) => String(day || '').trim()).filter(Boolean)
+    : [];
+
+  return {
+    ...closure,
+    id: String(closure.id ?? createId('work_hour_closure', `${allocatedId}-${monthYear}`)).trim(),
+    allocatedId,
+    monthYear,
+    consultantName: String(closure.consultantName ?? closure.consultor ?? '').trim(),
+    consultantEmail: String(closure.consultantEmail ?? closure.emailConsultor ?? '').trim().toLowerCase(),
+    clientId: String(closure.clientId ?? closure.clienteId ?? '').trim(),
+    status: String(closure.status ?? 'Finalizado').trim(),
+    missingBusinessDays,
+    confirmedWithMissingDays: Boolean(closure.confirmedWithMissingDays ?? closure.confirmadoComDiasEmBranco ?? false),
+    finalizedById: String(closure.finalizedById ?? closure.usuarioId ?? '').trim(),
+    finalizedByName: String(closure.finalizedByName ?? closure.usuario ?? '').trim(),
+    finalizedByEmail: String(closure.finalizedByEmail ?? closure.usuarioEmail ?? '').trim().toLowerCase(),
+    finalizedAt: String(closure.finalizedAt ?? closure.createdAt ?? toISODate()).trim(),
+    notification: closure.notification && typeof closure.notification === 'object' ? closure.notification : null,
+    updatedAt: String(closure.updatedAt ?? closure.finalizedAt ?? closure.createdAt ?? toISODate()).trim()
+  };
+}
+
+export function normalizeBusinessCalendarEntry(entry = {}) {
+  const date = String(entry.date ?? entry.data ?? '').trim();
+  const allDay = normalizeBoolean(entry.allDay ?? entry.diaInteiro ?? entry.dia_inteiro ?? true);
+  const startTime = String(entry.startTime ?? entry.horaInicial ?? entry.hora_inicial ?? '00:00').trim();
+  const endTime = String(entry.endTime ?? entry.horaFinal ?? entry.hora_final ?? '23:59').trim();
+  const clientId = String(entry.clientId ?? entry.clienteId ?? '').trim();
+  const reason = String(entry.reason ?? entry.motivo ?? '').trim();
+
+  return {
+    ...entry,
+    id: String(entry.id ?? createId('business_calendar', `${date}-${clientId || 'todos'}-${reason}`)).trim(),
+    date,
+    allDay,
+    startTime: allDay ? '00:00' : startTime,
+    endTime: allDay ? '23:59' : endTime,
+    clientId,
+    reason,
+    observation: String(entry.observation ?? entry.observacao ?? '').trim(),
+    createdAt: String(entry.createdAt ?? toISODate()).trim(),
+    updatedAt: String(entry.updatedAt ?? '').trim()
   };
 }
 

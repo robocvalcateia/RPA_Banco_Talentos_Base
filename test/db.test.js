@@ -18,12 +18,15 @@ import {
   moveCandidateStage,
   normalizeDatabase,
   normalizeAllocated,
+  normalizeBusinessCalendarEntry,
   normalizeCandidate,
   normalizeCandidatePool,
   normalizeCurriculum,
   normalizeCurriculumObservation,
   normalizeCvFilter,
   normalizeCvSearchResult,
+  normalizeWorkHourClosure,
+  normalizeWorkHourEntry,
   normalizeRateCard,
   normalizeSelectedCandidate,
   normalizeOpportunityModel,
@@ -450,6 +453,67 @@ test('rate card calcula maximo e vincula cliente', () => {
   assert.equal(enriched.clientName, 'Cliente Teste');
 });
 
+test('apontamento de horas normaliza campos principais', () => {
+  const normalized = normalizeWorkHourEntry({
+    allocatedId: 'alloc_1',
+    consultantName: 'Pessoa Teste',
+    consultantEmail: 'Pessoa@Example.com',
+    date: '2026-07-27',
+    hours: '8.5',
+    clientId: 'client_1',
+    project: 'Projeto A',
+    observation: 'Atividade validada'
+  });
+
+  assert.equal(normalized.allocatedId, 'alloc_1');
+  assert.equal(normalized.consultantEmail, 'pessoa@example.com');
+  assert.equal(normalized.date, '2026-07-27');
+  assert.equal(normalized.hours, 8.5);
+  assert.equal(normalized.project, 'Projeto A');
+});
+
+test('fechamento mensal de horas preserva dias uteis faltantes', () => {
+  const normalized = normalizeWorkHourClosure({
+    allocatedId: 'alloc_1',
+    monthYear: '2026-07',
+    consultantEmail: 'Pessoa@Example.com',
+    missingBusinessDays: ['2026-07-01', '2026-07-02'],
+    confirmedWithMissingDays: true
+  });
+
+  assert.equal(normalized.allocatedId, 'alloc_1');
+  assert.equal(normalized.monthYear, '2026-07');
+  assert.equal(normalized.consultantEmail, 'pessoa@example.com');
+  assert.deepEqual(normalized.missingBusinessDays, ['2026-07-01', '2026-07-02']);
+  assert.equal(normalized.confirmedWithMissingDays, true);
+});
+
+test('calendario de feriados normaliza dia inteiro e intervalo por cliente', () => {
+  const fullDay = normalizeBusinessCalendarEntry({
+    data: '2026-08-10',
+    diaInteiro: true,
+    clienteId: 'client_1',
+    motivo: 'Feriado cliente',
+    observacao: 'Parada operacional'
+  });
+  const partial = normalizeBusinessCalendarEntry({
+    date: '2026-08-11',
+    allDay: false,
+    startTime: '09:30',
+    endTime: '12:00',
+    reason: 'Manutenção'
+  });
+
+  assert.equal(fullDay.date, '2026-08-10');
+  assert.equal(fullDay.allDay, true);
+  assert.equal(fullDay.startTime, '00:00');
+  assert.equal(fullDay.endTime, '23:59');
+  assert.equal(fullDay.clientId, 'client_1');
+  assert.equal(partial.allDay, false);
+  assert.equal(partial.startTime, '09:30');
+  assert.equal(partial.endTime, '12:00');
+});
+
 test('base normalizada cria rate cards TOTVS iniciais sem duplicar', () => {
   const normalized = normalizeDatabase({
     clients: [],
@@ -469,6 +533,34 @@ test('base normalizada cria rate cards TOTVS iniciais sem duplicar', () => {
   assert.equal(normalized.clients.some((client) => client.id === 'client_totvs'), true);
   assert.equal(totvsCards.length, 19);
   assert.equal(totvsCards.find((rateCard) => rateCard.skill === 'SIGAEIC')?.maximum, 129.5);
+});
+
+test('base normalizada preserva gestor do cliente e arvore de contatos', () => {
+  const normalized = normalizeDatabase({
+    clients: [
+      {
+        id: 'client_tree',
+        customerName: 'Cliente Arvore',
+        managerContactId: 'contact_1'
+      }
+    ],
+    contactClients: [
+      {
+        id: 'contact_1',
+        clientId: 'client_tree',
+        name: 'Gestor Principal'
+      },
+      {
+        id: 'contact_2',
+        clientId: 'client_tree',
+        name: 'Contato Filho',
+        parentContactId: 'contact_1'
+      }
+    ]
+  });
+
+  assert.equal(normalized.clients.find((client) => client.id === 'client_tree')?.managerContactId, 'contact_1');
+  assert.equal(normalized.contactClients.find((contact) => contact.id === 'contact_2')?.parentContactId, 'contact_1');
 });
 
 test('bolsao de candidatos normaliza campos da planilha TOTVS', () => {

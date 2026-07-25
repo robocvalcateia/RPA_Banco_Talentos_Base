@@ -13,6 +13,9 @@
   curriculumTemplates: [],
   candidates: [],
   allocateds: [],
+  workHours: [],
+  workHourClosures: [],
+  businessCalendar: [],
   rateCards: [],
   candidatePool: [],
   users: [],
@@ -33,9 +36,16 @@
   dashboardModel: '',
   dashboardAnalyticsCsvUrl: '',
   activeFormsPanel: 'request',
+  activeBillingReportPanel: 'query',
+  launcherReturnNodeId: 'root',
+  pendingWonOpportunitySave: null,
+  taxReformSimulation: null,
   selectedCandidateFilter: { type: '', value: '' },
+  clientListFilter: '',
   whatsappQueue: [],
   allocatedFilter: { type: '', value: '', status: '' },
+  workHourFilter: { allocatedId: '', clientId: '', dateFrom: '', dateTo: '' },
+  billingReportFilter: { monthYear: '', clientId: '', allocatedId: '' },
   selectedAllocatedIds: new Set(),
   huntingFilter: { type: '', value: '' },
   rateCardFilter: { clientId: '' },
@@ -50,6 +60,7 @@
   editing: {
     clientId: '',
     contactClientId: '',
+    businessCalendarId: '',
     faturamentoId: '',
     opportunityId: '',
     cvFilterId: '',
@@ -144,7 +155,12 @@ function applyInitialRoute() {
     state.activeFormsPanel = formsPanel === 'builder' && isCurrentUserAdmin() ? 'builder' : formsPanel;
   }
 
+  if (viewId === 'billingReport' && ['query', 'entry'].includes(formsPanel)) {
+    state.activeBillingReportPanel = formsPanel;
+  }
+
   if (viewId && viewTitles[viewId]) {
+    rememberLauncherReturnForView(viewId, formsPanel);
     showView(viewId);
   }
 }
@@ -152,7 +168,11 @@ function applyInitialRoute() {
 const viewTitles = {
   dashboard: 'Alcateia',
   clients: 'Clientes',
+  billingReport: 'Billing Report',
   faturamento: 'Financeiro/Faturamento',
+  taxReformSimulator: 'Financeiro/Simuladores / Reforma',
+  allocationPrices: 'Financeiro/Preços / Alocações',
+  financeProjection: 'Financeiro/Projeção',
   forms: 'Formulários',
   opportunities: 'Deals/Oportunidades',
   candidatePool: 'Contratos/Bolsão de Candidatos',
@@ -163,7 +183,9 @@ const viewTitles = {
   curriculums: 'Banco de Talentos',
   candidates: 'Deals/Candidatos Entrevistados',
   allocateds: 'Contratos/Alocados',
+  workHours: 'Contratos/Horas Trabalhadas',
   users: 'Usuários',
+  businessCalendar: 'Cadastros/Calendário',
 };
 
 const launcherFavoriteStorageKey = 'talentos_launcher_favorites';
@@ -174,7 +196,7 @@ const launcherNodes = {
     label: 'Seções',
     eyebrow: 'Menu',
     description: 'Menu operacional',
-    children: ['deals', 'contracts', 'finance', 'formsSection', 'talents', 'admin', 'businessDashboard']
+    children: ['deals', 'contracts', 'finance', 'billingReports', 'formsSection', 'talents', 'admin', 'businessDashboard']
   },
   deals: {
     label: 'Deals',
@@ -191,15 +213,35 @@ const launcherNodes = {
   contracts: {
     label: 'Contratos',
     eyebrow: 'Seção',
-    description: 'Alocados, bolsão de candidatos, huntings e rate cards',
-    children: ['allocateds', 'candidatePool', 'huntings', 'rateCards']
+    description: 'Alocados, horas trabalhadas, bolsão de candidatos, huntings e rate cards',
+    children: ['allocateds', 'workHours', 'candidatePool', 'huntings', 'rateCards']
   },
   finance: {
     label: 'Financeiro',
     eyebrow: 'Seção',
     description: 'Faturamento e controles financeiros',
-    children: ['faturamento'],
+    children: ['faturamento', 'taxReformSimulator', 'allocationPrices', 'financeProjection'],
     roles: ['Admin']
+  },
+  billingReports: {
+    label: 'Billing Report',
+    eyebrow: 'Seção',
+    description: 'Relatórios de billing',
+    children: ['billingReportQuery', 'billingReportEntry']
+  },
+  billingReportQuery: {
+    label: 'Consultas / Relatórios',
+    eyebrow: 'Billing Report',
+    description: 'Consulta mensal, filtros e exportação',
+    view: 'billingReport',
+    panel: 'query'
+  },
+  billingReportEntry: {
+    label: 'Apontamento',
+    eyebrow: 'Billing Report',
+    description: 'Registro de horas por consultor ativo',
+    view: 'billingReport',
+    panel: 'entry'
   },
   formsSection: {
     label: 'Formulários',
@@ -217,7 +259,7 @@ const launcherNodes = {
     label: 'Cadastros',
     eyebrow: 'Seção',
     description: 'Clientes, usuários e apoio operacional',
-    children: ['clients', 'users']
+    children: ['clients', 'users', 'businessCalendar']
   },
   opportunities: {
     label: 'Oportunidades',
@@ -256,6 +298,27 @@ const launcherNodes = {
     view: 'faturamento',
     roles: ['Admin']
   },
+  taxReformSimulator: {
+    label: 'Simuladores / Reforma',
+    eyebrow: 'Financeiro',
+    description: 'Composição de preço, transição 2026-2033 e margem efetiva',
+    view: 'taxReformSimulator',
+    roles: ['Admin']
+  },
+  allocationPrices: {
+    label: 'Preços / Alocações',
+    eyebrow: 'Financeiro',
+    description: 'Valor compra, valor venda, razão e resultado',
+    view: 'allocationPrices',
+    roles: ['Admin']
+  },
+  financeProjection: {
+    label: 'Projeção',
+    eyebrow: 'Financeiro',
+    description: 'Alocados ativos, custo operacional e venda projetada',
+    view: 'financeProjection',
+    roles: ['Admin']
+  },
   formBuilder: {
     label: 'Criar novo formulário',
     eyebrow: 'Admin',
@@ -283,6 +346,12 @@ const launcherNodes = {
     eyebrow: 'Contratos',
     description: 'Contratos ativos, documentos e exportação',
     view: 'allocateds'
+  },
+  workHours: {
+    label: 'Horas Trabalhadas',
+    eyebrow: 'Contratos',
+    description: 'Apontamento mensal, fechamento e exportação',
+    view: 'workHours'
   },
   huntings: {
     label: 'Huntings',
@@ -313,6 +382,13 @@ const launcherNodes = {
     eyebrow: 'Admin',
     description: 'Acessos, perfis e recuperação de senha',
     view: 'users'
+  },
+  businessCalendar: {
+    label: 'Feriados',
+    eyebrow: 'Cadastros',
+    description: 'Dias e horários sem expediente por cliente',
+    view: 'businessCalendar',
+    roles: ['Admin']
   },
   businessDashboard: {
     label: 'Dashboard',
@@ -402,7 +478,32 @@ function isCurrentUserAdmin() {
   return currentUserRole().toLowerCase() === 'admin';
 }
 
+function currentUserEmail() {
+  return String(state.currentUser?.email || session.user?.email || '').trim().toLowerCase();
+}
+
+function currentUserNameKey() {
+  return normalizeText(state.currentUser?.name || session.user?.name || '');
+}
+
+function activeAllocatedsForCurrentUser() {
+  const email = currentUserEmail();
+  const name = currentUserNameKey();
+  return state.allocateds.filter((allocated) => {
+    if (allocated.active !== true) return false;
+    const allocatedEmail = String(allocated.consultantEmail || '').trim().toLowerCase();
+    if (email && allocatedEmail && allocatedEmail === email) return true;
+    return name && normalizeText(allocated.consultant || '') === name;
+  });
+}
+
+function canCurrentUserAccessWorkHours() {
+  return isCurrentUserAdmin() || activeAllocatedsForCurrentUser().length > 0;
+}
+
 function canAccessLauncherNode(node) {
+  if (node?.view === 'workHours') return canCurrentUserAccessWorkHours();
+  if (node?.view === 'billingReport' || node === launcherNodes.billingReports) return canCurrentUserAccessWorkHours();
   if (!node?.roles?.length) return true;
   const role = currentUserRole().toLowerCase();
   return node.roles.some((allowedRole) => String(allowedRole).toLowerCase() === role);
@@ -410,6 +511,12 @@ function canAccessLauncherNode(node) {
 
 function canAccessView(viewId) {
   if (viewId === 'faturamento') return isCurrentUserAdmin();
+  if (viewId === 'taxReformSimulator') return isCurrentUserAdmin();
+  if (viewId === 'allocationPrices') return isCurrentUserAdmin();
+  if (viewId === 'financeProjection') return isCurrentUserAdmin();
+  if (viewId === 'businessCalendar') return isCurrentUserAdmin();
+  if (viewId === 'billingReport') return canCurrentUserAccessWorkHours();
+  if (viewId === 'workHours') return canCurrentUserAccessWorkHours();
   return true;
 }
 
@@ -419,6 +526,21 @@ function applyRoleVisibility() {
   });
   $$('[data-nav-group="finance"], [data-view="faturamento"]').forEach((element) => {
     element.hidden = !isCurrentUserAdmin();
+  });
+  $$('[data-view="taxReformSimulator"]').forEach((element) => {
+    element.hidden = !isCurrentUserAdmin();
+  });
+  $$('[data-view="allocationPrices"]').forEach((element) => {
+    element.hidden = !isCurrentUserAdmin();
+  });
+  $$('[data-view="financeProjection"]').forEach((element) => {
+    element.hidden = !isCurrentUserAdmin();
+  });
+  $$('[data-nav-group="billingReport"], [data-view="billingReport"]').forEach((element) => {
+    element.hidden = !canCurrentUserAccessWorkHours();
+  });
+  $$('[data-view="workHours"]').forEach((element) => {
+    element.hidden = !canCurrentUserAccessWorkHours();
   });
 }
 
@@ -456,31 +578,94 @@ function repairEncodingArtifacts(value) {
   let text = String(value ?? '');
   if (!text) return text;
 
-  if (/[ÃÂ]/.test(text)) {
+  const artifactScore = (candidate) => (
+    ((candidate.match(/[ÃÂ�]/g) || []).length * 3)
+    + ((candidate.match(/(?:â€|â€“|â€”|â€¢|ï¿½)/g) || []).length * 3)
+    + ((candidate.match(/\?\?(?:o|a|es|ao|oes|cao)/gi) || []).length * 2)
+  );
+
+  const decodeLatin1AsUtf8 = (candidate) => {
+    if (!/[ÃÂâï]/.test(candidate)) return candidate;
     try {
-      const decoded = new TextDecoder('utf-8', { fatal: false }).decode(
-        Uint8Array.from(Array.from(text, (char) => char.charCodeAt(0) & 0xff))
+      return new TextDecoder('utf-8', { fatal: false }).decode(
+        Uint8Array.from(Array.from(candidate, (char) => char.charCodeAt(0) & 0xff))
       );
-      const artifactCount = (candidate) => (candidate.match(/[ÃÂ�]/g) || []).length;
-      if (artifactCount(decoded) < artifactCount(text)) {
-        text = decoded;
-      }
     } catch {
-      // Keep original text when browser decoding is unavailable.
+      return candidate;
     }
+  };
+
+  for (let index = 0; index < 3; index += 1) {
+    const decoded = decodeLatin1AsUtf8(text);
+    if (decoded === text || artifactScore(decoded) >= artifactScore(text)) break;
+    text = decoded;
   }
 
-  return text
-    .replace(/Formul\?rios/g, 'Formulários')
-    .replace(/formul\?rios/g, 'formulários')
-    .replace(/Observa\?\?o/g, 'Observação')
-    .replace(/observa\?\?o/g, 'observação')
-    .replace(/Refei\?\?o/g, 'Refeição')
-    .replace(/refei\?\?o/g, 'refeição')
-    .replace(/aprova\?\?o/g, 'aprovação')
-    .replace(/Aprova\?\?o/g, 'Aprovação')
-    .replace(/([A-Za-zÀ-ÿ]+)\?\?es/g, '$1ções')
-    .replace(/([A-Za-zÀ-ÿ]+)\?\?o/g, '$1ção');
+  const repairs = [
+    [/\bFormul\?rios\b/g, 'Formulários'],
+    [/\bformul\?rios\b/g, 'formulários'],
+    [/\bUsu\?rios\b/g, 'Usuários'],
+    [/\busu\?rios\b/g, 'usuários'],
+    [/\bCurr\?culo\b/g, 'Currículo'],
+    [/\bcurr\?culo\b/g, 'currículo'],
+    [/\bCurr\?culos\b/g, 'Currículos'],
+    [/\bcurr\?culos\b/g, 'currículos'],
+    [/\bIngl\?s\b/g, 'Inglês'],
+    [/\bingl\?s\b/g, 'inglês'],
+    [/\bN\?vel\b/g, 'Nível'],
+    [/\bn\?vel\b/g, 'nível'],
+    [/\bT\?cnico\b/g, 'Técnico'],
+    [/\bt\?cnico\b/g, 'técnico'],
+    [/\bGest\?\?o\b/g, 'Gestão'],
+    [/\bgest\?\?o\b/g, 'gestão'],
+    [/\bS\?\?o\b/g, 'São'],
+    [/\bs\?\?o\b/g, 'são'],
+    [/\bS\?o\b/g, 'São'],
+    [/\bs\?o\b/g, 'são'],
+    [/\bN\?\?o\b/g, 'Não'],
+    [/\bn\?\?o\b/g, 'não'],
+    [/\bN\?o\b/g, 'Não'],
+    [/\bn\?o\b/g, 'não'],
+    [/\bJo\?\?o\b/g, 'João'],
+    [/\bjo\?\?o\b/g, 'joão'],
+    [/\bJo\?o\b/g, 'João'],
+    [/\bjo\?o\b/g, 'joão'],
+    [/\bM\?\?s\b/g, 'Mês'],
+    [/\bm\?\?s\b/g, 'mês'],
+    [/\bM\?s\b/g, 'Mês'],
+    [/\bm\?s\b/g, 'mês'],
+    [/\bV\?nculo\b/g, 'Vínculo'],
+    [/\bv\?nculo\b/g, 'vínculo'],
+    [/\bposs\?vel\b/g, 'possível'],
+    [/\bPoss\?vel\b/g, 'Possível'],
+    [/\bManuten\?\?o\b/g, 'Manutenção'],
+    [/\bmanuten\?\?o\b/g, 'manutenção'],
+    [/\bOp\?\?o\b/g, 'Opção'],
+    [/\bop\?\?o\b/g, 'opção'],
+    [/([Aa])\?\?es/g, '$1ções'],
+    [/([Ee])\?\?es/g, '$1ções'],
+    [/([Ii])\?\?es/g, '$1ções'],
+    [/([Oo])\?\?es/g, '$1ções'],
+    [/([Uu])\?\?es/g, '$1ções'],
+    [/([Aa])\?\?o/g, '$1ção'],
+    [/([Ee])\?\?o/g, '$1ção'],
+    [/([Ii])\?\?o/g, '$1ção'],
+    [/([Oo])\?\?o/g, '$1ção'],
+    [/([Uu])\?\?o/g, '$1ção']
+  ];
+
+  text = text
+    .replace(/_x000D_/gi, '\n')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
+    .replace(/[\u200B-\u200D\u2060\uFEFF\u00AD]/g, '')
+    .replace(/[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]/g, ' ');
+
+  for (const [pattern, replacement] of repairs) {
+    text = text.replace(pattern, replacement);
+  }
+
+  return text.normalize('NFC');
 }
 
 function sanitizeApiPayload(value) {
@@ -874,6 +1059,110 @@ function contactClientLabel(contact) {
   return [contact.name, contact.area, contact.role].filter(Boolean).join(' - ') || contact.id;
 }
 
+function contactById(contactId) {
+  return state.contactClients.find((contact) => contact.id === contactId) || null;
+}
+
+function contactsForClient(clientId) {
+  return state.contactClients
+    .filter((contact) => contact.clientId === clientId)
+    .sort((first, second) => String(first.name || '').localeCompare(String(second.name || ''), 'pt-BR', { sensitivity: 'base' }));
+}
+
+function contactTreeRows(contacts = []) {
+  const byParent = new Map();
+  const byId = new Map(contacts.map((contact) => [contact.id, contact]));
+  const rows = [];
+  const visited = new Set();
+
+  contacts.forEach((contact) => {
+    const parentId = byId.has(contact.parentContactId) ? contact.parentContactId : '';
+    if (!byParent.has(parentId)) byParent.set(parentId, []);
+    byParent.get(parentId).push(contact);
+  });
+
+  const visit = (contact, level) => {
+    if (!contact || visited.has(contact.id)) return;
+    visited.add(contact.id);
+    rows.push({ contact, level: Math.min(level, 5) });
+    (byParent.get(contact.id) || []).forEach((child) => visit(child, level + 1));
+  };
+
+  (byParent.get('') || []).forEach((contact) => visit(contact, 1));
+  contacts.forEach((contact) => visit(contact, 1));
+  return rows;
+}
+
+function contactManagerName(contact) {
+  const manager = contactById(contact?.parentContactId);
+  return manager && manager.clientId === contact?.clientId ? manager.name : '';
+}
+
+function clientManagerName(client) {
+  const manager = contactById(client?.managerContactId);
+  return manager && manager.clientId === client?.id ? manager.name : '';
+}
+
+function updateClientOrgChartOptions() {
+  const orgSelect = $('#clientOrgChartSelect');
+  const csvSelect = $('#clientCsvSelect');
+  const listFilter = $('#clientListFilter');
+  if (!orgSelect && !csvSelect && !listFilter) return;
+
+  const options = state.clients
+    .slice()
+    .sort((first, second) => first.customerName.localeCompare(second.customerName, 'pt-BR', { sensitivity: 'base' }))
+    .map((client) => `<option value="${escapeHtml(client.id)}">${escapeHtml(client.customerName)}</option>`)
+    .join('');
+  if (orgSelect) {
+    const current = orgSelect.value || state.editing.clientId || '';
+    orgSelect.innerHTML = '<option value="">Selecione</option>' + options;
+    orgSelect.value = current && state.clients.some((client) => client.id === current) ? current : '';
+  }
+  if (csvSelect) {
+    const current = csvSelect.value || '';
+    csvSelect.innerHTML = '<option value="">Todos</option>' + options;
+    csvSelect.value = current && state.clients.some((client) => client.id === current) ? current : '';
+  }
+  if (listFilter) {
+    const current = state.clientListFilter || listFilter.value || '';
+    listFilter.innerHTML = '<option value="">Todos</option>' + options;
+    listFilter.value = current && state.clients.some((client) => client.id === current) ? current : '';
+    state.clientListFilter = listFilter.value;
+  }
+}
+
+function renderContactNameWithLevel(contact, level = 1) {
+  const prefix = level > 1 ? `${'- '.repeat(level - 1)}` : '';
+  return `${prefix}${escapeHtml(contact.name || '-')}`;
+}
+
+function updateClientManagerContactOptions(selectedValue = $('#clientManagerContactSelect')?.value || '') {
+  const select = $('#clientManagerContactSelect');
+  if (!select) return;
+
+  const clientId = state.editing.clientId || '';
+  const contacts = contactsForClient(clientId);
+  select.innerHTML = `<option value="">${clientId ? 'Sem gestor definido' : 'Selecione um cliente'}</option>${contactTreeRows(contacts)
+    .map(({ contact, level }) => `<option value="${escapeHtml(contact.id)}">${'-- '.repeat(Math.max(0, level - 1))}${escapeHtml(contact.name || contact.id)}</option>`)
+    .join('')}`;
+  select.disabled = !clientId || !contacts.length;
+  select.value = contacts.some((contact) => contact.id === selectedValue) ? selectedValue : '';
+}
+
+function updateContactParentOptions(selectedValue = '', excludedContactId = state.editing.contactClientId || '') {
+  const select = $('#contactParentContactSelect');
+  const client = selectedClientForContacts();
+  if (!select) return;
+
+  const contacts = contactsForClient(client?.id || '').filter((contact) => contact.id !== excludedContactId);
+  select.innerHTML = '<option value="">Sem gestor</option>' + contactTreeRows(contacts)
+    .map(({ contact, level }) => `<option value="${escapeHtml(contact.id)}">${'-- '.repeat(Math.max(0, level - 1))}${escapeHtml(contact.name || contact.id)}</option>`)
+    .join('');
+  select.disabled = !contacts.length;
+  select.value = contacts.some((contact) => contact.id === selectedValue) ? selectedValue : '';
+}
+
 function updateOpportunityContactOptions(selectedValue = $('#opportunityForm select[name="contactClientId"]')?.value || '') {
   const form = $('#opportunityForm');
   const contactSelect = form?.elements.contactClientId;
@@ -1008,6 +1297,12 @@ function formatDateBR(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
   return date.toLocaleDateString('pt-BR');
+}
+
+function formatDateOnlyBR(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return formatDateBR(value);
+  return `${match[3]}/${match[2]}/${match[1]}`;
 }
 
 function opportunityAnalyticsRow(opportunity, includeClosedValue = false) {
@@ -1260,14 +1555,23 @@ function buildRowsCsv(rows, fallbackMessage = 'Nenhum registro encontrado para e
 function downloadCsv(filename, rows) {
   const csv = buildRowsCsv(rows);
   const blob = new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' });
+  downloadBlob(blob, `${filename}-${new Date().toISOString().slice(0, 10)}.csv`);
+}
+
+function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `${filename}-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.download = filename;
   document.body.appendChild(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function downloadHtml(filename, html) {
+  const blob = new Blob([`\ufeff${html}`], { type: 'text/html;charset=utf-8' });
+  downloadBlob(blob, `${filename}-${new Date().toISOString().slice(0, 10)}.html`);
 }
 
 function revokeDashboardAnalyticsCsvUrl(delay = 0) {
@@ -1829,8 +2133,12 @@ function renderAverageTable() {
 }
 
 function renderClients() {
-  $('#clientCount').textContent = state.clients.length;
-  $('#clientTable').innerHTML = state.clients
+  updateClientOrgChartOptions();
+  const filteredClients = state.clientListFilter
+    ? state.clients.filter((client) => client.id === state.clientListFilter)
+    : state.clients;
+  $('#clientCount').textContent = filteredClients.length;
+  $('#clientTable').innerHTML = filteredClients.length ? filteredClients
     .map(
       (client) => `
         <tr class="clickable-row" data-edit-client="${client.id}">
@@ -1838,6 +2146,7 @@ function renderClients() {
           <td>${escapeHtml(client.primaryContactName || '-')}</td>
           <td>${escapeHtml(client.primaryContactEmail || '-')}</td>
           <td>${escapeHtml(client.primaryContactPhone || '-')}</td>
+          <td>${escapeHtml(clientManagerName(client) || '-')}</td>
           <td>${escapeHtml(client.observation || '-')}</td>
           <td>
             <div class="row-actions">
@@ -1852,7 +2161,219 @@ function renderClients() {
         </tr>
       `
     )
+    .join('') : '<tr><td colspan="7">Nenhum cliente encontrado para o filtro selecionado.</td></tr>';
+}
+
+function clientCsvRows(clientId = $('#clientCsvSelect')?.value || '') {
+  return state.clients
+    .filter((client) => !clientId || client.id === clientId)
+    .slice()
+    .sort((first, second) => first.customerName.localeCompare(second.customerName, 'pt-BR', { sensitivity: 'base' }))
+    .map((client) => {
+      const contacts = contactsForClient(client.id);
+      return {
+        Cliente: client.customerName || '',
+        'Contato principal': client.primaryContactName || '',
+        'Email contato principal': client.primaryContactEmail || '',
+        'Telefone contato principal': client.primaryContactPhone || '',
+        'Nome do gestor': clientManagerName(client) || '',
+        'Qtd contatos cadastrados': contacts.length,
+        Observacao: client.observation || ''
+      };
+    });
+}
+
+function contactOrgCard(contact, level, children = []) {
+  const managerName = contactManagerName(contact);
+  const ledNames = children.map((child) => child.name).filter(Boolean);
+  return `
+    <article class="client-org-card client-org-level-${Math.min(level, 5)}">
+      <em>${children.length ? 'Gestor' : 'Contato'}</em>
+      <strong>${escapeHtml(contact.name || '-')}</strong>
+      <span>${escapeHtml(contact.role || 'Cargo não informado')}</span>
+      <small>${escapeHtml(contact.area || 'Área não informada')}</small>
+      <small><b>Gestor direto:</b> ${escapeHtml(managerName || 'Raiz do organograma')}</small>
+      <small><b>Lidera:</b> ${ledNames.length ? escapeHtml(ledNames.join(', ')) : 'Sem liderados cadastrados'}</small>
+      ${contact.email ? `<a href="mailto:${escapeHtml(contact.email)}">${escapeHtml(contact.email)}</a>` : ''}
+      ${contact.phone ? `<small>${escapeHtml(contact.phone)}</small>` : ''}
+    </article>
+  `;
+}
+
+function contactsGroupedByManager(contacts = []) {
+  const byId = new Map(contacts.map((contact) => [contact.id, contact]));
+  const byParent = new Map();
+  contacts.forEach((contact) => {
+    const parentId = byId.has(contact.parentContactId) ? contact.parentContactId : '';
+    if (!byParent.has(parentId)) byParent.set(parentId, []);
+    byParent.get(parentId).push(contact);
+  });
+
+  const sortContacts = (items = []) => items
+    .slice()
+    .sort((first, second) => String(first.name || '').localeCompare(String(second.name || ''), 'pt-BR', { sensitivity: 'base' }));
+
+  return { byId, byParent, sortContacts };
+}
+
+function clientOrgTree(contacts = [], client = null) {
+  const { byId, byParent, sortContacts } = contactsGroupedByManager(contacts);
+  const build = (contact, level = 1, visited = new Set()) => {
+    if (!contact || visited.has(contact.id)) return '';
+    const nextVisited = new Set(visited);
+    nextVisited.add(contact.id);
+    const children = sortContacts(byParent.get(contact.id) || []);
+    return `
+      <section class="client-org-node client-org-node-level-${Math.min(level, 5)}">
+        ${contactOrgCard(contact, level, children)}
+        ${children.length ? `
+          <div class="client-org-children" aria-label="Liderados por ${escapeHtml(contact.name || 'contato')}">
+            ${children.map((child) => build(child, level + 1, nextVisited)).join('')}
+          </div>
+        ` : ''}
+      </section>
+    `;
+  };
+
+  const roots = sortContacts(byParent.get('') || contacts.filter((contact) => !byId.has(contact.parentContactId)));
+  const managerRootId = client?.managerContactId || '';
+  const orderedRoots = managerRootId && roots.some((contact) => contact.id === managerRootId)
+    ? [roots.find((contact) => contact.id === managerRootId), ...roots.filter((contact) => contact.id !== managerRootId)]
+    : roots;
+
+  return orderedRoots
+    .map((contact) => build(contact, 1))
     .join('');
+}
+
+function clientOrgManagerSummary(contacts = []) {
+  const { byParent, sortContacts } = contactsGroupedByManager(contacts);
+  const managerRows = contacts
+    .map((contact) => ({
+      manager: contact,
+      children: sortContacts(byParent.get(contact.id) || [])
+    }))
+    .filter((row) => row.children.length)
+    .sort((first, second) => String(first.manager.name || '').localeCompare(String(second.manager.name || ''), 'pt-BR', { sensitivity: 'base' }));
+
+  if (!managerRows.length) {
+    return '<p class="empty-state">Nenhuma relação gestor/liderado cadastrada para este cliente.</p>';
+  }
+
+  return `
+    <section class="client-org-manager-summary">
+      <h3>Relação gestor / liderados</h3>
+      <div class="client-org-manager-grid">
+        ${managerRows.map(({ manager, children }) => `
+          <article>
+            <strong>Gestor: ${escapeHtml(manager.name || '-')}</strong>
+            <span>Liderados diretos: ${escapeHtml(children.map((child) => child.name || '-').join(', '))}</span>
+          </article>
+        `).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function buildClientOrgChartMarkup(client) {
+  if (!client) return '<p class="empty-state">Selecione um cliente para gerar o organograma de contatos.</p>';
+
+  const contacts = contactsForClient(client.id);
+
+  if (!contacts.length) {
+    return `
+      <div class="client-org-heading">
+        <strong>${escapeHtml(client.customerName)}</strong>
+        <span>Sem contatos cadastrados para organograma.</span>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="client-org-heading">
+      <strong>${escapeHtml(client.customerName)}</strong>
+      <span>Gestor do cliente: ${escapeHtml(clientManagerName(client) || 'não definido')}</span>
+    </div>
+    <div class="client-org-chart">
+      ${clientOrgTree(contacts, client)}
+    </div>
+    ${clientOrgManagerSummary(contacts)}
+  `;
+}
+
+function renderClientOrgChartReport(clientId = $('#clientOrgChartSelect')?.value || '') {
+  const report = $('#clientOrgChartReport');
+  if (!report) return;
+
+  const client = state.clients.find((item) => item.id === clientId);
+  report.innerHTML = buildClientOrgChartMarkup(client);
+}
+
+function safeFilename(value) {
+  return normalizeSearchValue(value)
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'relatorio';
+}
+
+function buildClientOrgChartDocument(clientId) {
+  const client = state.clients.find((item) => item.id === clientId);
+  if (!client) return '';
+  const generatedAt = new Date().toLocaleString('pt-BR');
+  const markup = buildClientOrgChartMarkup(client);
+  return `<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Organograma - ${escapeHtml(client.customerName)}</title>
+  <style>
+    :root { --accent: #00b894; --accent-dark: #008f73; --border: #d9e7e7; --muted: #5f7070; --text: #101820; }
+    * { box-sizing: border-box; }
+    body { color: var(--text); font-family: Arial, Helvetica, sans-serif; margin: 28px; }
+    header { border-bottom: 2px solid var(--border); margin-bottom: 24px; padding-bottom: 14px; }
+    h1 { font-size: 28px; margin: 0 0 6px; }
+    header p { color: var(--muted); margin: 0; }
+    .client-org-heading { align-items: baseline; border-bottom: 1px solid var(--border); display: flex; gap: 16px; margin-bottom: 18px; padding-bottom: 12px; }
+    .client-org-heading strong { font-size: 20px; }
+    .client-org-heading span { color: var(--muted); }
+    .client-org-chart { align-items: start; display: flex; gap: 28px; justify-content: center; min-width: 760px; padding: 6px 0 12px; }
+    .client-org-node { align-items: center; display: flex; flex-direction: column; page-break-inside: avoid; position: relative; }
+    .client-org-children { display: flex; gap: 16px; justify-content: center; margin-top: 34px; position: relative; }
+    .client-org-children::before { background: var(--border); content: ""; height: 18px; left: 50%; position: absolute; top: -34px; width: 2px; }
+    .client-org-children::after { background: var(--border); content: ""; height: 2px; left: 8%; position: absolute; right: 8%; top: -16px; }
+    .client-org-children > .client-org-node::before { background: var(--border); content: ""; height: 16px; left: 50%; position: absolute; top: -16px; width: 2px; }
+    .client-org-level { position: relative; page-break-inside: avoid; }
+    .client-org-level + .client-org-level::before { background: var(--border); content: ""; height: 22px; left: 50%; position: absolute; top: -22px; width: 2px; }
+    .client-org-level-label { color: var(--muted); display: block; font-size: 12px; font-weight: 800; margin-bottom: 8px; text-transform: uppercase; }
+    .client-org-row { align-items: stretch; display: flex; flex-wrap: wrap; gap: 14px; justify-content: center; position: relative; }
+    .client-org-level + .client-org-level .client-org-row::before { background: var(--border); content: ""; height: 2px; left: 10%; position: absolute; right: 10%; top: -12px; }
+    .client-org-card { background: #fff; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06); display: grid; gap: 5px; min-height: 112px; padding: 14px; position: relative; width: 230px; }
+    .client-org-card em { color: var(--accent-dark); font-size: 11px; font-style: normal; font-weight: 900; text-transform: uppercase; }
+    .client-org-card::before { background: var(--border); content: ""; height: 12px; left: 50%; position: absolute; top: -13px; width: 2px; }
+    .client-org-level:first-child .client-org-card::before { display: none; }
+    .client-org-card strong { font-size: 16px; }
+    .client-org-card span, .client-org-card small, .client-org-card a { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+    .client-org-card a { color: var(--accent-dark); text-decoration: none; }
+    .client-org-level-1 { border-color: var(--accent); box-shadow: 0 10px 24px rgba(0, 184, 148, 0.14); }
+    .client-org-level-1::after { background: var(--accent); content: ""; inset: 0 auto 0 0; position: absolute; width: 5px; }
+    .client-org-manager-summary { border-top: 1px solid var(--border); margin-top: 18px; padding-top: 18px; }
+    .client-org-manager-summary h3 { font-size: 16px; margin: 0 0 12px; }
+    .client-org-manager-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+    .client-org-manager-grid article { background: #f7fbfb; border: 1px solid var(--border); border-radius: 8px; display: grid; gap: 6px; padding: 12px; }
+    .client-org-manager-grid span { color: var(--muted); overflow-wrap: anywhere; }
+    .empty-state { color: var(--muted); }
+    @media print { body { margin: 14mm; } .client-org-card { box-shadow: none; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Organograma de contatos</h1>
+    <p>Cliente: ${escapeHtml(client.customerName)} | Gerado em ${escapeHtml(generatedAt)}</p>
+  </header>
+  <main>${markup}</main>
+</body>
+</html>`;
 }
 
 function selectedClientForContacts() {
@@ -1874,11 +2395,13 @@ function openContactClientModal(contact = null) {
 
   if (contact) {
     state.editing.contactClientId = contact.id;
+    updateContactParentOptions(contact.parentContactId || '', contact.id);
     fillForm('#contactClientForm', {
       clientId: contact.clientId,
       name: contact.name,
       area: contact.area,
       role: contact.role,
+      parentContactId: contact.parentContactId || '',
       phone: contact.phone,
       email: contact.email
     }, 'Atualizar contato');
@@ -1886,6 +2409,7 @@ function openContactClientModal(contact = null) {
   } else {
     clearEditing(form, 'contactClientId', 'Cadastrar contato');
     form.elements.clientId.value = client.id;
+    updateContactParentOptions('', '');
     if (title) title.textContent = 'Cadastrar contato';
   }
 
@@ -1906,21 +2430,21 @@ function renderContactClientListModal() {
 
   if (!client) {
     context.textContent = 'Cliente não selecionado';
-    table.innerHTML = '<tr><td colspan="6">Selecione um cliente para consultar contatos.</td></tr>';
+    table.innerHTML = '<tr><td colspan="7">Selecione um cliente para consultar contatos.</td></tr>';
     return;
   }
 
-  const contacts = state.contactClients
-    .filter((contact) => contact.clientId === client.id)
-    .sort((first, second) => String(first.name || '').localeCompare(String(second.name || ''), 'pt-BR', { sensitivity: 'base' }));
+  const contacts = contactsForClient(client.id);
+  const rows = contactTreeRows(contacts);
 
   context.textContent = `Cliente: ${client.customerName} · ${contacts.length} contato(s)`;
   table.innerHTML = contacts.length
-    ? contacts.map((contact) => `
+    ? rows.map(({ contact, level }) => `
       <tr>
-        <td><strong>${escapeHtml(contact.name || '-')}</strong></td>
+        <td><strong>${renderContactNameWithLevel(contact, level)}</strong></td>
         <td>${escapeHtml(contact.area || '-')}</td>
         <td>${escapeHtml(contact.role || '-')}</td>
+        <td>${escapeHtml(contactManagerName(contact) || '-')}</td>
         <td>${escapeHtml(contact.phone || '-')}</td>
         <td>${escapeHtml(contact.email || '-')}</td>
         <td>
@@ -1931,7 +2455,7 @@ function renderContactClientListModal() {
         </td>
       </tr>
     `).join('')
-    : '<tr><td colspan="6">Nenhum contato cadastrado para este cliente.</td></tr>';
+    : '<tr><td colspan="7">Nenhum contato cadastrado para este cliente.</td></tr>';
 }
 
 function openContactClientListModal(client) {
@@ -1969,22 +2493,24 @@ function renderContactClients() {
     : 'Selecione um cliente para cadastrar contatos';
 
   if (!client) {
-    table.innerHTML = '<tr><td colspan="6">Selecione um cliente para visualizar contatos.</td></tr>';
+    table.innerHTML = '<tr><td colspan="7">Selecione um cliente para visualizar contatos.</td></tr>';
     return;
   }
 
+  const rows = contactTreeRows(contactsForClient(client.id));
   table.innerHTML = contacts.length
-    ? contacts.map((contact) => `
+    ? rows.map(({ contact, level }) => `
       <tr class="clickable-row" data-edit-contact-client="${contact.id}">
-        <td><strong>${escapeHtml(contact.name || '-')}</strong></td>
+        <td><strong>${renderContactNameWithLevel(contact, level)}</strong></td>
         <td>${escapeHtml(contact.area || '-')}</td>
         <td>${escapeHtml(contact.role || '-')}</td>
+        <td>${escapeHtml(contactManagerName(contact) || '-')}</td>
         <td>${escapeHtml(contact.phone || '-')}</td>
         <td>${escapeHtml(contact.email || '-')}</td>
         <td><button class="ghost-action" type="button" data-delete-contact-client="${contact.id}" aria-label="Excluir contato">Excluir</button></td>
       </tr>
     `).join('')
-    : '<tr><td colspan="6">Nenhum contato cadastrado para este cliente.</td></tr>';
+    : '<tr><td colspan="7">Nenhum contato cadastrado para este cliente.</td></tr>';
 }
 
 function formatFaturamentoMonth(monthYear) {
@@ -2153,6 +2679,200 @@ function renderOpportunities() {
       `;
     })
     .join('');
+}
+
+function isApprovedOpportunityCandidate(candidate) {
+  return candidate?.approved === true || candidate?.stage === 'Aprovado' || candidate?.status === 'Aprovado';
+}
+
+function approvedCandidatesForOpportunity(opportunityId) {
+  return state.candidates.filter((candidate) => (
+    candidate.opportunityId === opportunityId && isApprovedOpportunityCandidate(candidate)
+  ));
+}
+
+function wonApprovalOptionsForOpportunity(opportunityId) {
+  const existingCandidateKeys = new Set(state.candidates
+    .filter((candidate) => candidate.opportunityId === opportunityId)
+    .flatMap((candidate) => [
+      `id:${candidate.id}`,
+      `curr:${candidate.curriculumId || ''}`,
+      `name:${normalizeText(candidate.name || '')}`
+    ]));
+
+  const interviewed = state.candidates
+    .filter((candidate) => candidate.opportunityId === opportunityId && !isApprovedOpportunityCandidate(candidate))
+    .map((candidate) => ({
+      type: 'candidate',
+      id: candidate.id,
+      name: candidate.name || '-',
+      detail: `Etapa atual: ${candidate.stage || '-'}`
+    }));
+
+  const selected = state.selectedCandidates
+    .filter((candidate) => {
+      if (candidate.opportunityId !== opportunityId) return false;
+      const keys = [
+        `curr:${candidate.curriculumId || candidate.curriculumControlId || ''}`,
+        `name:${normalizeText(candidate.name || '')}`
+      ];
+      return !keys.some((key) => existingCandidateKeys.has(key));
+    })
+    .map((candidate) => ({
+      type: 'selected',
+      id: candidate.id,
+      name: candidate.name || '-',
+      detail: `Candidato selecionado${candidate.score !== undefined ? ` - aderência ${candidate.score}%` : ''}`
+    }));
+
+  return [...interviewed, ...selected].sort((first, second) => (
+    String(first.name || '').localeCompare(String(second.name || ''), 'pt-BR', { sensitivity: 'base' })
+  ));
+}
+
+function ensureWonApprovalModal() {
+  let modal = $('#wonApprovalModal');
+  if (modal) return modal;
+
+  modal = document.createElement('div');
+  modal.id = 'wonApprovalModal';
+  modal.className = 'modal-backdrop hidden';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-labelledby', 'wonApprovalTitle');
+  modal.innerHTML = `
+    <section class="modal-card won-approval-card">
+      <div class="modal-heading">
+        <div>
+          <h2 id="wonApprovalTitle">Aprovar consultor</h2>
+          <span id="wonApprovalSummary">Obrigatório para alterar a oportunidade para WON</span>
+        </div>
+        <button class="surface-window-control surface-close-button" type="button" data-close-won-approval aria-label="Fechar painel" title="Fechar"></button>
+      </div>
+      <div class="won-approval-body">
+        <p class="helper-text" id="wonApprovalMessage"></p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Consultor</th>
+                <th>Origem / etapa</th>
+                <th>Ação</th>
+              </tr>
+            </thead>
+            <tbody id="wonApprovalTable"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="secondary-action" type="button" data-close-won-approval>Voltar</button>
+      </div>
+    </section>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', (event) => {
+    const approveButton = event.target.closest('[data-approve-won-consultant]');
+    if (approveButton) {
+      approveWonConsultantAndSave(approveButton);
+      return;
+    }
+    if (event.target === modal || event.target.closest('[data-close-won-approval]')) {
+      closeWonApprovalModal();
+    }
+  });
+  initPanelMaximizeControls();
+  return modal;
+}
+
+function closeWonApprovalModal() {
+  state.pendingWonOpportunitySave = null;
+  closeSurfaceDialog('#wonApprovalModal');
+}
+
+function openWonApprovalModal(opportunityId, payload, editingId) {
+  const modal = ensureWonApprovalModal();
+  const opportunity = state.opportunities.find((item) => item.id === opportunityId);
+  const options = wonApprovalOptionsForOpportunity(opportunityId);
+  state.pendingWonOpportunitySave = { opportunityId, payload, editingId };
+
+  const summary = $('#wonApprovalSummary');
+  if (summary) summary.textContent = opportunity ? opportunityLabel(opportunity) : 'Obrigatório para alterar a oportunidade para WON';
+
+  const message = $('#wonApprovalMessage');
+  if (message) {
+    message.textContent = options.length
+      ? 'Escolha o consultor que ficará aprovado nessa oportunidade. Depois da confirmação, a oportunidade será salva como WON.'
+      : 'Não há consultor selecionado ou em andamento para essa oportunidade. Selecione um consultor antes de alterar para WON.';
+  }
+
+  const table = $('#wonApprovalTable');
+  if (table) {
+    table.innerHTML = options.length
+      ? options.map((option) => `
+        <tr>
+          <td><strong>${escapeHtml(option.name)}</strong></td>
+          <td>${escapeHtml(option.detail)}</td>
+          <td><button class="primary-action compact-action" type="button" data-approve-won-consultant="${escapeHtml(option.id)}" data-won-option-type="${escapeHtml(option.type)}">Aprovar</button></td>
+        </tr>
+      `).join('')
+      : '<tr><td colspan="3">Nenhum consultor disponível para aprovação.</td></tr>';
+  }
+
+  modal.classList.remove('hidden');
+}
+
+async function approveWonConsultantAndSave(button) {
+  const pending = state.pendingWonOpportunitySave;
+  if (!pending || !button) return;
+
+  const optionId = button.dataset.approveWonConsultant;
+  const optionType = button.dataset.wonOptionType;
+  const originalText = setSubmitButtonBusy(button, 'Aprovando...');
+
+  try {
+    let candidateId = optionId;
+    if (optionType === 'selected') {
+      const advanced = await api(`/api/selected-candidates/${encodeURIComponent(optionId)}/advance`, { method: 'POST' });
+      upsertStateItem('candidates', advanced);
+      candidateId = advanced.id;
+    }
+
+    const approved = await api(`/api/candidates/${encodeURIComponent(candidateId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ approved: true, stage: 'Aprovado' })
+    });
+    upsertStateItem('candidates', approved);
+    await saveOpportunityPayload(pending.payload, pending.editingId, { skipWonApprovalCheck: true });
+    closeWonApprovalModal();
+    toast(`${approved.name || 'Consultor'} aprovado e oportunidade salva como WON.`);
+  } catch (error) {
+    toast(error.message || 'Não foi possível aprovar o consultor para WON.');
+  } finally {
+    restoreSubmitButton(button, originalText || 'Aprovar');
+  }
+}
+
+async function saveOpportunityPayload(payload, editingId, options = {}) {
+  if (
+    payload.status === 'WON'
+    && !options.skipWonApprovalCheck
+    && !approvedCandidatesForOpportunity(editingId).length
+  ) {
+    if (!editingId) {
+      toast('Cadastre a oportunidade antes de alterar para WON.');
+      return;
+    }
+    openWonApprovalModal(editingId, payload, editingId);
+    return;
+  }
+
+  await api(editingId ? `/api/opportunities/${editingId}` : '/api/opportunities', {
+    method: editingId ? 'PATCH' : 'POST',
+    body: JSON.stringify(payload)
+  });
+  clearEditing($('#opportunityForm'), 'opportunityId', 'Salvar oportunidade');
+  toast(editingId ? 'Oportunidade atualizada.' : 'Oportunidade cadastrada.');
+  await refresh();
 }
 
 function getHuntingOpportunities() {
@@ -3406,6 +4126,662 @@ function formatCurrency(value) {
   });
 }
 
+function formatRatio(value, digits = 2) {
+  return `${Number(value || 0).toLocaleString('pt-BR', {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits
+  })}%`;
+}
+
+const taxReformEstablishments = {
+  'sp-consultoria': {
+    label: 'Alcateia Sao Paulo - Consultoria / Alocacao',
+    municipalCode: '02881',
+    issRate: 0.029,
+    irrfRate: 0.015,
+    csrfRate: 0.0465,
+    origin: 'Nota fiscal observada - draft'
+  },
+  'barueri-hunting': {
+    label: 'Alcateia Barueri - Hunting',
+    municipalCode: '170401220',
+    issRate: 0.02,
+    irrfRate: 0.015,
+    csrfRate: 0,
+    origin: 'Nota fiscal observada - draft'
+  },
+  'barueri-consultoria': {
+    label: 'Alcateia Barueri - Consultoria / Alocacao',
+    municipalCode: '010601220',
+    issRate: 0.02,
+    irrfRate: 0.015,
+    csrfRate: 0.0465,
+    origin: 'Nota fiscal observada - draft'
+  }
+};
+
+const taxReformScenarioPresets = {
+  legal: { label: 'Legal / Base', ibsCbsRate: 26.5, creditUtilization: 90, risk: 'Medio' },
+  conservative: { label: 'Conservador', ibsCbsRate: 28, creditUtilization: 80, risk: 'Alto' },
+  probable: { label: 'Provavel', ibsCbsRate: 26.5, creditUtilization: 90, risk: 'Medio' },
+  optimistic: { label: 'Otimista', ibsCbsRate: 25, creditUtilization: 100, risk: 'Baixo' },
+  custom: { label: 'Personalizado', ibsCbsRate: 26.5, creditUtilization: 90, risk: 'A validar' }
+};
+
+const taxReformTransitionFactors = {
+  2026: { legacy: 1, reform: 0, note: 'Ano-teste: IBS/CBS destacados, sem efeito economico no draft.' },
+  2027: { legacy: 1, reform: 0, note: 'Premissa draft: manter comparacao economica ate parametrizacao CBS definitiva.' },
+  2028: { legacy: 1, reform: 0, note: 'Premissa draft: preparar transicao IBS sem alterar snapshot historico.' },
+  2029: { legacy: 0.9, reform: 0.1, note: 'Transicao IBS 10% e legado 90%.' },
+  2030: { legacy: 0.8, reform: 0.2, note: 'Transicao IBS 20% e legado 80%.' },
+  2031: { legacy: 0.7, reform: 0.3, note: 'Transicao IBS 30% e legado 70%.' },
+  2032: { legacy: 0.6, reform: 0.4, note: 'Transicao IBS 40% e legado 60%.' },
+  2033: { legacy: 0, reform: 1, note: 'Modelo integral pos-Reforma no draft.' }
+};
+
+function numericFormValue(form, name, fallback = 0) {
+  const element = form?.elements?.[name];
+  if (!element) return fallback;
+  if (element.classList?.contains('currency-input')) return parseCurrencyInput(element.value);
+  const value = Number(element.value);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function taxReformFormInputs(form) {
+  const startYear = Math.max(2026, Math.min(2033, Math.trunc(numericFormValue(form, 'startYear', 2026))));
+  const endYear = Math.max(startYear, Math.min(2033, Math.trunc(numericFormValue(form, 'endYear', 2033))));
+  return {
+    establishmentKey: form.elements.establishment.value,
+    service: form.elements.service.value,
+    mode: form.elements.mode.value,
+    scenarioKey: form.elements.scenario.value,
+    targetPrice: numericFormValue(form, 'targetPrice', 0),
+    priceCeiling: numericFormValue(form, 'priceCeiling', 0),
+    directCost: numericFormValue(form, 'directCost', 0),
+    indirectCost: numericFormValue(form, 'indirectCost', 0),
+    creditableExpenses: numericFormValue(form, 'creditableExpenses', 0),
+    targetMargin: numericFormValue(form, 'targetMargin', 0) / 100,
+    ibsCbsRate: numericFormValue(form, 'ibsCbsRate', 0) / 100,
+    creditUtilization: numericFormValue(form, 'creditUtilization', 0) / 100,
+    annualAdjustment: numericFormValue(form, 'annualAdjustment', 0) / 100,
+    costInflation: numericFormValue(form, 'costInflation', 0) / 100,
+    startYear,
+    endYear,
+    assumption: form.elements.assumption.value.trim()
+  };
+}
+
+function taxReformYearRows(inputs) {
+  const establishment = taxReformEstablishments[inputs.establishmentKey] || taxReformEstablishments['sp-consultoria'];
+  const scenario = taxReformScenarioPresets[inputs.scenarioKey] || taxReformScenarioPresets.probable;
+  const baseCost = inputs.directCost + inputs.indirectCost;
+  const rows = [];
+
+  for (let year = inputs.startYear; year <= inputs.endYear; year += 1) {
+    const elapsed = year - inputs.startYear;
+    const transition = taxReformTransitionFactors[year] || taxReformTransitionFactors[2033];
+    const costGross = baseCost * ((1 + inputs.costInflation) ** elapsed);
+    const creditableExpenses = inputs.creditableExpenses * ((1 + inputs.costInflation) ** elapsed);
+    const legacyEconomicRate = (establishment.issRate + 0.0925) * transition.legacy;
+    const reformEconomicRate = inputs.ibsCbsRate * transition.reform;
+    const economicRate = legacyEconomicRate + reformEconomicRate;
+    const credits = Math.min(creditableExpenses * inputs.ibsCbsRate * inputs.creditUtilization * Math.max(transition.reform, 0), reformEconomicRate * Math.max(inputs.targetPrice, 1));
+    const netCost = Math.max(costGross - credits, 0);
+    const denominator = 1 - inputs.targetMargin - economicRate;
+    const mathematicallyViable = denominator > 0;
+    let priceBase = inputs.targetPrice * ((1 + inputs.annualAdjustment) ** elapsed);
+
+    if (inputs.mode === 'preserveMargin') {
+      priceBase = mathematicallyViable ? netCost / denominator : 0;
+    }
+    if (inputs.mode === 'ceiling' && inputs.priceCeiling > 0) {
+      priceBase = inputs.priceCeiling * ((1 + inputs.annualAdjustment) ** elapsed);
+    }
+
+    const reformHighlighted = priceBase * reformEconomicRate;
+    const noteTotal = priceBase + reformHighlighted;
+    const grossEconomicTax = priceBase * economicRate;
+    const netEconomicTax = Math.max(grossEconomicTax - credits, 0);
+    const retentions = priceBase * (establishment.irrfRate + establishment.csrfRate);
+    const cashReceived = noteTotal - retentions;
+    const profit = priceBase - costGross - netEconomicTax;
+    const effectiveMargin = priceBase > 0 ? profit / priceBase : 0;
+    const netTaxRate = priceBase > 0 ? netEconomicTax / priceBase : 0;
+
+    rows.push({
+      year,
+      establishment,
+      scenario,
+      transition,
+      priceBase,
+      noteTotal,
+      costGross,
+      credits,
+      grossEconomicTax,
+      netEconomicTax,
+      retentions,
+      cashReceived,
+      profit,
+      effectiveMargin,
+      netTaxRate,
+      mathematicallyViable
+    });
+  }
+
+  return rows;
+}
+
+function classifyTaxReformRisk(lastRow, inputs) {
+  if (!lastRow?.mathematicallyViable) return 'Critico';
+  if (lastRow.effectiveMargin < 0) return 'Critico';
+  if (lastRow.effectiveMargin < inputs.targetMargin * 0.75) return 'Alto';
+  if (lastRow.netTaxRate >= 0.2) return 'Medio';
+  return taxReformScenarioPresets[inputs.scenarioKey]?.risk || 'Medio';
+}
+
+function calculateTaxReformSimulation(form) {
+  const inputs = taxReformFormInputs(form);
+  const rows = taxReformYearRows(inputs);
+  const firstRow = rows[0];
+  const lastRow = rows[rows.length - 1];
+  return {
+    inputs,
+    rows,
+    firstRow,
+    lastRow,
+    risk: classifyTaxReformRisk(lastRow, inputs)
+  };
+}
+
+function renderTaxReformSimulator() {
+  const simulation = state.taxReformSimulation;
+  const table = $('#taxReformResultTable');
+  if (!table) return;
+
+  if (!simulation?.rows?.length) {
+    table.innerHTML = '<tr><td colspan="9">Informe os parametros e calcule a simulacao.</td></tr>';
+    return;
+  }
+
+  const { rows, inputs, firstRow, lastRow, risk } = simulation;
+  $('#taxReformResultSummary').textContent = `${taxReformScenarioPresets[inputs.scenarioKey]?.label || 'Cenario'} - ${inputs.startYear} a ${inputs.endYear}`;
+
+  table.innerHTML = rows.map((row) => `
+    <tr>
+      <td><strong>${row.year}</strong></td>
+      <td>${formatCurrency(row.priceBase)}</td>
+      <td>${formatCurrency(row.noteTotal)}</td>
+      <td>${formatCurrency(row.netEconomicTax)}</td>
+      <td>${formatCurrency(row.credits)}</td>
+      <td>${formatCurrency(row.retentions)}</td>
+      <td>${formatCurrency(row.cashReceived)}</td>
+      <td>${formatCurrency(row.profit)}</td>
+      <td>${formatRatio(row.effectiveMargin * 100)}</td>
+    </tr>
+  `).join('');
+
+  const marginDelta = (lastRow.effectiveMargin - firstRow.effectiveMargin) * 100;
+  const taxDelta = (lastRow.netTaxRate - firstRow.netTaxRate) * 100;
+  const modeLabel = inputs.mode === 'preserveMargin' ? 'preservar margem' : inputs.mode === 'preservePrice' ? 'preservar preco' : 'respeitar preco-teto';
+  $('#taxReformConclusion').textContent = `No cenario ${taxReformScenarioPresets[inputs.scenarioKey]?.label || 'selecionado'}, a simulacao de ${modeLabel} encerra ${inputs.endYear} com margem efetiva de ${formatRatio(lastRow.effectiveMargin * 100)} e carga liquida de ${formatRatio(lastRow.netTaxRate * 100)}. A variacao frente ao ano inicial e de ${formatRatio(marginDelta)} na margem e ${formatRatio(taxDelta)} p.p. na carga. Risco ${risk}: validar creditos, retencoes e fonte fiscal antes de converter em proposta.`;
+
+  $('#taxReformMemory').innerHTML = [
+    `Filial: ${lastRow.establishment.label}; codigo municipal ${lastRow.establishment.municipalCode}; origem ${lastRow.establishment.origin}.`,
+    `Servico: ${inputs.service}; modo: ${modeLabel}; cenario: ${taxReformScenarioPresets[inputs.scenarioKey]?.label || '-'}.`,
+    `Custo bruto final: ${formatCurrency(lastRow.costGross)}; credito estimado: ${formatCurrency(lastRow.credits)}; custo liquido economico: ${formatCurrency(Math.max(lastRow.costGross - lastRow.credits, 0))}.`,
+    `Tributos economicos liquidos: ${formatCurrency(lastRow.netEconomicTax)}; retencoes: ${formatCurrency(lastRow.retentions)}; caixa recebido: ${formatCurrency(lastRow.cashReceived)}.`,
+    `Transicao ${lastRow.year}: ${lastRow.transition.note}`,
+    inputs.assumption ? `Premissa informada: ${inputs.assumption}` : 'Premissa: parametros em draft exigem validacao contabil/fiscal antes de publicacao.'
+  ].map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+}
+
+function allocationPurchaseShare(value) {
+  const [purchaseShare] = String(value || '50/50').split('/').map((part) => Number(part));
+  return Number.isFinite(purchaseShare) && purchaseShare > 0 ? purchaseShare / 100 : 0.5;
+}
+
+function calculateAllocationPriceResult(form = $('#allocationPriceForm')) {
+  if (!form) return 0;
+  const saleValue = parseCurrencyInput(form.elements.saleValue?.value || '');
+  const purchaseValue = parseCurrencyInput(form.elements.purchaseValue?.value || '');
+  const purchaseShare = allocationPurchaseShare(form.elements.ratio?.value);
+  const result = purchaseValue > 0
+    ? purchaseValue / purchaseShare
+    : saleValue * purchaseShare;
+  return Number.isFinite(result) ? result : 0;
+}
+
+function allocationPriceInputs(form = $('#allocationPriceForm')) {
+  if (!form) {
+    return {
+      purchaseValue: 0,
+      saleValue: 0,
+      ratio: '50/50',
+      purchaseShare: 0.5,
+      annualAdjustment: 0.04
+    };
+  }
+
+  const saleValue = parseCurrencyInput(form.elements.saleValue?.value || '');
+  const purchaseValue = parseCurrencyInput(form.elements.purchaseValue?.value || '');
+  const ratio = form.elements.ratio?.value || '50/50';
+  const purchaseShare = allocationPurchaseShare(ratio);
+  const annualAdjustment = numericFormValue(form, 'annualAdjustment', 4) / 100;
+  return {
+    purchaseValue: purchaseValue > 0 ? purchaseValue : saleValue * purchaseShare,
+    saleValue: saleValue > 0 ? saleValue : (purchaseValue > 0 ? purchaseValue / purchaseShare : 0),
+    ratio,
+    purchaseShare,
+    annualAdjustment
+  };
+}
+
+const allocationPriceTaxProfile = Object.freeze({
+  label: 'Alcateia Sao Paulo - Alocacao',
+  issRate: 0.029,
+  pisCofinsRate: 0.0925,
+  ibsCbsRate: 0.265,
+  creditableExpenseShare: 0.2,
+  creditUtilization: 0.9
+});
+
+function allocationForecastRows(form = $('#allocationPriceForm')) {
+  const inputs = allocationPriceInputs(form);
+  const currentBaselineTaxRate = allocationPriceTaxProfile.issRate + allocationPriceTaxProfile.pisCofinsRate;
+
+  return Object.entries(taxReformTransitionFactors)
+    .map(([year, transition]) => {
+      const numericYear = Number(year);
+      const yearsAfterBase = Math.max(numericYear - 2026, 0);
+      const adjustedPurchaseValue = inputs.purchaseValue * ((1 + inputs.annualAdjustment) ** yearsAfterBase);
+      const legacyEconomicRate = currentBaselineTaxRate * transition.legacy;
+      const reformGrossRate = allocationPriceTaxProfile.ibsCbsRate * transition.reform;
+      const estimatedCreditRate = allocationPriceTaxProfile.creditableExpenseShare
+        * allocationPriceTaxProfile.ibsCbsRate
+        * allocationPriceTaxProfile.creditUtilization
+        * transition.reform;
+      const netTaxRate = Math.max(legacyEconomicRate + reformGrossRate - estimatedCreditRate, 0);
+      const incrementalTaxRate = Math.max(netTaxRate - currentBaselineTaxRate, 0);
+      const denominator = inputs.purchaseShare - incrementalTaxRate;
+      const requiredSaleValue = denominator > 0 && adjustedPurchaseValue > 0
+        ? adjustedPurchaseValue / denominator
+        : 0;
+      const variation = inputs.saleValue > 0 ? (requiredSaleValue / inputs.saleValue) - 1 : 0;
+
+      return {
+        year: numericYear,
+        ratio: inputs.ratio,
+        purchaseValue: adjustedPurchaseValue,
+        baseSaleValue: inputs.saleValue,
+        netTaxRate,
+        incrementalTaxRate,
+        requiredSaleValue,
+        variation,
+        viable: denominator > 0
+      };
+    })
+    .filter((row) => row.year >= 2027 && row.year <= 2033)
+    .sort((first, second) => first.year - second.year);
+}
+
+function renderAllocationPriceResult() {
+  const resultField = $('#allocationPriceResult');
+  if (!resultField) return;
+  const form = $('#allocationPriceForm');
+  resultField.value = formatCurrencyInput(calculateAllocationPriceResult(form));
+
+  const inputs = allocationPriceInputs(form);
+  const summary = $('#allocationPriceForecastSummary');
+  if (summary) {
+    summary.textContent = inputs.purchaseValue > 0
+      ? `${allocationPriceTaxProfile.label}; razão ${inputs.ratio}, reajuste ${formatRatio(inputs.annualAdjustment * 100)} ao ano`
+      : 'Informe valor compra ou venda para projetar';
+  }
+
+  const strip = $('#allocationPriceForecastStrip');
+  if (!strip) return;
+  if (inputs.purchaseValue <= 0) {
+    strip.innerHTML = '<p class="empty-state">Informe valor compra ou valor venda para gerar a previsão anual.</p>';
+    return;
+  }
+  const rows = allocationForecastRows(form);
+  strip.innerHTML = rows.map((row) => `
+    <article class="allocation-forecast-card">
+      <span>${row.year}</span>
+      <strong>${row.viable ? formatCurrency(row.requiredSaleValue) : 'Inviavel'}</strong>
+      <small>Compra ${formatCurrency(row.purchaseValue)}</small>
+      <small>Impacto ${formatRatio(row.incrementalTaxRate * 100)}</small>
+      <small>Var. ${formatRatio(row.variation * 100)}</small>
+    </article>
+  `).join('');
+}
+
+function dateOnly(year, month, day) {
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function timeToMinutes(value) {
+  const match = String(value || '').match(/^(\d{2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+function timeOptionsHtml() {
+  const options = [];
+  for (let minute = 0; minute < 24 * 60; minute += 1) {
+    const hours = Math.floor(minute / 60);
+    const minutes = minute % 60;
+    const value = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    options.push(`<option value="${value}">${value}</option>`);
+  }
+  return options.join('');
+}
+
+function businessCalendarApplies(entry, dateValue, clientId = '') {
+  if (String(entry.date || '') !== dateValue) return false;
+  const entryClientId = String(entry.clientId || '').trim();
+  return !entryClientId || entryClientId === clientId;
+}
+
+function businessCalendarUnavailableHours(dateValue, clientId = '') {
+  const entries = (state.businessCalendar || []).filter((entry) => businessCalendarApplies(entry, dateValue, clientId));
+  if (entries.some((entry) => entry.allDay === true)) return 8;
+
+  const blockedHours = entries.reduce((total, entry) => {
+    const start = timeToMinutes(entry.startTime);
+    const end = timeToMinutes(entry.endTime);
+    if (start === null || end === null || end <= start) return total;
+    return total + ((end - start) / 60);
+  }, 0);
+  return Math.min(8, blockedHours);
+}
+
+function businessCalendarAvailableHoursForDate(year, month, day, clientId = '') {
+  const date = new Date(year, month - 1, day);
+  const weekDay = date.getDay();
+  const iso = dateOnly(year, month, day);
+  if (weekDay === 0 || weekDay === 6) return 0;
+  if (nationalHolidaySet(year).has(iso)) return 0;
+  return Math.max(0, 8 - businessCalendarUnavailableHours(iso, clientId));
+}
+
+function businessCalendarMonthAvailability(year, month, clientId = '') {
+  const days = new Date(year, month, 0).getDate();
+  let businessDays = 0;
+  let availableHours = 0;
+
+  for (let day = 1; day <= days; day += 1) {
+    const hours = businessCalendarAvailableHoursForDate(year, month, day, clientId);
+    if (hours > 0) businessDays += 1;
+    availableHours += hours;
+  }
+
+  return { businessDays, availableHours };
+}
+
+function addDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function easterSunday(year) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
+}
+
+function nationalHolidaySet(year) {
+  const easter = easterSunday(year);
+  const movable = [
+    addDays(easter, -48), // Segunda-feira de Carnaval
+    addDays(easter, -47), // Terça-feira de Carnaval
+    addDays(easter, -2), // Sexta-feira Santa
+    addDays(easter, 60) // Corpus Christi
+  ].map((date) => dateOnly(date.getFullYear(), date.getMonth() + 1, date.getDate()));
+
+  return new Set([
+    dateOnly(year, 1, 1),
+    dateOnly(year, 4, 21),
+    dateOnly(year, 5, 1),
+    dateOnly(year, 9, 7),
+    dateOnly(year, 10, 12),
+    dateOnly(year, 11, 2),
+    dateOnly(year, 11, 15),
+    dateOnly(year, 11, 20),
+    dateOnly(year, 12, 25),
+    ...movable
+  ]);
+}
+
+function businessDaysInMonth(year, month) {
+  return businessCalendarMonthAvailability(year, month).businessDays;
+}
+
+function nextProjectionMonths(count = 6, baseDate = new Date()) {
+  return Array.from({ length: count }, (_, index) => {
+    const date = new Date(baseDate.getFullYear(), baseDate.getMonth() + index + 1, 1);
+    return {
+      year: date.getFullYear(),
+      month: date.getMonth() + 1,
+      monthYear: dateOnly(date.getFullYear(), date.getMonth() + 1, 1).slice(0, 7),
+      label: date.toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' }).replace('.', '')
+    };
+  });
+}
+
+function allocatedActiveInMonth(allocated, year, month) {
+  if (allocated.active !== true) return false;
+
+  const monthStart = new Date(year, month - 1, 1);
+  const monthEnd = new Date(year, month, 0);
+  const startDate = allocated.startDate ? new Date(`${allocated.startDate}T00:00:00`) : null;
+  const endDate = allocated.endDate ? new Date(`${allocated.endDate}T00:00:00`) : null;
+
+  if (startDate && !Number.isNaN(startDate.getTime()) && startDate > monthEnd) return false;
+  if (endDate && !Number.isNaN(endDate.getTime()) && endDate < monthStart) return false;
+  return true;
+}
+
+function financeProjectionRows() {
+  return nextProjectionMonths(6).map((monthInfo) => {
+    const { businessDays, availableHours: globalAvailableHours } = businessCalendarMonthAvailability(monthInfo.year, monthInfo.month);
+    const monthlyAllocateds = state.allocateds.filter((allocated) => allocatedActiveInMonth(allocated, monthInfo.year, monthInfo.month));
+    const invalidAllocateds = monthlyAllocateds.filter((allocated) => !isValidProjectionAllocated(allocated));
+    const validAllocateds = monthlyAllocateds.filter((allocated) => isValidProjectionAllocated(allocated));
+    const operationalCost = validAllocateds.reduce((total, allocated) => (
+      total + Number(allocated.hourlyRate || 0) * businessCalendarMonthAvailability(monthInfo.year, monthInfo.month, allocated.clientId).availableHours
+    ), 0);
+    const projectedSale = validAllocateds.reduce((total, allocated) => (
+      total + Number(allocated.saleHourlyRate || 0) * businessCalendarMonthAvailability(monthInfo.year, monthInfo.month, allocated.clientId).availableHours
+    ), 0);
+    const projectedHours = validAllocateds.reduce((total, allocated) => (
+      total + businessCalendarMonthAvailability(monthInfo.year, monthInfo.month, allocated.clientId).availableHours
+    ), 0);
+
+    return {
+      ...monthInfo,
+      businessDays,
+      globalAvailableHours,
+      projectedHours,
+      allocatedCount: monthlyAllocateds.length,
+      projectedAllocatedCount: validAllocateds.length,
+      invalidAllocateds,
+      operationalCost,
+      projectedSale,
+      marginPercent: projectedSale > 0 ? ((projectedSale - operationalCost) / projectedSale) * 100 : 0
+    };
+  });
+}
+
+function isValidProjectionAllocated(allocated) {
+  const hourlyRate = Number(allocated.hourlyRate || 0);
+  const saleHourlyRate = Number(allocated.saleHourlyRate || 0);
+  if (!Number.isFinite(hourlyRate) || !Number.isFinite(saleHourlyRate)) return false;
+  if (hourlyRate <= 0 || saleHourlyRate <= 0) return false;
+  if (hourlyRate > 1000 || saleHourlyRate > 1000) return false;
+  if (hourlyRate > saleHourlyRate) return false;
+  return true;
+}
+
+function renderFinanceProjection() {
+  const grid = $('#financeProjectionCards');
+  if (!grid) return;
+
+  const rows = financeProjectionRows();
+  const summary = $('#financeProjectionSummary');
+  if (summary) {
+    const first = rows[0]?.label || '';
+    const last = rows[rows.length - 1]?.label || '';
+    summary.textContent = first && last
+      ? `${first} até ${last}; calendário nacional`
+      : 'Próximos 6 meses';
+  }
+
+  grid.innerHTML = rows.map((row) => `
+    <button class="finance-projection-card" type="button" data-open-active-allocateds="${escapeHtml(row.monthYear)}">
+      <span>${escapeHtml(row.label)}</span>
+      <strong>${row.allocatedCount}</strong>
+      <small>Qtde de alocados</small>
+      <div class="finance-projection-values">
+        <div>
+          <small>Custo operacional</small>
+          <b>${formatCurrency(row.operationalCost)}</b>
+        </div>
+        <div>
+          <small>Venda projetada</small>
+          <b>${formatCurrency(row.projectedSale)}</b>
+        </div>
+      </div>
+      ${row.invalidAllocateds.length ? `
+        <div class="finance-projection-alert">
+          ${row.invalidAllocateds.length} cadastro(s) fora da projeção por valor inconsistente
+        </div>
+      ` : ''}
+      <small>${row.businessDays} dias úteis / ${formatWorkHours(row.globalAvailableHours)} padrão</small>
+      <small>${formatWorkHours(row.projectedHours)} projetadas no calendário</small>
+      <small>Margem ${formatRatio(row.marginPercent)}</small>
+    </button>
+  `).join('');
+}
+
+function businessCalendarClientName(clientId) {
+  if (!clientId) return 'Todos';
+  return state.clients.find((client) => client.id === clientId)?.customerName || 'Cliente não encontrado';
+}
+
+function businessCalendarPeriodLabel(entry) {
+  return entry.allDay ? 'Dia inteiro' : `${entry.startTime || '00:00'} - ${entry.endTime || '23:59'}`;
+}
+
+function renderBusinessCalendarOptions() {
+  const startSelect = $('#businessCalendarStartTime');
+  const endSelect = $('#businessCalendarEndTime');
+  const options = timeOptionsHtml();
+  if (startSelect && !startSelect.options.length) {
+    startSelect.innerHTML = options;
+    startSelect.value = '00:00';
+  }
+  if (endSelect && !endSelect.options.length) {
+    endSelect.innerHTML = options;
+    endSelect.value = '23:59';
+  }
+
+  const clientSelect = $('#businessCalendarClientSelect');
+  if (clientSelect) {
+    const current = clientSelect.value || '';
+    clientSelect.innerHTML = '<option value="">Todos</option>' + state.clients
+      .slice()
+      .sort((first, second) => first.customerName.localeCompare(second.customerName, 'pt-BR', { sensitivity: 'base' }))
+      .map((client) => `<option value="${escapeHtml(client.id)}">${escapeHtml(client.customerName)}</option>`)
+      .join('');
+    clientSelect.value = current && state.clients.some((client) => client.id === current) ? current : '';
+  }
+}
+
+function syncBusinessCalendarTimeState() {
+  const form = $('#businessCalendarForm');
+  if (!form) return;
+  const allDay = form.elements.allDay?.checked ?? true;
+  ['startTime', 'endTime'].forEach((fieldName) => {
+    if (form.elements[fieldName]) form.elements[fieldName].disabled = allDay;
+  });
+}
+
+function renderBusinessCalendar() {
+  renderBusinessCalendarOptions();
+  syncBusinessCalendarTimeState();
+  const count = $('#businessCalendarCount');
+  if (count) count.textContent = state.businessCalendar.length;
+  const table = $('#businessCalendarTable');
+  if (!table) return;
+
+  const rows = (state.businessCalendar || [])
+    .slice()
+    .sort((first, second) => (
+      String(first.date || '').localeCompare(String(second.date || ''))
+      || businessCalendarClientName(first.clientId).localeCompare(businessCalendarClientName(second.clientId), 'pt-BR', { sensitivity: 'base' })
+    ));
+
+  table.innerHTML = rows.length
+    ? rows.map((entry) => `
+      <tr class="clickable-row" data-edit-business-calendar="${escapeHtml(entry.id)}">
+        <td><strong>${escapeHtml(formatDateOnlyBR(entry.date))}</strong></td>
+        <td>${escapeHtml(businessCalendarPeriodLabel(entry))}</td>
+        <td>${escapeHtml(businessCalendarClientName(entry.clientId))}</td>
+        <td>${escapeHtml(entry.reason || '-')}</td>
+        <td>${escapeHtml(entry.observation || '-')}</td>
+        <td><button class="ghost-action table-action" type="button" data-delete-business-calendar="${escapeHtml(entry.id)}">Excluir</button></td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="6">Nenhum feriado cadastrado.</td></tr>';
+}
+
+function loadBusinessCalendarForEdit(entry) {
+  state.editing.businessCalendarId = entry.id;
+  fillForm('#businessCalendarForm', {
+    date: entry.date,
+    allDay: entry.allDay ? 'on' : '',
+    startTime: entry.startTime || '00:00',
+    endTime: entry.endTime || '23:59',
+    clientId: entry.clientId || '',
+    reason: entry.reason,
+    observation: entry.observation
+  }, 'Atualizar feriado');
+  const form = $('#businessCalendarForm');
+  if (form?.elements.allDay) form.elements.allDay.checked = entry.allDay === true;
+  syncBusinessCalendarTimeState();
+  toast('Feriado carregado para atualização.');
+}
+
+function openActiveAllocatedsFromProjection() {
+  state.allocatedFilter = {
+    ...state.allocatedFilter,
+    type: '',
+    value: '',
+    status: 'active'
+  };
+  showView('allocateds');
+  renderAllocatedFilters();
+  renderAllocateds();
+}
+
+
 function renderAllocatedFilters() {
   const typeSelect = $('#allocatedFilterType');
   const valueSelect = $('#allocatedFilterValue');
@@ -3529,7 +4905,7 @@ async function exportAllocatedDocuments(button) {
   const templateId = $('#allocatedDocumentTemplate')?.value || 'all';
 
   if (!allocatedIds.length) {
-    toast('Selecione ao menos um alocado para gerar os formul?rios.');
+    toast('Selecione ao menos um alocado para gerar os formulários.');
     return;
   }
 
@@ -3549,7 +4925,7 @@ async function exportAllocatedDocuments(button) {
     });
       toast('Formulários gerados.');
   } catch (error) {
-    toast(error.message || 'N?o foi poss?vel gerar os formul?rios.');
+    toast(error.message || 'Não foi possível gerar os formulários.');
   } finally {
     if (button) {
       button.disabled = false;
@@ -3579,7 +4955,7 @@ function renderAllocateds() {
           <td>${allocated.phone || '-'}</td>
           <td>${allocated.consultantEmail || '-'}</td>
           <td>${allocated.startDate || '-'}</td>
-          <td>${allocated.active ? 'Sim' : 'N?o'}</td>
+          <td>${allocated.active ? 'Sim' : 'Não'}</td>
           <td>${allocated.endDate || '-'}</td>
           <td>${allocated.manager || '-'}</td>
           <td>${allocated.managerEmail || '-'}</td>
@@ -3589,6 +4965,400 @@ function renderAllocateds() {
     })
     .join('');
   updateAllocatedSelectionState(allocateds);
+}
+
+function workHourAllocatedOptions() {
+  const rows = isCurrentUserAdmin()
+    ? state.allocateds.filter((allocated) => allocated.active === true)
+    : activeAllocatedsForCurrentUser();
+  return rows
+    .slice()
+    .sort((first, second) => String(first.consultant || '').localeCompare(String(second.consultant || ''), 'pt-BR', { sensitivity: 'base' }));
+}
+
+function workHourClientName(allocatedId) {
+  const allocated = state.allocateds.find((item) => item.id === allocatedId);
+  const client = state.clients.find((item) => item.id === allocated?.clientId);
+  return allocated?.clientName || client?.customerName || '';
+}
+
+function formatWorkHours(value) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number)) return '-';
+  const sign = number < 0 ? '-' : '';
+  const absolute = Math.abs(number);
+  const hours = Math.trunc(absolute);
+  const minutes = Math.round((absolute - hours) * 60);
+  return `${sign}${hours}H${String(minutes).padStart(2, '0')}`;
+}
+
+function currentMonthValue() {
+  return new Date().toISOString().slice(0, 7);
+}
+
+function renderWorkHourSelectors() {
+  const allocateds = workHourAllocatedOptions();
+  const options = allocateds.map((allocated) => {
+    const clientName = workHourClientName(allocated.id);
+    return `<option value="${escapeHtml(allocated.id)}">${escapeHtml([allocated.consultant, clientName].filter(Boolean).join(' - '))}</option>`;
+  }).join('');
+
+  ['#workHourAllocatedSelect', '#workHourCloseAllocatedSelect'].forEach((selector) => {
+    const select = $(selector);
+    if (!select) return;
+    const current = select.value || allocateds[0]?.id || '';
+    select.innerHTML = options || '<option value="">Nenhum alocado ativo disponível</option>';
+    select.value = allocateds.some((allocated) => allocated.id === current) ? current : allocateds[0]?.id || '';
+  });
+
+  const filterAllocated = $('#workHourFilterAllocated');
+  if (filterAllocated) {
+    const current = state.workHourFilter.allocatedId || filterAllocated.value || '';
+    filterAllocated.innerHTML = '<option value="">Todos</option>' + options;
+    filterAllocated.value = allocateds.some((allocated) => allocated.id === current) ? current : '';
+    state.workHourFilter.allocatedId = filterAllocated.value;
+  }
+
+  const filterClient = $('#workHourFilterClient');
+  if (filterClient) {
+    const clientIds = new Set(allocateds.map((allocated) => allocated.clientId).filter(Boolean));
+    const current = state.workHourFilter.clientId || filterClient.value || '';
+    filterClient.innerHTML = '<option value="">Todos</option>' + state.clients
+      .filter((client) => clientIds.has(client.id))
+      .sort((first, second) => first.customerName.localeCompare(second.customerName, 'pt-BR', { sensitivity: 'base' }))
+      .map((client) => `<option value="${escapeHtml(client.id)}">${escapeHtml(client.customerName)}</option>`)
+      .join('');
+    filterClient.value = clientIds.has(current) ? current : '';
+    state.workHourFilter.clientId = filterClient.value;
+  }
+
+  const selectedAllocatedId = $('#workHourAllocatedSelect')?.value || '';
+  const clientField = $('#workHourClientName');
+  if (clientField) clientField.value = workHourClientName(selectedAllocatedId);
+
+  const closeMonth = $('#workHourCloseMonth');
+  if (closeMonth && !closeMonth.value) closeMonth.value = currentMonthValue();
+  renderWorkHourClosureStatus();
+}
+
+function getFilteredWorkHours() {
+  const allowedAllocatedIds = new Set(workHourAllocatedOptions().map((allocated) => allocated.id));
+  let rows = state.workHours.filter((entry) => allowedAllocatedIds.has(entry.allocatedId));
+  const { allocatedId, clientId, dateFrom, dateTo } = state.workHourFilter;
+
+  if (allocatedId) rows = rows.filter((entry) => entry.allocatedId === allocatedId);
+  if (clientId) rows = rows.filter((entry) => entry.clientId === clientId);
+  if (dateFrom) rows = rows.filter((entry) => String(entry.date || '') >= dateFrom);
+  if (dateTo) rows = rows.filter((entry) => String(entry.date || '') <= dateTo);
+
+  return rows.sort((first, second) => String(second.date || '').localeCompare(String(first.date || '')));
+}
+
+function workHourCsvRows(rows = getFilteredWorkHours()) {
+  return rows.map((entry) => ({
+    allocatedId: entry.allocatedId || '',
+    Consultor: entry.consultantName || '',
+    Data: entry.date || '',
+    'Horas Trabalhadas': formatWorkHours(entry.hours),
+    Cliente: workHourClientName(entry.allocatedId),
+    Projeto: entry.project || '',
+    Observacao: entry.observation || ''
+  }));
+}
+
+function renderWorkHourClosureStatus() {
+  const element = $('#workHourClosureStatus');
+  if (!element) return;
+  const allocatedId = $('#workHourCloseAllocatedSelect')?.value || '';
+  const monthYear = $('#workHourCloseMonth')?.value || '';
+  const closure = state.workHourClosures.find((item) => item.allocatedId === allocatedId && item.monthYear === monthYear);
+  if (!allocatedId || !monthYear) {
+    element.textContent = '';
+    return;
+  }
+  if (!closure) {
+    element.textContent = 'Período ainda não finalizado.';
+    return;
+  }
+  const missing = closure.missingBusinessDays?.length
+    ? ` Dias úteis sem apontamento: ${closure.missingBusinessDays.join(', ')}.`
+    : ' Todos os dias úteis preenchidos.';
+  const finalizedAt = new Date(closure.finalizedAt || closure.updatedAt || Date.now());
+  element.textContent = `Finalizado em ${formatDateTimeBR(finalizedAt)}.${missing}`;
+}
+
+function renderWorkHours() {
+  renderWorkHourSelectors();
+  const accessSummary = $('#workHourAccessSummary');
+  if (accessSummary) {
+    accessSummary.textContent = isCurrentUserAdmin()
+      ? 'Admin: consulta, importação e exportação geral'
+      : 'Consultor: apontamento dos seus contratos ativos';
+  }
+
+  const rows = getFilteredWorkHours();
+  const count = $('#workHourCount');
+  if (count) count.textContent = rows.length;
+  const table = $('#workHourTable');
+  if (!table) return;
+
+  table.innerHTML = rows.map((entry) => `
+    <tr>
+      <td>${escapeHtml(entry.consultantName || '-')}</td>
+      <td>${escapeHtml(entry.date || '-')}</td>
+      <td>${escapeHtml(formatWorkHours(entry.hours))}</td>
+      <td>${escapeHtml(workHourClientName(entry.allocatedId) || '-')}</td>
+      <td>${escapeHtml(entry.project || '-')}</td>
+      <td>${escapeHtml(entry.observation || '-')}</td>
+    </tr>
+  `).join('');
+}
+
+function parseWorkHourCsv(text) {
+  const lines = String(text || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (!lines.length) return [];
+  const separator = lines[0].includes(';') ? ';' : ',';
+  const headers = lines[0].split(separator).map((header) => normalizeText(header));
+  const keyFor = (aliases) => headers.findIndex((header) => aliases.includes(header));
+  const indexes = {
+    allocatedId: keyFor(['allocatedid', 'consultorid', 'idconsultor', 'id']),
+    date: keyFor(['date', 'data']),
+    hours: keyFor(['hours', 'horas', 'horastrabalhadas', 'horas trabalhadas']),
+    project: keyFor(['project', 'projeto']),
+    observation: keyFor(['observation', 'observacao'])
+  };
+  return lines.slice(1).map((line) => {
+    const cells = line.split(separator).map((cell) => cell.trim());
+    return {
+      allocatedId: cells[indexes.allocatedId] || '',
+      date: cells[indexes.date] || '',
+      hours: String(cells[indexes.hours] || '').replace(',', '.'),
+      project: indexes.project >= 0 ? cells[indexes.project] || '' : '',
+      observation: indexes.observation >= 0 ? cells[indexes.observation] || '' : ''
+    };
+  });
+}
+
+async function importWorkHoursFromFile(button) {
+  const file = $('#workHourImportFile')?.files?.[0];
+  if (!file) {
+    toast('Selecione um arquivo CSV para importar.');
+    return;
+  }
+  const originalText = setSubmitButtonBusy(button, 'Importando...');
+  try {
+    const rows = parseWorkHourCsv(await file.text());
+    const result = await api('/api/work-hours/import', {
+      method: 'POST',
+      body: JSON.stringify({ rows })
+    });
+    await refresh();
+    toast(`${result.imported || 0} apontamento(s) importado(s).`);
+  } catch (error) {
+    toast(error.message || 'Não foi possível importar as horas.');
+  } finally {
+    restoreSubmitButton(button, originalText || 'Importar CSV');
+  }
+}
+
+async function finalizeWorkHourPeriod(button, confirmMissingDays = false) {
+  const allocatedId = $('#workHourCloseAllocatedSelect')?.value || '';
+  const monthYear = $('#workHourCloseMonth')?.value || '';
+  if (!allocatedId || !monthYear) {
+    toast('Informe consultor e mês para finalizar.');
+    return;
+  }
+
+  const originalText = setSubmitButtonBusy(button, 'Finalizando...');
+  try {
+    const response = await fetch('/api/work-hours/finalize', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(session.token ? { Authorization: `Bearer ${session.token}` } : {})
+      },
+      body: JSON.stringify({ allocatedId, monthYear, confirmMissingDays })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (response.status === 409 && payload.missingBusinessDays?.length) {
+      const confirmed = window.confirm(`Existem dias úteis sem apontamento: ${payload.missingBusinessDays.join(', ')}. Deseja finalizar mesmo assim?`);
+      if (confirmed) {
+        await finalizeWorkHourPeriod(button, true);
+      }
+      return;
+    }
+    if (!response.ok) {
+      throw new Error(repairEncodingArtifacts(payload.error || 'Não foi possível finalizar o período.'));
+    }
+    upsertStateItem('workHourClosures', sanitizeApiPayload(payload));
+    renderWorkHours();
+    toast('Período finalizado e ADMINs notificados.');
+  } catch (error) {
+    toast(error.message || 'Não foi possível finalizar o período.');
+  } finally {
+    restoreSubmitButton(button, originalText || 'Finalizar período');
+  }
+}
+
+function billingReportRows() {
+  const grouped = new Map();
+  for (const entry of state.workHours || []) {
+    const allocated = state.allocateds.find((item) => item.id === entry.allocatedId);
+    if (!allocated) continue;
+    const monthYear = String(entry.date || '').slice(0, 7);
+    if (!monthYear) continue;
+    const key = `${entry.allocatedId}|${monthYear}`;
+    const current = grouped.get(key) || {
+      allocated,
+      client: state.clients.find((item) => item.id === allocated.clientId),
+      monthYear,
+      hours: 0
+    };
+    current.hours += Number(entry.hours || 0);
+    grouped.set(key, current);
+  }
+
+  let rows = Array.from(grouped.values()).map((row) => {
+    const saleHourlyRate = Number(row.allocated.saleHourlyRate || 0);
+    const closure = state.workHourClosures.find((item) => item.allocatedId === row.allocated.id && item.monthYear === row.monthYear);
+    const [year, month] = String(row.monthYear || '').split('-').map(Number);
+    const calendarHours = year && month
+      ? businessCalendarMonthAvailability(year, month, row.allocated.clientId).availableHours
+      : 0;
+    return {
+      ...row,
+      saleHourlyRate,
+      calendarHours,
+      hourBalance: Number((row.hours - calendarHours).toFixed(2)),
+      total: Number((row.hours * saleHourlyRate).toFixed(2)),
+      closureStatus: closure ? 'Finalizado' : 'Aberto'
+    };
+  });
+
+  const { monthYear, clientId, allocatedId } = state.billingReportFilter;
+  if (monthYear) rows = rows.filter((row) => row.monthYear === monthYear);
+  if (clientId) rows = rows.filter((row) => row.allocated.clientId === clientId);
+  if (allocatedId) rows = rows.filter((row) => row.allocated.id === allocatedId);
+
+  return rows.sort((first, second) => (
+    String(first.client?.customerName || '').localeCompare(String(second.client?.customerName || ''), 'pt-BR', { sensitivity: 'base' })
+    || String(first.allocated.consultant || '').localeCompare(String(second.allocated.consultant || ''), 'pt-BR', { sensitivity: 'base' })
+    || String(second.monthYear || '').localeCompare(String(first.monthYear || ''))
+  ));
+}
+
+function renderBillingReportFilters() {
+  const monthFilter = $('#billingReportMonthFilter');
+  if (monthFilter) monthFilter.value = state.billingReportFilter.monthYear || '';
+
+  const clientFilter = $('#billingReportClientFilter');
+  if (clientFilter) {
+    const clientIds = new Set((state.workHours || []).map((entry) => {
+      const allocated = state.allocateds.find((item) => item.id === entry.allocatedId);
+      return allocated?.clientId || '';
+    }).filter(Boolean));
+    const current = state.billingReportFilter.clientId || '';
+    clientFilter.innerHTML = '<option value="">Todos</option>' + state.clients
+      .filter((client) => clientIds.has(client.id))
+      .sort((first, second) => first.customerName.localeCompare(second.customerName, 'pt-BR', { sensitivity: 'base' }))
+      .map((client) => `<option value="${escapeHtml(client.id)}">${escapeHtml(client.customerName)}</option>`)
+      .join('');
+    clientFilter.value = clientIds.has(current) ? current : '';
+    state.billingReportFilter.clientId = clientFilter.value;
+  }
+
+  const allocatedFilter = $('#billingReportAllocatedFilter');
+  if (allocatedFilter) {
+    const allocatedIds = new Set((state.workHours || []).map((entry) => entry.allocatedId).filter(Boolean));
+    const current = state.billingReportFilter.allocatedId || '';
+    allocatedFilter.innerHTML = '<option value="">Todos</option>' + state.allocateds
+      .filter((allocated) => allocatedIds.has(allocated.id))
+      .sort((first, second) => String(first.consultant || '').localeCompare(String(second.consultant || ''), 'pt-BR', { sensitivity: 'base' }))
+      .map((allocated) => `<option value="${escapeHtml(allocated.id)}">${escapeHtml(allocated.consultant || allocated.code || allocated.id)}</option>`)
+      .join('');
+    allocatedFilter.value = allocatedIds.has(current) ? current : '';
+    state.billingReportFilter.allocatedId = allocatedFilter.value;
+  }
+}
+
+function renderBillingEntrySelectors() {
+  const select = $('#billingEntryAllocatedSelect');
+  if (!select) return;
+
+  const allocateds = workHourAllocatedOptions();
+  const current = select.value || allocateds[0]?.id || '';
+  select.innerHTML = allocateds.length
+    ? allocateds.map((allocated) => {
+      const clientName = workHourClientName(allocated.id);
+      return `<option value="${escapeHtml(allocated.id)}">${escapeHtml([allocated.consultant, clientName].filter(Boolean).join(' - '))}</option>`;
+    }).join('')
+    : '<option value="">Nenhum alocado ativo disponível</option>';
+  select.value = allocateds.some((allocated) => allocated.id === current) ? current : allocateds[0]?.id || '';
+
+  const clientField = $('#billingEntryClientName');
+  if (clientField) clientField.value = workHourClientName(select.value);
+
+  const summary = $('#billingEntryAccessSummary');
+  if (summary) {
+    summary.textContent = isCurrentUserAdmin()
+      ? 'Admin: apontamento para todos os consultores ativos'
+      : 'Apontamento restrito ao seu contrato ativo';
+  }
+}
+
+function renderBillingReportPanels() {
+  const activePanel = ['query', 'entry'].includes(state.activeBillingReportPanel)
+    ? state.activeBillingReportPanel
+    : 'query';
+  state.activeBillingReportPanel = activePanel;
+
+  $$('[data-billing-panel]').forEach((panel) => {
+    panel.hidden = panel.dataset.billingPanel !== activePanel;
+  });
+}
+
+function billingReportCsvRows(rows = billingReportRows()) {
+  return rows.map((row) => ({
+    Cliente: row.client?.customerName || '',
+    Consultor: row.allocated.consultant || '',
+    Mes: row.monthYear,
+    'Horas apontadas': row.hours,
+    'Horas calendario': row.calendarHours,
+    'Saldo horas': row.hourBalance,
+    'Valor hora venda': formatCurrency(row.saleHourlyRate),
+    'Total billing': formatCurrency(row.total),
+    'Status fechamento': row.closureStatus
+  }));
+}
+
+function renderBillingReport() {
+  renderBillingReportPanels();
+  renderBillingEntrySelectors();
+  renderBillingReportFilters();
+  const rows = billingReportRows();
+  const count = $('#billingReportCount');
+  if (count) count.textContent = rows.length;
+  const table = $('#billingReportTable');
+  if (!table) return;
+
+  if (!rows.length) {
+    table.innerHTML = '<tr><td colspan="9">Nenhum apontamento encontrado para o filtro atual.</td></tr>';
+    return;
+  }
+
+  table.innerHTML = rows.map((row) => `
+    <tr>
+      <td>${escapeHtml(row.client?.customerName || '-')}</td>
+      <td>${escapeHtml(row.allocated.consultant || '-')}</td>
+      <td>${escapeHtml(row.monthYear || '-')}</td>
+      <td>${escapeHtml(formatWorkHours(row.hours))}</td>
+      <td>${escapeHtml(formatWorkHours(row.calendarHours))}</td>
+      <td>${escapeHtml(formatWorkHours(row.hourBalance))}</td>
+      <td>${escapeHtml(formatCurrency(row.saleHourlyRate))}</td>
+      <td>${escapeHtml(formatCurrency(row.total))}</td>
+      <td>${escapeHtml(row.closureStatus)}</td>
+    </tr>
+  `).join('');
 }
 
 function rateCardMaximum(rate) {
@@ -4695,6 +6465,12 @@ function render() {
   renderSelectedCandidates();
   renderAllocatedFilters();
   renderAllocateds();
+  renderWorkHours();
+  renderBillingReport();
+  renderTaxReformSimulator();
+  renderAllocationPriceResult();
+  renderFinanceProjection();
+  renderBusinessCalendar();
   renderRateCardFilters();
   renderRateCards();
   renderCandidatePoolFilters();
@@ -4702,6 +6478,7 @@ function render() {
   renderUsers();
   renderFormsPanel();
   bindCurrencyInputs();
+  initResizableTables();
 }
 
 function setNavGroupOpen(groupId, open) {
@@ -4743,6 +6520,7 @@ function showView(viewId) {
   document.body.classList.toggle('module-view-active', viewId !== 'dashboard');
   $('#viewTitle').textContent = viewTitles[viewId] || 'Gestão do Negócio Alcateia';
   if (viewId === 'forms') renderFormsPanel();
+  window.setTimeout(() => maximizeActiveViewPrimaryPanel(viewId), 0);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -4811,15 +6589,23 @@ function clearEditing(form, key, submitLabel) {
 function loadClientForEdit(client) {
   state.editing.clientId = client.id;
   state.editing.contactClientId = '';
+  state.clientListFilter = client.id;
+  const listFilter = $('#clientListFilter');
+  if (listFilter) listFilter.value = client.id;
+  const reportSelect = $('#clientOrgChartSelect');
+  if (reportSelect) reportSelect.value = client.id;
+  updateClientManagerContactOptions(client.managerContactId || '');
   fillForm('#clientForm', {
     customerName: client.customerName,
     primaryContactName: client.primaryContactName,
     primaryContactEmail: client.primaryContactEmail,
     primaryContactPhone: client.primaryContactPhone,
+    managerContactId: client.managerContactId || '',
     observation: client.observation
   }, 'Atualizar cliente');
   closeContactClientModal();
   renderContactClients();
+  renderClientOrgChartReport(client.id);
   toast('Cliente carregado para atualização.');
 }
 
@@ -5156,6 +6942,28 @@ function setSurfaceMaximized(surface, isMaximized) {
   document.body.classList.toggle('panel-is-maximized', Boolean($('.panel-maximized')));
 }
 
+function maximizeActiveViewPrimaryPanel(viewId) {
+  if (viewId === 'dashboard') return;
+  const view = $(`.view#${CSS.escape(viewId)}`);
+  if (!view) return;
+  if (view.hasAttribute('data-no-auto-maximize')) {
+    $$('.panel-maximized').forEach((panel) => setSurfaceMaximized(panel, false));
+    return;
+  }
+  const panels = $$('.panel', view).filter((panel) => !panel.hidden);
+  if (panels.length !== 1) {
+    $$('.panel-maximized').forEach((panel) => setSurfaceMaximized(panel, false));
+    return;
+  }
+  const explicitPanel = panels.find((panel) => panel.hasAttribute('data-auto-maximize-primary'));
+  const targetPanel = explicitPanel || panels[0];
+  if (!targetPanel || targetPanel.classList.contains('panel-maximized')) return;
+  $$('.panel-maximized')
+    .filter((panel) => panel !== targetPanel)
+    .forEach((panel) => setSurfaceMaximized(panel, false));
+  setSurfaceMaximized(targetPanel, true);
+}
+
 function closeSurfaceDialog(dialogOrSelector) {
   const dialog = typeof dialogOrSelector === 'string' ? $(dialogOrSelector) : dialogOrSelector;
   if (!dialog) return;
@@ -5198,59 +7006,44 @@ function standardizeSurfaceCloseButton(surface, heading, actions) {
   actions.append(closeButton);
 }
 
+function removeLegacySurfaceWindowControls(surface) {
+  $$('[data-panel-minimize], [data-panel-maximize], [data-surface-collapse-close]', surface)
+    .forEach((button) => button.remove());
+}
+
+function ensurePanelReturnButton(surface, heading, actions) {
+  const view = surface.closest('.view');
+  if (!view || view.id === 'dashboard') return;
+
+  let button = $('[data-panel-return]', heading);
+  if (!button) {
+    button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.panelReturn = 'true';
+    button.textContent = 'Voltar';
+    button.addEventListener('click', returnToPreviousLauncherMenu);
+  }
+
+  button.className = 'secondary-action panel-return-button';
+  actions.append(button);
+}
+
 function initPanelMaximizeControls() {
   $$('.panel, .modal-panel, .modal-card').forEach((surface) => {
     const heading = $('.panel-heading, .modal-heading', surface);
     if (!heading) return;
 
     const actions = surfaceHeadingActions(heading);
-    actions.classList.add('surface-window-actions');
-
-    let minimizeButton = getSurfaceMinimizeButton(surface);
-    if (!minimizeButton) {
-      minimizeButton = document.createElement('button');
-      minimizeButton.className = 'surface-window-control surface-minimize-button';
-      minimizeButton.type = 'button';
-      minimizeButton.dataset.panelMinimize = 'true';
-      minimizeButton.addEventListener('click', () => {
-        setSurfaceMinimized(surface, !surface.classList.contains('surface-minimized'));
-      });
-    }
-
-    let button = getSurfaceMaximizeButton(surface);
-    if (!button) {
-      button = document.createElement('button');
-      button.className = 'surface-window-control panel-maximize-button';
-      button.type = 'button';
-      button.dataset.panelMaximize = 'true';
-      button.addEventListener('click', () => {
-        const shouldMaximize = !surface.classList.contains('panel-maximized');
-        $$('.panel-maximized')
-          .filter((item) => item !== surface)
-          .forEach((item) => setSurfaceMaximized(item, false));
-        setSurfaceMaximized(surface, shouldMaximize);
-      });
-    }
-
-    button.classList.remove('ghost-action', 'primary-action');
-    button.classList.add('surface-window-control', 'panel-maximize-button');
+    actions.classList.remove('surface-window-actions');
+    removeLegacySurfaceWindowControls(surface);
 
     const isModalSurface = surface.classList.contains('modal-panel') || surface.classList.contains('modal-card');
-    let closeButton = Array.from(heading.querySelectorAll('button')).find(isSurfaceCloseControl);
-    if (!closeButton && !isModalSurface) {
-      closeButton = document.createElement('button');
-      closeButton.className = 'surface-window-control surface-close-button';
-      closeButton.type = 'button';
-      closeButton.dataset.surfaceCollapseClose = 'true';
-      closeButton.addEventListener('click', () => setSurfaceMinimized(surface, true));
-      heading.append(closeButton);
+    if (isModalSurface) {
+      standardizeSurfaceCloseButton(surface, heading, actions);
+      return;
     }
 
-    actions.append(minimizeButton);
-    actions.append(button);
-    updateSurfaceMaximizeButton(surface, surface.classList.contains('panel-maximized'));
-    updateSurfaceMinimizeButton(surface, surface.classList.contains('surface-minimized'));
-    standardizeSurfaceCloseButton(surface, heading, actions);
+    ensurePanelReturnButton(surface, heading, actions);
   });
 }
 
@@ -5267,9 +7060,77 @@ function initSurfaceControlsObserver() {
     }
 
     initPanelMaximizeControls();
+    initResizableTables();
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
+}
+
+function tableColumnStorageKey(table, columnIndex) {
+  const view = table.closest('.view')?.id || 'global';
+  const surface = table.closest('.panel, .modal-panel, .modal-card');
+  const panelTitle = surface?.querySelector('.panel-heading h2, .modal-heading h2')?.textContent?.trim() || 'panel';
+  const headerText = table.tHead?.rows?.[0]?.cells?.[columnIndex]?.textContent?.trim() || columnIndex;
+  return `talentos_table_col_${view}_${panelTitle}_${columnIndex}_${headerText}`;
+}
+
+function applyTableColumnWidth(table, columnIndex, width) {
+  if (!table || !Number.isFinite(width) || width < 48) return;
+  let colgroup = $('colgroup', table);
+  if (!colgroup) {
+    colgroup = document.createElement('colgroup');
+    const columnCount = table.tHead?.rows?.[0]?.cells?.length || table.rows?.[0]?.cells?.length || 0;
+    Array.from({ length: columnCount }).forEach(() => colgroup.appendChild(document.createElement('col')));
+    table.prepend(colgroup);
+  }
+  const column = colgroup.children[columnIndex];
+  if (column) column.style.width = `${Math.round(width)}px`;
+  table.style.tableLayout = 'fixed';
+}
+
+function initResizableTables(root = document) {
+  $$('table', root).forEach((table) => {
+    if (table.dataset.resizableColumns === 'true') return;
+    const headerRow = table.tHead?.rows?.[0];
+    if (!headerRow) return;
+    table.dataset.resizableColumns = 'true';
+    table.classList.add('resizable-table');
+
+    Array.from(headerRow.cells).forEach((cell, columnIndex) => {
+      const savedWidth = Number(readStorage(tableColumnStorageKey(table, columnIndex)));
+      if (savedWidth) applyTableColumnWidth(table, columnIndex, savedWidth);
+      if ($('.column-resize-handle', cell)) return;
+
+      const handle = document.createElement('span');
+      handle.className = 'column-resize-handle';
+      handle.setAttribute('aria-hidden', 'true');
+      cell.appendChild(handle);
+
+      handle.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const startX = event.clientX;
+        const startWidth = cell.getBoundingClientRect().width;
+        handle.setPointerCapture?.(event.pointerId);
+        document.body.classList.add('is-resizing-table-column');
+
+        const onPointerMove = (moveEvent) => {
+          const nextWidth = Math.max(48, startWidth + moveEvent.clientX - startX);
+          applyTableColumnWidth(table, columnIndex, nextWidth);
+        };
+        const onPointerUp = () => {
+          document.removeEventListener('pointermove', onPointerMove);
+          document.removeEventListener('pointerup', onPointerUp);
+          document.body.classList.remove('is-resizing-table-column');
+          const width = table.querySelector(`colgroup col:nth-child(${columnIndex + 1})`)?.style.width || '';
+          writeStorage(tableColumnStorageKey(table, columnIndex), width.replace('px', ''));
+        };
+
+        document.addEventListener('pointermove', onPointerMove);
+        document.addEventListener('pointerup', onPointerUp, { once: true });
+      });
+    });
+  });
 }
 
 function launcherLeafIds(nodeId = launcherRootId) {
@@ -5289,6 +7150,35 @@ function launcherPathTo(targetId, nodeId = launcherRootId, path = []) {
     if (childPath.length) return childPath;
   }
   return [];
+}
+
+function launcherParentId(nodeId) {
+  const path = launcherPathTo(nodeId);
+  return path.length > 1 ? path[path.length - 2] : launcherRootId;
+}
+
+function launcherLeafIdForView(viewId, panel = '') {
+  return launcherLeafIds().find((nodeId) => {
+    const node = launcherNodes[nodeId];
+    return node?.view === viewId && (!panel || node.panel === panel);
+  }) || launcherLeafIds().find((nodeId) => launcherNodes[nodeId]?.view === viewId) || '';
+}
+
+function rememberLauncherReturnForNode(nodeId) {
+  state.launcherReturnNodeId = launcherParentId(nodeId);
+}
+
+function rememberLauncherReturnForView(viewId, panel = '') {
+  const nodeId = launcherLeafIdForView(viewId, panel);
+  state.launcherReturnNodeId = nodeId ? launcherParentId(nodeId) : launcherRootId;
+}
+
+function returnToPreviousLauncherMenu() {
+  $$('.panel-maximized').forEach((panel) => setSurfaceMaximized(panel, false));
+  $$('.surface-minimized').forEach((panel) => setSurfaceMinimized(panel, false));
+  showView('dashboard');
+  renderLauncherDrill(state.launcherReturnNodeId || launcherRootId);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function readLauncherFavoriteIds() {
@@ -5325,6 +7215,10 @@ function createLauncherCard(nodeId, className) {
       if (node.view === 'forms' && node.panel) {
         state.activeFormsPanel = node.panel;
       }
+      if (node.view === 'billingReport' && node.panel) {
+        state.activeBillingReportPanel = node.panel;
+      }
+      rememberLauncherReturnForNode(nodeId);
       showView(node.view);
       return;
     }
@@ -5487,15 +7381,24 @@ function bindNavigation() {
   });
 
   $$('.nav-item').forEach((button) => {
-    button.addEventListener('click', () => showView(button.dataset.view));
+    button.addEventListener('click', () => {
+      if (button.dataset.view === 'billingReport' && button.dataset.billingPanel) {
+        state.activeBillingReportPanel = button.dataset.billingPanel;
+      }
+      rememberLauncherReturnForView(button.dataset.view, button.dataset.billingPanel || '');
+      showView(button.dataset.view);
+    });
   });
 
   $$('[data-module-view]').forEach((button) => {
-    button.addEventListener('click', () => showView(button.dataset.moduleView));
+    button.addEventListener('click', () => {
+      rememberLauncherReturnForView(button.dataset.moduleView);
+      showView(button.dataset.moduleView);
+    });
   });
 
   bindLauncherHome();
-  $('#homeViewButton')?.addEventListener('click', () => showView('dashboard'));
+  $('#homeViewButton')?.addEventListener('click', returnToPreviousLauncherMenu);
 }
 
 async function getCitiesForUf(uf) {
@@ -5548,6 +7451,7 @@ function bindForms() {
       });
       upsertStateItem('clients', savedClient);
       clearEditing(form, 'clientId', 'Salvar cliente');
+      updateClientManagerContactOptions('');
       toast(editingId ? 'Cliente atualizado.' : 'Cliente cadastrado.');
       render();
     } catch (error) {
@@ -5582,6 +7486,7 @@ function bindForms() {
       closeContactClientModal();
       toast(editingId ? 'Contato atualizado.' : 'Contato cadastrado.');
       state.editing.clientId = client.id;
+      updateClientManagerContactOptions(selectedClientForContacts()?.managerContactId || '');
       renderContactClients();
       renderContactClientListModal();
     } catch (error) {
@@ -5651,15 +7556,14 @@ function bindForms() {
 
     try {
       if (submitButton) submitButton.disabled = true;
-      await api(editingId ? `/api/opportunities/${editingId}` : '/api/opportunities', {
-        method: editingId ? 'PATCH' : 'POST',
-        body: JSON.stringify(payload)
-      });
-      clearEditing(form, 'opportunityId', 'Salvar oportunidade');
-      toast(editingId ? 'Oportunidade atualizada.' : 'Oportunidade cadastrada.');
-      await refresh();
+      await saveOpportunityPayload(payload, editingId);
     } catch (error) {
-      toast(error.message || 'Não foi possível salvar a oportunidade.');
+      const errorText = String(error.message || '');
+      if (payload.status === 'WON' && editingId && /consultor.*oportunidade.*WON|WON.*consultor/i.test(errorText)) {
+        openWonApprovalModal(editingId, payload, editingId);
+      } else {
+        toast(error.message || 'Não foi possível salvar a oportunidade.');
+      }
     } finally {
       if (submitButton) submitButton.disabled = false;
     }
@@ -6605,6 +8509,257 @@ function bindAllocatedFilters() {
   });
 }
 
+function bindWorkHourActions() {
+  $('#workHourAllocatedSelect')?.addEventListener('change', () => {
+    const clientField = $('#workHourClientName');
+    if (clientField) clientField.value = workHourClientName($('#workHourAllocatedSelect')?.value || '');
+  });
+
+  $('#workHourForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submitButton = $('button[type="submit"]', form);
+    const payload = formPayload(form);
+    payload.hours = String(payload.hours || '').replace(',', '.');
+    delete payload.clientName;
+
+    const originalText = setSubmitButtonBusy(submitButton, 'Salvando...');
+    try {
+      const saved = await api('/api/work-hours', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      upsertStateItem('workHours', saved);
+      form.reset();
+      renderWorkHours();
+      toast('Apontamento salvo.');
+    } catch (error) {
+      toast(error.message || 'Não foi possível salvar o apontamento.');
+    } finally {
+      restoreSubmitButton(submitButton, originalText || 'Salvar apontamento');
+    }
+  });
+
+  ['#workHourFilterAllocated', '#workHourFilterClient', '#workHourFilterDateFrom', '#workHourFilterDateTo'].forEach((selector) => {
+    $(selector)?.addEventListener('change', () => {
+      state.workHourFilter = {
+        allocatedId: $('#workHourFilterAllocated')?.value || '',
+        clientId: $('#workHourFilterClient')?.value || '',
+        dateFrom: $('#workHourFilterDateFrom')?.value || '',
+        dateTo: $('#workHourFilterDateTo')?.value || ''
+      };
+      renderWorkHours();
+    });
+  });
+
+  ['#workHourCloseAllocatedSelect', '#workHourCloseMonth'].forEach((selector) => {
+    $(selector)?.addEventListener('change', renderWorkHourClosureStatus);
+  });
+
+  $('#workHourExportButton')?.addEventListener('click', () => {
+    downloadCsv('horas-trabalhadas', workHourCsvRows());
+    toast('CSV de horas trabalhadas gerado.');
+  });
+
+  $('#workHourImportButton')?.addEventListener('click', (event) => {
+    importWorkHoursFromFile(event.currentTarget);
+  });
+
+  $('#workHourFinalizeButton')?.addEventListener('click', (event) => {
+    finalizeWorkHourPeriod(event.currentTarget);
+  });
+}
+
+function bindBillingReportActions() {
+  $('#billingEntryAllocatedSelect')?.addEventListener('change', () => {
+    const clientField = $('#billingEntryClientName');
+    if (clientField) clientField.value = workHourClientName($('#billingEntryAllocatedSelect')?.value || '');
+  });
+
+  $('#billingEntryForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submitButton = $('button[type="submit"]', form);
+    const payload = formPayload(form);
+    payload.hours = String(payload.hours || '').replace(',', '.');
+    delete payload.clientName;
+
+    const originalText = setSubmitButtonBusy(submitButton, 'Salvando...');
+    try {
+      const saved = await api('/api/work-hours', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      upsertStateItem('workHours', saved);
+      form.reset();
+      renderBillingReport();
+      toast('Apontamento salvo.');
+    } catch (error) {
+      toast(error.message || 'Não foi possível salvar o apontamento.');
+    } finally {
+      restoreSubmitButton(submitButton, originalText || 'Salvar apontamento');
+    }
+  });
+
+  ['#billingReportMonthFilter', '#billingReportClientFilter', '#billingReportAllocatedFilter'].forEach((selector) => {
+    $(selector)?.addEventListener('change', () => {
+      state.billingReportFilter = {
+        monthYear: $('#billingReportMonthFilter')?.value || '',
+        clientId: $('#billingReportClientFilter')?.value || '',
+        allocatedId: $('#billingReportAllocatedFilter')?.value || ''
+      };
+      renderBillingReport();
+    });
+  });
+
+  $('#billingReportExportButton')?.addEventListener('click', () => {
+    downloadCsv('billing-report', billingReportCsvRows());
+    toast('Billing Report exportado.');
+  });
+}
+
+function bindClientReportActions() {
+  $('#clientListFilter')?.addEventListener('change', (event) => {
+    state.clientListFilter = event.currentTarget.value || '';
+    renderClients();
+  });
+
+  $('#exportClientsCsvButton')?.addEventListener('click', () => {
+    downloadCsv('clientes', clientCsvRows($('#clientCsvSelect')?.value || ''));
+    toast('CSV de clientes exportado.');
+  });
+
+  $('#generateClientOrgChartButton')?.addEventListener('click', () => {
+    const clientId = $('#clientOrgChartSelect')?.value || '';
+    const client = state.clients.find((item) => item.id === clientId);
+    if (!client) {
+      toast('Selecione um cliente para gerar o organograma.');
+      renderClientOrgChartReport('');
+      return;
+    }
+    renderClientOrgChartReport(clientId);
+    downloadHtml(`organograma-${safeFilename(client.customerName)}`, buildClientOrgChartDocument(clientId));
+    toast('Organograma gerado e arquivo baixado.');
+  });
+
+  $('#clientOrgChartSelect')?.addEventListener('change', (event) => {
+    renderClientOrgChartReport(event.currentTarget.value);
+  });
+}
+
+function bindBusinessCalendarActions() {
+  $('#businessCalendarForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submitButton = $('button[type="submit"]', form);
+    const editingId = state.editing.businessCalendarId;
+    const payload = formPayload(form);
+    payload.allDay = Boolean(form.elements.allDay?.checked);
+    if (payload.allDay) {
+      payload.startTime = '00:00';
+      payload.endTime = '23:59';
+    }
+
+    const originalText = setSubmitButtonBusy(submitButton, 'Salvando...');
+    let savedOk = false;
+    try {
+      const saved = await api(editingId ? `/api/business-calendar/${editingId}` : '/api/business-calendar', {
+        method: editingId ? 'PATCH' : 'POST',
+        body: JSON.stringify(payload)
+      });
+      upsertStateItem('businessCalendar', saved);
+      clearEditing(form, 'businessCalendarId', 'Salvar feriado');
+      if (form.elements.allDay) form.elements.allDay.checked = true;
+      if (form.elements.startTime) form.elements.startTime.value = '00:00';
+      if (form.elements.endTime) form.elements.endTime.value = '23:59';
+      syncBusinessCalendarTimeState();
+      renderBusinessCalendar();
+      renderFinanceProjection();
+      savedOk = true;
+      toast(editingId ? 'Feriado atualizado.' : 'Feriado cadastrado.');
+    } catch (error) {
+      toast(error.message || 'Não foi possível salvar o feriado.');
+    } finally {
+      restoreSubmitButton(submitButton, savedOk ? 'Salvar feriado' : originalText || 'Salvar feriado');
+    }
+  });
+
+  $('#businessCalendarForm input[name="allDay"]')?.addEventListener('change', syncBusinessCalendarTimeState);
+
+  $('#businessCalendarTable')?.addEventListener('click', async (event) => {
+    const deleteButton = event.target.closest('[data-delete-business-calendar]');
+    if (deleteButton) {
+      const entry = state.businessCalendar.find((item) => item.id === deleteButton.dataset.deleteBusinessCalendar);
+      if (!entry) return;
+      if (!window.confirm(`Excluir feriado ${formatDateOnlyBR(entry.date)}?`)) return;
+      try {
+        await api(`/api/business-calendar/${entry.id}`, { method: 'DELETE' });
+        removeStateItem('businessCalendar', entry.id);
+        if (state.editing.businessCalendarId === entry.id) {
+          clearEditing($('#businessCalendarForm'), 'businessCalendarId', 'Salvar feriado');
+        }
+        renderBusinessCalendar();
+        renderFinanceProjection();
+        toast('Feriado excluído.');
+      } catch (error) {
+        toast(error.message || 'Não foi possível excluir o feriado.');
+      }
+      return;
+    }
+
+    if (event.target.closest('button, a, input, select, textarea')) return;
+    const row = event.target.closest('[data-edit-business-calendar]');
+    const entry = state.businessCalendar.find((item) => item.id === row?.dataset.editBusinessCalendar);
+    if (entry) loadBusinessCalendarForEdit(entry);
+  });
+
+  $('#openBusinessCalendarFromProjection')?.addEventListener('click', () => {
+    rememberLauncherReturnForView('businessCalendar');
+    showView('businessCalendar');
+  });
+}
+
+function applyTaxReformScenarioPreset() {
+  const form = $('#taxReformSimulatorForm');
+  if (!form) return;
+  const scenarioKey = form.elements.scenario.value || 'probable';
+  const preset = taxReformScenarioPresets[scenarioKey] || taxReformScenarioPresets.probable;
+  if (scenarioKey !== 'custom') {
+    form.elements.ibsCbsRate.value = preset.ibsCbsRate;
+    form.elements.creditUtilization.value = preset.creditUtilization;
+  }
+}
+
+function bindTaxReformSimulatorActions() {
+  const form = $('#taxReformSimulatorForm');
+  if (!form) return;
+
+  $('#taxReformScenarioSelect')?.addEventListener('change', applyTaxReformScenarioPreset);
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    applyTaxReformScenarioPreset();
+    state.taxReformSimulation = calculateTaxReformSimulation(form);
+    renderTaxReformSimulator();
+    toast('Simulacao calculada.');
+  });
+}
+
+function bindAllocationPriceActions() {
+  const form = $('#allocationPriceForm');
+  if (!form) return;
+
+  ['purchaseValue', 'saleValue', 'ratio', 'annualAdjustment'].forEach((name) => {
+    form.elements[name]?.addEventListener('input', renderAllocationPriceResult);
+    form.elements[name]?.addEventListener('change', renderAllocationPriceResult);
+  });
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    renderAllocationPriceResult();
+  });
+}
+
 function bindRateCardFilters() {
   $('#rateCardClientFilter')?.addEventListener('change', (event) => {
     state.rateCardFilter.clientId = event.currentTarget.value;
@@ -6643,6 +8798,10 @@ function bindHuntingFilters() {
 
 function bindDashboardFilters() {
   $('#openAllocatedDashboardButton')?.addEventListener('click', () => openAllocatedMaintenance());
+  $('#financeProjectionCards')?.addEventListener('click', (event) => {
+    const card = event.target.closest('[data-open-active-allocateds]');
+    if (card) openActiveAllocatedsFromProjection();
+  });
 
   $('#allocatedPie')?.addEventListener('click', (event) => {
     const button = event.target.closest('[data-open-allocated-client]');
@@ -7153,6 +9312,7 @@ function bindEditableRows() {
         if (state.editing.contactClientId === contact.id) {
           clearEditing($('#contactClientForm'), 'contactClientId', 'Cadastrar contato');
         }
+        updateClientManagerContactOptions(selectedClientForContacts()?.managerContactId || '');
         renderContactClients();
         toast('Contato excluído.');
       } catch (error) {
@@ -7191,6 +9351,7 @@ function bindEditableRows() {
       if (state.editing.contactClientId === contact.id) {
         clearEditing($('#contactClientForm'), 'contactClientId', 'Cadastrar contato');
       }
+      updateClientManagerContactOptions(selectedClientForContacts()?.managerContactId || '');
       renderContactClients();
       renderContactClientListModal();
       toast('Contato excluído.');
@@ -7492,6 +9653,12 @@ bindSelectedCandidateFilters();
 bindFaturamentoFilters();
 bindOpportunityFilters();
 bindAllocatedFilters();
+bindWorkHourActions();
+bindBillingReportActions();
+bindClientReportActions();
+bindBusinessCalendarActions();
+bindTaxReformSimulatorActions();
+bindAllocationPriceActions();
 bindRateCardFilters();
 bindCandidatePoolFilters();
 bindHuntingFilters();

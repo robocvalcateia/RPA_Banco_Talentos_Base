@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   advanceSelectedCandidateToInterview,
+  approvedCandidatesForOpportunity,
   buildCandidateEmailBody,
   buildCurriculumPayload,
   databaseWithSelectedCandidateCurriculums,
@@ -108,6 +109,24 @@ test('candidato aprovado cria ou atualiza alocado sem duplicar', () => {
   assert.equal(updated.type, 'allocated');
   assert.equal(updated.action, 'updated');
   assert.equal(db.allocateds.length, 1);
+});
+
+test('WON exige candidato aprovado na propria oportunidade', () => {
+  const db = buildDb();
+  db.candidates.push(
+    buildCandidate({ id: 'cand_triagem', approved: false, stage: 'Triagem', status: 'Em andamento' }),
+    buildCandidate({ id: 'cand_outra_opp', opportunityId: 'opp_b', approved: true, stage: 'Aprovado', status: 'Aprovado' })
+  );
+
+  assert.equal(approvedCandidatesForOpportunity(db, 'opp_a').length, 0);
+
+  db.candidates[0].approved = true;
+  db.candidates[0].stage = 'Aprovado';
+  db.candidates[0].status = 'Aprovado';
+
+  const approved = approvedCandidatesForOpportunity(db, 'opp_a');
+  assert.equal(approved.length, 1);
+  assert.equal(approved[0].id, 'cand_triagem');
 });
 
 test('codigo de alocado duplicado e detectado de forma normalizada', () => {

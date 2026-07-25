@@ -20,6 +20,7 @@ import {
   moveCandidateStage,
   hashPassword,
   normalizeCandidate,
+  normalizeClient,
   normalizeContactClient,
   normalizeCurriculum,
   normalizeCurriculumObservation,
@@ -31,9 +32,12 @@ import {
   normalizeOpportunityStatus,
   normalizeAderencia,
   normalizeAllocated,
+  normalizeBusinessCalendarEntry,
   normalizeCandidatePool,
   normalizeFaturamento,
   normalizeRateCard,
+  normalizeWorkHourClosure,
+  normalizeWorkHourEntry,
   normalizeStage,
   CANDIDATE_POOL_PROFILES,
   CANDIDATE_POOL_STATUSES,
@@ -73,6 +77,7 @@ import {
   buildAllocatedDocumentsZip,
   renderAllocatedDocuments
 } from './allocated-documents.js';
+import { repairUnicodeText, sanitizeUnicodeValue } from './text-utils.js';
 import {
   createCurriculumInMongo,
   deleteCurriculumFromMongo,
@@ -92,7 +97,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260714-contact-client-messaging';
+const APP_VERSION = '20260724-client-org-manager-map';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 
 async function loadLocalEnv() {
@@ -384,28 +389,7 @@ const REQUESTER_WORKFLOW_ASSIGNEE = '__requester__';
 const FORM_REMINDER_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 function repairEncodingArtifacts(value) {
-  let text = String(value || '');
-  if (!text) return text;
-
-  if (/[ÃÂ]/.test(text)) {
-    const decoded = Buffer.from(text, 'latin1').toString('utf8');
-    const artifactCount = (candidate) => (candidate.match(/[ÃÂ�]/g) || []).length;
-    if (artifactCount(decoded) < artifactCount(text)) {
-      text = decoded;
-    }
-  }
-
-  return text
-    .replace(/Formul\?rios/g, 'Formulários')
-    .replace(/formul\?rios/g, 'formulários')
-    .replace(/Observa\?\?o/g, 'Observação')
-    .replace(/observa\?\?o/g, 'observação')
-    .replace(/Refei\?\?o/g, 'Refeição')
-    .replace(/refei\?\?o/g, 'refeição')
-    .replace(/aprova\?\?o/g, 'aprovação')
-    .replace(/Aprova\?\?o/g, 'Aprovação')
-    .replace(/([A-Za-zÀ-ÿ]+)\?\?es/g, '$1ções')
-    .replace(/([A-Za-zÀ-ÿ]+)\?\?o/g, '$1ção');
+  return repairUnicodeText(value);
 }
 
 function simplifyFormText(value) {
@@ -887,6 +871,254 @@ async function withTimeout(promise, timeoutMs, message) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+function normalizeDateOnly(value = '') {
+  const raw = String(value || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const parsed = new Date(raw);
+  if (!Number.isFinite(parsed.getTime())) return '';
+  return parsed.toISOString().slice(0, 10);
+}
+
+function normalizeMonthYear(value = '') {
+  const raw = String(value || '').trim();
+  if (/^\d{4}-\d{2}$/.test(raw)) return raw;
+  const date = normalizeDateOnly(raw);
+  return date ? date.slice(0, 7) : '';
+}
+
+function dateFromISODate(dateValue) {
+  const date = normalizeDateOnly(dateValue);
+  if (!date) return null;
+  const [year, month, day] = date.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function addUtcDays(date, days) {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function isoFromUtcDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function easterSundayUtc(year) {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function brazilNationalHolidays(year) {
+  const easter = easterSundayUtc(year);
+  return new Set([
+    `${year}-01-01`,
+    `${year}-04-21`,
+    `${year}-05-01`,
+    `${year}-09-07`,
+    `${year}-10-12`,
+    `${year}-11-02`,
+    `${year}-11-15`,
+    `${year}-11-20`,
+    `${year}-12-25`,
+    isoFromUtcDate(addUtcDays(easter, -48)),
+    isoFromUtcDate(addUtcDays(easter, -47)),
+    isoFromUtcDate(addUtcDays(easter, -2)),
+    isoFromUtcDate(addUtcDays(easter, 60))
+  ]);
+}
+
+function minutesFromTime(value) {
+  const match = String(value || '').trim().match(/^(\d{2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return hours * 60 + minutes;
+}
+
+function businessCalendarEntryApplies(entry, dateValue, clientId = '') {
+  if (String(entry.date || '') !== dateValue) return false;
+  const entryClientId = String(entry.clientId || '').trim();
+  return !entryClientId || entryClientId === clientId;
+}
+
+function customCalendarFullDayReason(dateValue, businessCalendar = [], clientId = '') {
+  const entry = businessCalendar.find((item) => (
+    businessCalendarEntryApplies(item, dateValue, clientId)
+    && item.allDay === true
+  ));
+  return entry?.reason || '';
+}
+
+function validateBusinessCalendarEntry(response, entry, db) {
+  if (!entry.date || !dateFromISODate(entry.date)) {
+    sendError(response, 422, 'Informe uma data valida para o calendario.');
+    return true;
+  }
+  if (entry.clientId && !db.clients.some((client) => client.id === entry.clientId)) {
+    sendError(response, 422, 'Selecione um cliente valido ou todos.');
+    return true;
+  }
+  if (!entry.reason) {
+    sendError(response, 422, 'Informe o motivo.');
+    return true;
+  }
+  if (!entry.allDay) {
+    const start = minutesFromTime(entry.startTime);
+    const end = minutesFromTime(entry.endTime);
+    if (start === null || end === null || end <= start) {
+      sendError(response, 422, 'Informe hora inicial e final validas, com final maior que inicial.');
+      return true;
+    }
+  }
+  return false;
+}
+
+function isBusinessCalendarCollectionPath(pathname) {
+  return /^\/api\/(?:business-calendar|businessCalendar)\/?$/.test(pathname);
+}
+
+function businessCalendarItemIdFromPath(pathname) {
+  const match = pathname.match(/^\/api\/(?:business-calendar|businessCalendar)\/([^/]+)\/?$/);
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
+function workHourNonBusinessReason(dateValue, businessCalendar = [], clientId = '') {
+  const date = dateFromISODate(dateValue);
+  if (!date) return 'data invalida';
+  const day = date.getUTCDay();
+  if (day === 0 || day === 6) return 'final de semana';
+  const year = date.getUTCFullYear();
+  if (brazilNationalHolidays(year).has(isoFromUtcDate(date))) return 'feriado';
+  const customReason = customCalendarFullDayReason(dateValue, businessCalendar, clientId);
+  if (customReason) return customReason;
+  return '';
+}
+
+function businessDaysForMonth(monthYear, businessCalendar = [], clientId = '') {
+  const month = normalizeMonthYear(monthYear);
+  if (!month) return [];
+  const [year, monthNumber] = month.split('-').map(Number);
+  const date = new Date(Date.UTC(year, monthNumber - 1, 1));
+  const days = [];
+  while (date.getUTCFullYear() === year && date.getUTCMonth() === monthNumber - 1) {
+    const iso = isoFromUtcDate(date);
+    if (!workHourNonBusinessReason(iso, businessCalendar, clientId)) days.push(iso);
+    date.setUTCDate(date.getUTCDate() + 1);
+  }
+  return days;
+}
+
+function activeAllocatedsForUser(allocateds = [], user = {}) {
+  const email = String(user.email || '').trim().toLowerCase();
+  const name = simplifyFormText(user.name || '');
+  return allocateds.filter((allocated) => {
+    if (allocated.active !== true) return false;
+    const allocatedEmail = String(allocated.consultantEmail || '').trim().toLowerCase();
+    if (email && allocatedEmail && allocatedEmail === email) return true;
+    return name && simplifyFormText(allocated.consultant || '') === name;
+  });
+}
+
+function canUserAccessAllocated(user, allocated) {
+  if (isAdminUser(user)) return true;
+  return activeAllocatedsForUser([allocated], user).length > 0;
+}
+
+function visibleWorkHoursForUser(workHours = [], allocateds = [], user = {}) {
+  if (isAdminUser(user)) return workHours;
+  const visibleAllocatedIds = new Set(activeAllocatedsForUser(allocateds, user).map((allocated) => allocated.id));
+  return workHours.filter((entry) => visibleAllocatedIds.has(entry.allocatedId));
+}
+
+function visibleWorkHourClosuresForUser(workHourClosures = [], allocateds = [], user = {}) {
+  if (isAdminUser(user)) return workHourClosures;
+  const visibleAllocatedIds = new Set(activeAllocatedsForUser(allocateds, user).map((allocated) => allocated.id));
+  return workHourClosures.filter((closure) => visibleAllocatedIds.has(closure.allocatedId));
+}
+
+function buildWorkHourEntryFromPayload(payload, allocated, user, existing = {}) {
+  const date = normalizeDateOnly(payload.date ?? payload.data);
+  return normalizeWorkHourEntry({
+    ...existing,
+    ...payload,
+    id: existing.id || payload.id || createId('work_hour', `${allocated.id}-${date}`),
+    allocatedId: allocated.id,
+    consultantName: allocated.consultant,
+    consultantEmail: allocated.consultantEmail,
+    date,
+    clientId: allocated.clientId,
+    createdById: existing.createdById || user.id,
+    createdByName: existing.createdByName || user.name,
+    createdByEmail: existing.createdByEmail || user.email,
+    createdAt: existing.createdAt || toISODate(),
+    updatedAt: toISODate()
+  });
+}
+
+function validateWorkHourEntry(response, entry, businessCalendar = []) {
+  if (!entry.allocatedId) {
+    sendError(response, 422, 'Informe o consultor alocado.');
+    return true;
+  }
+  if (!entry.date) {
+    sendError(response, 422, 'Informe a data.');
+    return true;
+  }
+  if (!Number.isFinite(entry.hours) || entry.hours < 0.5 || entry.hours > 24) {
+    sendError(response, 422, 'Horas trabalhadas deve aceitar valores de 0H30 a 24h.');
+    return true;
+  }
+  const nonBusinessReason = workHourNonBusinessReason(entry.date, businessCalendar, entry.clientId);
+  if (nonBusinessReason && !entry.observation) {
+    sendError(response, 422, `Informe a observacao: apontamento em ${nonBusinessReason}.`);
+    return true;
+  }
+  return false;
+}
+
+async function notifyAdminsAboutWorkHourClosure(closure, allocated, db) {
+  const admins = (db.users || []).filter((user) => isAdminUser(user) && String(user.email || '').trim());
+  if (!admins.length) return { sent: false, reason: 'Nenhum ADMIN cadastrado.' };
+
+  const config = getSmtpConfigFromEnv();
+  if (!isSmtpAccountConfigured(config)) {
+    return { sent: false, reason: 'SMTP nao configurado.' };
+  }
+
+  const client = db.clients.find((item) => item.id === allocated.clientId);
+  const to = admins.map((user) => user.email).join(',');
+  await sendMail({
+    ...config,
+    to,
+    subject: `[Alcateia] Periodo mensal finalizado: ${allocated.consultant}`,
+    text: [
+      `Consultor: ${allocated.consultant}`,
+      `Email: ${allocated.consultantEmail || '-'}`,
+      `Cliente: ${client?.customerName || '-'}`,
+      `Mes: ${closure.monthYear}`,
+      `Dias uteis sem apontamento: ${closure.missingBusinessDays.length ? closure.missingBusinessDays.join(', ') : 'Nenhum'}`,
+      `Confirmado com dias em branco: ${closure.confirmedWithMissingDays ? 'Sim' : 'Nao'}`,
+      '',
+      'Acesse o sistema para consultar os apontamentos de horas trabalhadas.'
+    ].join('\n')
+  });
+  return { sent: true, to };
 }
 
 function getApinfoCredentials() {
@@ -1699,7 +1931,7 @@ async function readJsonBody(request) {
   const buffer = await readRequestBodyBuffer(request);
   if (!buffer.length) return {};
   const raw = buffer.toString('utf8');
-  return raw ? JSON.parse(raw) : {};
+  return raw ? sanitizeUnicodeValue(JSON.parse(raw)) : {};
 }
 
 function multipartBoundary(contentType = '', bodyBuffer = null) {
@@ -1758,7 +1990,7 @@ async function parseMultipartFormDataBuffer(contentType, bodyBuffer) {
         uploadedAt: toISODate()
       };
     } else {
-      fields[fieldName] = contentBuffer.toString('utf8');
+      fields[fieldName] = repairUnicodeText(contentBuffer.toString('utf8'));
     }
   }
 
@@ -1775,11 +2007,11 @@ async function readFormRequestPayload(request) {
     || rawStart.startsWith('--');
   if (!isMultipart) {
     const raw = bodyBuffer.toString('utf8');
-    return raw ? JSON.parse(raw) : {};
+    return raw ? sanitizeUnicodeValue(JSON.parse(raw)) : {};
   }
 
   const { fields, files } = await parseMultipartFormDataBuffer(contentType, bodyBuffer);
-  const values = fields.values ? JSON.parse(fields.values) : {};
+  const values = fields.values ? sanitizeUnicodeValue(JSON.parse(fields.values)) : {};
   for (const [fieldName, file] of Object.entries(files)) {
     if (fieldName.startsWith('file_')) {
       values[fieldName.slice(5)] = file;
@@ -2081,6 +2313,74 @@ export function syncApprovedCandidatePlacement(candidate, db) {
   synced.code = uniqueAllocatedCode(db.allocateds, synced.code);
   db.allocateds.push(synced);
   return { type: 'allocated', action: 'created', allocatedId: synced.id };
+}
+
+export function approvedCandidatesForOpportunity(db, opportunityId) {
+  const targetOpportunityId = String(opportunityId || '').trim();
+  if (!targetOpportunityId) return [];
+
+  return (db.candidates || []).filter((candidate) => (
+    String(candidate.opportunityId || '').trim() === targetOpportunityId
+    && (
+      candidate.approved === true
+      || candidate.stage === 'Aprovado'
+      || candidate.status === 'Aprovado'
+    )
+  ));
+}
+
+function sendWonRequiresApprovedCandidate(response, opportunityId) {
+  sendJson(response, 409, {
+    error: 'Para alterar a oportunidade para WON, selecione e aprove ao menos um consultor dessa oportunidade.',
+    code: 'WON_REQUIRES_APPROVED_CANDIDATE',
+    opportunityId
+  });
+}
+
+function validateClientManagerContact(response, db, client) {
+  if (!client.managerContactId) return false;
+  const manager = db.contactClients.find((contact) => (
+    contact.id === client.managerContactId && contact.clientId === client.id
+  ));
+  if (!manager) {
+    sendError(response, 422, 'Selecione um gestor cadastrado como contato desse cliente.');
+    return true;
+  }
+  return false;
+}
+
+function validateContactParent(response, db, contact) {
+  if (!contact.parentContactId) return false;
+  if (contact.parentContactId === contact.id) {
+    sendError(response, 422, 'O contato nao pode ser gestor dele mesmo.');
+    return true;
+  }
+  const sameClientContacts = db.contactClients.filter((item) => item.clientId === contact.clientId);
+  const parent = sameClientContacts.find((item) => item.id === contact.parentContactId);
+  if (!parent) {
+    sendError(response, 422, 'Selecione um gestor cadastrado para o mesmo cliente do contato.');
+    return true;
+  }
+
+  const byId = new Map(sameClientContacts.map((item) => [item.id, item]));
+  byId.set(contact.id, contact);
+  const visited = new Set([contact.id]);
+  let level = 2;
+  let cursor = parent;
+  while (cursor?.parentContactId) {
+    if (visited.has(cursor.parentContactId)) {
+      sendError(response, 422, 'A arvore de contatos nao pode ter ciclo entre gestor e subordinado.');
+      return true;
+    }
+    visited.add(cursor.parentContactId);
+    cursor = byId.get(cursor.parentContactId);
+    level += 1;
+    if (level > 5) {
+      sendError(response, 422, 'A arvore de contatos permite no maximo cinco niveis.');
+      return true;
+    }
+  }
+  return false;
 }
 
 async function serveStatic(request, response) {
@@ -2673,6 +2973,8 @@ async function handleApi(request, response) {
         mergedFormRequestObservations(responseDb.formRequests, responseDb.formRequestObservations),
         visibleFormRequests
       );
+      const visibleWorkHours = visibleWorkHoursForUser(responseDb.workHours, responseDb.allocateds, auth.user);
+      const visibleWorkHourClosures = visibleWorkHourClosuresForUser(responseDb.workHourClosures, responseDb.allocateds, auth.user);
       sendJson(response, 200, {
         clients: responseDb.clients,
         contactClients: responseDb.contactClients,
@@ -2692,6 +2994,9 @@ async function handleApi(request, response) {
         emailProcessing: { ...emailProcessing },
         candidates: responseDb.candidates.map((candidate) => enrichCandidate(candidate, responseDb)),
         allocateds: responseDb.allocateds.map((allocated) => enrichAllocated(allocated, responseDb)),
+        workHours: visibleWorkHours,
+        workHourClosures: visibleWorkHourClosures,
+        businessCalendar: responseDb.businessCalendar,
         rateCards: responseDb.rateCards.map((rateCard) => enrichRateCard(rateCard, responseDb)),
         candidatePool: responseDb.candidatePool.map((item) => enrichCandidatePool(item, responseDb)),
         users: responseDb.users.map(sanitizeUser),
@@ -3353,19 +3658,18 @@ async function handleApi(request, response) {
 
     if (request.method === 'POST' && pathname === '/api/clients') {
       const payload = await readJsonBody(request);
-      const db = await readDatabaseCollections(['clients']);
-      const client = {
+      const db = await readDatabaseCollections(['clients', 'contactClients']);
+      const client = normalizeClient({
         id: createId('client', payload.customerName),
-        customerName: String(payload.customerName ?? '').trim(),
-        primaryContactName: String(payload.primaryContactName ?? '').trim(),
-        primaryContactEmail: String(payload.primaryContactEmail ?? '').trim(),
-        primaryContactPhone: String(payload.primaryContactPhone ?? '').trim(),
-        observation: String(payload.observation ?? '').trim(),
+        ...payload,
         createdAt: toISODate()
-      };
+      });
 
       if (!client.customerName) {
         sendError(response, 422, 'Informe o nome do cliente.');
+        return;
+      }
+      if (validateClientManagerContact(response, db, client)) {
         return;
       }
 
@@ -3378,7 +3682,7 @@ async function handleApi(request, response) {
     if (request.method === 'PATCH' && pathname.startsWith('/api/clients/')) {
       const clientId = pathname.split('/').at(-1);
       const payload = await readJsonBody(request);
-      const db = await readDatabaseCollections(['clients']);
+      const db = await readDatabaseCollections(['clients', 'contactClients']);
       const client = db.clients.find((item) => item.id === clientId);
 
       if (!client) {
@@ -3386,18 +3690,23 @@ async function handleApi(request, response) {
         return;
       }
 
-      client.customerName = String(payload.customerName ?? '').trim();
-      client.primaryContactName = String(payload.primaryContactName ?? '').trim();
-      client.primaryContactEmail = String(payload.primaryContactEmail ?? '').trim();
-      client.primaryContactPhone = String(payload.primaryContactPhone ?? '').trim();
-      client.observation = String(payload.observation ?? '').trim();
-      client.updatedAt = toISODate();
+      const updated = normalizeClient({
+        ...client,
+        ...payload,
+        id: client.id,
+        createdAt: client.createdAt,
+        updatedAt: toISODate()
+      });
 
-      if (!client.customerName) {
+      if (!updated.customerName) {
         sendError(response, 422, 'Informe o nome do cliente.');
         return;
       }
+      if (validateClientManagerContact(response, db, updated)) {
+        return;
+      }
 
+      Object.assign(client, updated);
       await writeDatabaseCollections(db, ['clients']);
       sendJson(response, 200, client);
       return;
@@ -3418,6 +3727,9 @@ async function handleApi(request, response) {
       }
       if (!contact.name) {
         sendError(response, 422, 'Informe o nome do contato.');
+        return;
+      }
+      if (validateContactParent(response, db, contact)) {
         return;
       }
 
@@ -3454,6 +3766,9 @@ async function handleApi(request, response) {
         sendError(response, 422, 'Informe o nome do contato.');
         return;
       }
+      if (validateContactParent(response, db, updated)) {
+        return;
+      }
 
       Object.assign(contact, updated);
       await writeDatabaseDocument('contactClients', contact);
@@ -3463,7 +3778,7 @@ async function handleApi(request, response) {
 
     if (request.method === 'DELETE' && /^\/api\/contact-clients\/[^/]+$/.test(pathname)) {
       const contactId = pathname.split('/').at(-1);
-      const db = await readDatabaseCollections(['contactClients']);
+      const db = await readDatabaseCollections(['clients', 'contactClients']);
       const initialLength = db.contactClients.length;
       db.contactClients = db.contactClients.filter((contact) => contact.id !== contactId);
 
@@ -3472,7 +3787,83 @@ async function handleApi(request, response) {
         return;
       }
 
-      await deleteDatabaseDocument('contactClients', contactId);
+      db.clients.forEach((client) => {
+        if (client.managerContactId === contactId) {
+          client.managerContactId = '';
+          client.updatedAt = toISODate();
+        }
+      });
+      db.contactClients.forEach((contact) => {
+        if (contact.parentContactId === contactId) {
+          contact.parentContactId = '';
+          contact.updatedAt = toISODate();
+        }
+      });
+
+      await writeDatabaseCollections(db, ['clients', 'contactClients']);
+      sendJson(response, 200, { ok: true });
+      return;
+    }
+
+    if (request.method === 'POST' && isBusinessCalendarCollectionPath(pathname)) {
+      if (requireAdmin(response, auth.user, 'Apenas ADMIN pode manter o calendario de feriados.')) return;
+      const payload = await readJsonBody(request);
+      const db = await readDatabaseCollections(['clients', 'businessCalendar']);
+      const entry = normalizeBusinessCalendarEntry({
+        id: createId('business_calendar', `${payload.date || payload.data}-${payload.clientId || payload.clienteId || 'todos'}-${payload.reason || payload.motivo}`),
+        ...payload,
+        createdAt: toISODate()
+      });
+
+      if (validateBusinessCalendarEntry(response, entry, db)) return;
+
+      db.businessCalendar.push(entry);
+      await writeDatabaseCollections(db, ['businessCalendar']);
+      sendJson(response, 201, entry);
+      return;
+    }
+
+    if (request.method === 'PATCH' && businessCalendarItemIdFromPath(pathname)) {
+      if (requireAdmin(response, auth.user, 'Apenas ADMIN pode manter o calendario de feriados.')) return;
+      const entryId = businessCalendarItemIdFromPath(pathname);
+      const payload = await readJsonBody(request);
+      const db = await readDatabaseCollections(['clients', 'businessCalendar']);
+      const existing = db.businessCalendar.find((entry) => entry.id === entryId);
+
+      if (!existing) {
+        sendError(response, 404, 'Registro de calendario nao encontrado.');
+        return;
+      }
+
+      const entry = normalizeBusinessCalendarEntry({
+        ...existing,
+        ...payload,
+        id: existing.id,
+        createdAt: existing.createdAt,
+        updatedAt: toISODate()
+      });
+
+      if (validateBusinessCalendarEntry(response, entry, db)) return;
+
+      Object.assign(existing, entry);
+      await writeDatabaseCollections(db, ['businessCalendar']);
+      sendJson(response, 200, existing);
+      return;
+    }
+
+    if (request.method === 'DELETE' && businessCalendarItemIdFromPath(pathname)) {
+      if (requireAdmin(response, auth.user, 'Apenas ADMIN pode manter o calendario de feriados.')) return;
+      const entryId = businessCalendarItemIdFromPath(pathname);
+      const db = await readDatabaseCollections(['businessCalendar']);
+      const initialLength = db.businessCalendar.length;
+      db.businessCalendar = db.businessCalendar.filter((entry) => entry.id !== entryId);
+
+      if (db.businessCalendar.length === initialLength) {
+        sendError(response, 404, 'Registro de calendario nao encontrado.');
+        return;
+      }
+
+      await writeDatabaseCollections(db, ['businessCalendar']);
       sendJson(response, 200, { ok: true });
       return;
     }
@@ -3519,6 +3910,10 @@ async function handleApi(request, response) {
         sendError(response, 422, 'Selecione um responsavel cadastrado em usuarios.');
         return;
       }
+      if (opportunity.status === 'WON' && !approvedCandidatesForOpportunity(db, opportunity.id).length) {
+        sendWonRequiresApprovedCandidate(response, opportunity.id);
+        return;
+      }
 
       db.opportunities.push(opportunity);
       syncCandidatesWithOpportunityClosures(db);
@@ -3550,12 +3945,17 @@ async function handleApi(request, response) {
         sendError(response, 422, 'Selecione um responsavel cadastrado em usuarios.');
         return;
       }
+      const nextStatus = normalizeOpportunityStatus(payload.status || 'Open');
+      if (nextStatus === 'WON' && !approvedCandidatesForOpportunity(db, opportunity.id).length) {
+        sendWonRequiresApprovedCandidate(response, opportunity.id);
+        return;
+      }
 
       opportunity.clientId = String(payload.clientId ?? '');
       opportunity.contactClientId = String(payload.contactClientId ?? '').trim();
       opportunity.opportunity = String(payload.opportunity ?? '').trim();
       opportunity.opportunityCode = String(payload.opportunityCode ?? '').trim();
-      opportunity.status = normalizeOpportunityStatus(payload.status || 'Open');
+      opportunity.status = nextStatus;
       opportunity.openingDate = openingDate;
       opportunity.closingDate = String(payload.closingDate ?? '').trim();
       opportunity.monthYear = String(payload.monthYear ?? monthYearFromDate(openingDate)).trim();
@@ -4525,6 +4925,187 @@ async function handleApi(request, response) {
       Object.assign(allocated, updated);
       await writeDatabaseCollections(db, ['allocateds']);
       sendJson(response, 200, enrichAllocated(allocated, db));
+      return;
+    }
+
+    if (request.method === 'POST' && pathname === '/api/work-hours') {
+      const payload = await readJsonBody(request);
+      const db = await readDatabaseCollections(['clients', 'users', 'allocateds', 'workHours', 'businessCalendar']);
+      const allocated = db.allocateds.find((item) => item.id === String(payload.allocatedId || payload.consultorId || '').trim());
+
+      if (!allocated || allocated.active !== true) {
+        sendError(response, 404, 'Consultor alocado e ativo nao encontrado.');
+        return;
+      }
+      if (!canUserAccessAllocated(auth.user, allocated)) {
+        sendError(response, 403, 'Acesso permitido apenas para ADMIN ou para o consultor alocado e ativo.');
+        return;
+      }
+
+      const date = normalizeDateOnly(payload.date ?? payload.data);
+      const existing = db.workHours.find((entry) => entry.allocatedId === allocated.id && entry.date === date);
+      const entry = buildWorkHourEntryFromPayload(payload, allocated, auth.user, existing || {});
+      if (validateWorkHourEntry(response, entry, db.businessCalendar)) return;
+
+      if (existing) {
+        Object.assign(existing, entry);
+      } else {
+        db.workHours.push(entry);
+      }
+
+      await writeDatabaseCollections(db, ['workHours']);
+      sendJson(response, existing ? 200 : 201, entry);
+      return;
+    }
+
+    if (request.method === 'PATCH' && pathname.startsWith('/api/work-hours/')) {
+      const entryId = decodeURIComponent(pathname.split('/').at(-1));
+      const payload = await readJsonBody(request);
+      const db = await readDatabaseCollections(['clients', 'users', 'allocateds', 'workHours', 'businessCalendar']);
+      const existing = db.workHours.find((entry) => entry.id === entryId);
+
+      if (!existing) {
+        sendError(response, 404, 'Apontamento nao encontrado.');
+        return;
+      }
+
+      const allocated = db.allocateds.find((item) => item.id === existing.allocatedId);
+      if (!allocated || allocated.active !== true) {
+        sendError(response, 404, 'Consultor alocado e ativo nao encontrado.');
+        return;
+      }
+      if (!canUserAccessAllocated(auth.user, allocated)) {
+        sendError(response, 403, 'Acesso permitido apenas para ADMIN ou para o consultor alocado e ativo.');
+        return;
+      }
+
+      const entry = buildWorkHourEntryFromPayload({ ...existing, ...payload }, allocated, auth.user, existing);
+      if (validateWorkHourEntry(response, entry, db.businessCalendar)) return;
+
+      Object.assign(existing, entry);
+      await writeDatabaseCollections(db, ['workHours']);
+      sendJson(response, 200, existing);
+      return;
+    }
+
+    if (request.method === 'POST' && pathname === '/api/work-hours/import') {
+      if (requireAdmin(response, auth.user, 'Apenas ADMIN pode importar apontamentos de horas.')) return;
+      const payload = await readJsonBody(request);
+      const rows = Array.isArray(payload.rows) ? payload.rows : [];
+      if (!rows.length) {
+        sendError(response, 422, 'Informe ao menos uma linha para importacao.');
+        return;
+      }
+
+      const db = await readDatabaseCollections(['clients', 'users', 'allocateds', 'workHours', 'businessCalendar']);
+      const errors = [];
+      const imported = [];
+
+      for (const [index, row] of rows.entries()) {
+        const line = index + 1;
+        const allocatedId = String(row.allocatedId ?? row.consultorId ?? row.idConsultor ?? row.id ?? '').trim();
+        const allocated = db.allocateds.find((item) => item.id === allocatedId || item.externalId === allocatedId);
+        if (!allocated || allocated.active !== true) {
+          errors.push(`Linha ${line}: consultor alocado e ativo nao encontrado pelo id ${allocatedId || '-'}.`);
+          continue;
+        }
+
+        const date = normalizeDateOnly(row.date ?? row.data);
+        const existing = db.workHours.find((entry) => entry.allocatedId === allocated.id && entry.date === date);
+        const entry = buildWorkHourEntryFromPayload({ ...row, allocatedId: allocated.id, date }, allocated, auth.user, existing || {});
+        const fakeResponse = { writeHead() {}, end() {} };
+        if (validateWorkHourEntry(fakeResponse, entry, db.businessCalendar)) {
+          const reason = workHourNonBusinessReason(entry.date, db.businessCalendar, entry.clientId);
+          errors.push(reason && !entry.observation
+            ? `Linha ${line}: observacao obrigatoria por ser ${reason}.`
+            : `Linha ${line}: data/horas invalidas.`);
+          continue;
+        }
+
+        if (existing) {
+          Object.assign(existing, entry);
+        } else {
+          db.workHours.push(entry);
+        }
+        imported.push(entry);
+      }
+
+      if (errors.length) {
+        sendError(response, 422, errors.join(' '));
+        return;
+      }
+
+      await writeDatabaseCollections(db, ['workHours']);
+      sendJson(response, 200, { imported: imported.length, rows: imported });
+      return;
+    }
+
+    if (request.method === 'POST' && pathname === '/api/work-hours/finalize') {
+      const payload = await readJsonBody(request);
+      const monthYear = normalizeMonthYear(payload.monthYear ?? payload.mesAno);
+      const db = await readDatabaseCollections(['clients', 'users', 'allocateds', 'workHours', 'workHourClosures', 'businessCalendar']);
+      const allocated = db.allocateds.find((item) => item.id === String(payload.allocatedId || payload.consultorId || '').trim());
+
+      if (!allocated || allocated.active !== true) {
+        sendError(response, 404, 'Consultor alocado e ativo nao encontrado.');
+        return;
+      }
+      if (!canUserAccessAllocated(auth.user, allocated)) {
+        sendError(response, 403, 'Acesso permitido apenas para ADMIN ou para o consultor alocado e ativo.');
+        return;
+      }
+      if (!monthYear) {
+        sendError(response, 422, 'Informe o periodo mensal.');
+        return;
+      }
+
+      const filledDays = new Set(db.workHours
+        .filter((entry) => entry.allocatedId === allocated.id && String(entry.date || '').startsWith(`${monthYear}-`) && Number(entry.hours) > 0)
+        .map((entry) => entry.date));
+      const missingBusinessDays = businessDaysForMonth(monthYear, db.businessCalendar, allocated.clientId).filter((day) => !filledDays.has(day));
+      const confirmedWithMissingDays = Boolean(payload.confirmMissingDays || payload.confirmadoComDiasEmBranco);
+
+      if (missingBusinessDays.length && !confirmedWithMissingDays) {
+        sendJson(response, 409, {
+          error: 'Existem dias uteis sem apontamento. Confirme para finalizar mesmo assim.',
+          missingBusinessDays
+        });
+        return;
+      }
+
+      const existing = db.workHourClosures.find((closure) => closure.allocatedId === allocated.id && closure.monthYear === monthYear);
+      const closure = normalizeWorkHourClosure({
+        ...(existing || {}),
+        id: existing?.id || createId('work_hour_closure', `${allocated.id}-${monthYear}`),
+        allocatedId: allocated.id,
+        monthYear,
+        consultantName: allocated.consultant,
+        consultantEmail: allocated.consultantEmail,
+        clientId: allocated.clientId,
+        status: 'Finalizado',
+        missingBusinessDays,
+        confirmedWithMissingDays,
+        finalizedById: auth.user.id,
+        finalizedByName: auth.user.name,
+        finalizedByEmail: auth.user.email,
+        finalizedAt: toISODate(),
+        updatedAt: toISODate()
+      });
+
+      try {
+        closure.notification = await notifyAdminsAboutWorkHourClosure(closure, allocated, db);
+      } catch (error) {
+        closure.notification = { sent: false, reason: error.message };
+      }
+
+      if (existing) {
+        Object.assign(existing, closure);
+      } else {
+        db.workHourClosures.push(closure);
+      }
+
+      await writeDatabaseCollections(db, ['workHourClosures']);
+      sendJson(response, 200, closure);
       return;
     }
 

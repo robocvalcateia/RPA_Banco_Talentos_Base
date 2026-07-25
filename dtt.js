@@ -5,6 +5,7 @@ import Docxtemplater from 'docxtemplater';
 import { zipSync } from 'fflate';
 import PizZip from 'pizzip';
 
+import { repairUnicodeText } from './text-utils.js';
 
 export const DTT_SCHEMA = {
   type: 'object',
@@ -85,7 +86,7 @@ Regras de evidência:
 `.trim();
 
 export function sanitizeCvText(value = '') {
-  return String(value ?? '')
+  return repairUnicodeText(value)
     .normalize('NFKC')
     .replace(/\r\n?/g, '\n')
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')

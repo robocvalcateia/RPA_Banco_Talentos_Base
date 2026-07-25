@@ -1,4 +1,5 @@
 import { normalizeCurriculum } from './db.js';
+import { sanitizeUnicodeValue } from './text-utils.js';
 
 let mongoClient = null;
 let mongoClientUrl = '';
@@ -230,7 +231,7 @@ async function findLegacySyncTarget(collection, doc = {}) {
 }
 
 function normalizeLegacySyncPayload(payload = {}) {
-  const payloadToSave = { ...payload };
+  const payloadToSave = sanitizeUnicodeValue({ ...payload });
   for (const field of ['email', 'telefone', 'linkedin', 'hash_documento']) {
     const value = normalizeLegacySyncIdentityValue(field, payloadToSave[field]);
     if (value) {

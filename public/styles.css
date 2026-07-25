@@ -623,6 +623,18 @@ textarea {
   max-width: 240px;
 }
 
+.compact-filter-label {
+  align-items: start;
+  color: var(--muted);
+  display: grid;
+  font-size: 0.86rem;
+  gap: 4px;
+}
+
+.compact-filter-label select {
+  min-width: 260px;
+}
+
 .panel-maximize-button {
   background: transparent;
 }
@@ -881,6 +893,40 @@ label.full,
   overflow-x: auto;
 }
 
+.resizable-table th {
+  position: relative;
+}
+
+.column-resize-handle {
+  bottom: 8px;
+  cursor: col-resize;
+  position: absolute;
+  right: 0;
+  top: 8px;
+  width: 10px;
+  z-index: 2;
+}
+
+.column-resize-handle::after {
+  background: transparent;
+  bottom: 0;
+  content: "";
+  position: absolute;
+  right: 3px;
+  top: 0;
+  width: 2px;
+}
+
+.column-resize-handle:hover::after,
+.is-resizing-table-column .column-resize-handle::after {
+  background: var(--alcateia-green);
+}
+
+.is-resizing-table-column {
+  cursor: col-resize;
+  user-select: none;
+}
+
 .filter-bar {
   display: grid;
   grid-template-columns: minmax(180px, 240px) minmax(260px, 1fr);
@@ -897,6 +943,189 @@ label.full,
 .opportunity-filter-bar {
   grid-template-columns: 360px 360px;
   justify-content: start;
+}
+
+.work-hour-form {
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+}
+
+.work-hour-filter-bar {
+  grid-template-columns: repeat(4, minmax(160px, 1fr));
+}
+
+.work-hour-close-bar {
+  grid-template-columns: minmax(220px, 360px) minmax(180px, 220px) minmax(180px, 260px);
+}
+
+.billing-report-filter-bar {
+  grid-template-columns: minmax(160px, 220px) minmax(220px, 1fr) minmax(220px, 1fr);
+}
+
+.tax-reform-form {
+  grid-template-columns: repeat(4, minmax(170px, 1fr));
+}
+
+.tax-reform-form .primary-action {
+  width: 270px;
+  min-height: 52px;
+}
+
+.allocation-price-form {
+  grid-template-columns: repeat(5, minmax(150px, 260px));
+  align-items: end;
+  justify-content: start;
+}
+
+.allocation-forecast-strip {
+  display: grid;
+  grid-auto-columns: minmax(150px, 1fr);
+  grid-auto-flow: column;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.allocation-forecast-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  display: grid;
+  gap: 7px;
+  min-height: 132px;
+  min-width: 150px;
+  padding: 13px;
+}
+
+.allocation-forecast-card span {
+  color: var(--alcateia-green);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.allocation-forecast-card strong {
+  color: var(--ink);
+  font-size: 1.02rem;
+  line-height: 1.2;
+}
+
+.allocation-forecast-card small {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.finance-projection-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.finance-projection-card {
+  appearance: none;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  min-height: 190px;
+  padding: 16px;
+  text-align: left;
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+  width: 100%;
+}
+
+.finance-projection-card:hover,
+.finance-projection-card:focus-visible {
+  background: #ffffff;
+  border-color: var(--alcateia-green);
+  box-shadow: 0 8px 18px rgb(15 23 42 / 7%);
+  outline: none;
+}
+
+.finance-projection-card > span {
+  color: var(--alcateia-green);
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.finance-projection-card > strong {
+  color: var(--ink);
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.finance-projection-card small {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.finance-projection-values {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+}
+
+.finance-projection-values div {
+  display: grid;
+  gap: 2px;
+}
+
+.finance-projection-values b {
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.finance-projection-alert {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 6px;
+  color: #9a3412;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.25;
+  padding: 8px;
+}
+
+@media (max-width: 1180px) {
+  .finance-projection-grid {
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+  }
+}
+
+.tax-reform-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.85fr) minmax(360px, 1.15fr);
+  gap: 18px;
+}
+
+.tax-reform-detail-grid h3 {
+  margin: 0 0 10px;
+}
+
+.tax-reform-conclusion {
+  color: var(--ink);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.tax-reform-memory {
+  color: var(--muted);
+  display: grid;
+  gap: 8px;
+  line-height: 1.45;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.import-panel {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
 }
 
 .allocated-filter-bar {
@@ -2097,6 +2326,7 @@ h1 {
   }
 
   .shortcut-card-grid,
+  .finance-projection-grid,
   .module-workspace,
   .suboption-list {
     grid-template-columns: 1fr;
@@ -2507,6 +2737,226 @@ h1 {
   overflow-x: hidden;
 }
 
+.client-report-toolbar {
+  align-items: end;
+  grid-template-columns: minmax(260px, 420px) minmax(180px, 220px);
+}
+
+.client-org-report {
+  margin-top: 18px;
+  min-height: 120px;
+  overflow-x: auto;
+}
+
+.client-org-heading {
+  align-items: baseline;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding-bottom: 12px;
+}
+
+.client-org-heading strong {
+  font-size: 1.2rem;
+}
+
+.client-org-heading span {
+  color: var(--muted);
+}
+
+.client-org-chart {
+  align-items: start;
+  display: flex;
+  gap: 28px;
+  justify-content: center;
+  min-width: 760px;
+  padding: 6px 0 12px;
+}
+
+.client-org-node {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.client-org-children {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  margin-top: 34px;
+  position: relative;
+}
+
+.client-org-children::before {
+  background: var(--border);
+  content: "";
+  height: 18px;
+  left: 50%;
+  position: absolute;
+  top: -34px;
+  width: 2px;
+}
+
+.client-org-children::after {
+  background: var(--border);
+  content: "";
+  height: 2px;
+  left: 8%;
+  position: absolute;
+  right: 8%;
+  top: -16px;
+}
+
+.client-org-children > .client-org-node::before {
+  background: var(--border);
+  content: "";
+  height: 16px;
+  left: 50%;
+  position: absolute;
+  top: -16px;
+  width: 2px;
+}
+
+.client-org-level {
+  position: relative;
+}
+
+.client-org-level + .client-org-level::before {
+  background: var(--border);
+  content: "";
+  height: 22px;
+  left: 50%;
+  position: absolute;
+  top: -22px;
+  width: 2px;
+}
+
+.client-org-level-label {
+  color: var(--muted);
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 800;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.client-org-row {
+  align-items: stretch;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  justify-content: center;
+  position: relative;
+}
+
+.client-org-level + .client-org-level .client-org-row::before {
+  background: var(--border);
+  content: "";
+  height: 2px;
+  left: 10%;
+  position: absolute;
+  right: 10%;
+  top: -12px;
+}
+
+.client-org-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  display: grid;
+  gap: 5px;
+  min-height: 112px;
+  padding: 14px;
+  position: relative;
+  width: 230px;
+}
+
+.client-org-card em {
+  color: var(--accent-dark);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.client-org-card::before {
+  background: var(--border);
+  content: "";
+  height: 12px;
+  left: 50%;
+  position: absolute;
+  top: -13px;
+  width: 2px;
+}
+
+.client-org-level:first-child .client-org-card::before {
+  display: none;
+}
+
+.client-org-card strong {
+  font-size: 1rem;
+}
+
+.client-org-card span,
+.client-org-card small,
+.client-org-card a {
+  color: var(--muted);
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+
+.client-org-card a {
+  color: var(--accent-dark);
+  text-decoration: none;
+}
+
+.client-org-level-1 {
+  border-color: var(--accent);
+  box-shadow: 0 10px 24px rgba(0, 184, 148, 0.14);
+}
+
+.client-org-level-1::after {
+  background: var(--accent);
+  content: "";
+  inset: 0 auto 0 0;
+  position: absolute;
+  width: 5px;
+}
+
+.client-org-manager-summary {
+  border-top: 1px solid var(--border);
+  margin-top: 18px;
+  padding-top: 18px;
+}
+
+.client-org-manager-summary h3 {
+  font-size: 1rem;
+  margin: 0 0 12px;
+}
+
+.client-org-manager-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.client-org-manager-grid article {
+  background: #f7fbfb;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+}
+
+.client-org-manager-grid span {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 1180px) {
   #opportunityForm,
   #allocatedForm {
@@ -2524,8 +2974,14 @@ h1 {
 
   #faturamentoForm,
   #userForm,
+  .tax-reform-form,
+  .allocation-price-form,
   .compact-form-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .tax-reform-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .form-field-builder-row,
@@ -2543,6 +2999,8 @@ h1 {
   #allocatedForm,
   #faturamentoForm,
   #userForm,
+  .tax-reform-form,
+  .allocation-price-form,
   .compact-form-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2569,7 +3027,13 @@ h1 {
   #allocatedForm,
   #faturamentoForm,
   #userForm,
+  .tax-reform-form,
+  .allocation-price-form,
   .compact-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tax-reform-detail-grid {
     grid-template-columns: 1fr;
   }
 
@@ -2577,8 +3041,10 @@ h1 {
   #allocatedForm .primary-action,
   #faturamentoForm .primary-action,
   #userForm .primary-action,
+  .tax-reform-form .primary-action,
   .compact-form-grid .primary-action {
     grid-column: 1;
+    width: 100%;
   }
 
   .form-field-builder-row,

@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=20260714-prod-sync" />
+    <link rel="stylesheet" href="/styles.css?v=20260724-single-panel-maximize" />
   </head>
   <body class="auth-locked">
     <section class="auth-screen" id="authScreen">
@@ -100,6 +100,7 @@
           </button>
           <div class="nav-submenu" data-nav-submenu="contracts" hidden>
             <button class="nav-item nav-subitem" data-view="allocateds" data-parent-group="contracts">Alocados</button>
+            <button class="nav-item nav-subitem" data-view="workHours" data-parent-group="contracts">Horas Trabalhadas</button>
             <button class="nav-item nav-subitem" data-view="candidatePool" data-parent-group="contracts">Bolsão de Candidatos</button>
             <button class="nav-item nav-subitem" data-view="huntings" data-parent-group="contracts">Huntings</button>
             <button class="nav-item nav-subitem" data-view="rateCards" data-parent-group="contracts">Rate Cards</button>
@@ -112,6 +113,19 @@
           </button>
           <div class="nav-submenu" data-nav-submenu="finance" hidden>
             <button class="nav-item nav-subitem" data-view="faturamento" data-parent-group="finance">Faturamento</button>
+            <button class="nav-item nav-subitem" data-view="taxReformSimulator" data-parent-group="finance">Simuladores / Reforma</button>
+            <button class="nav-item nav-subitem" data-view="allocationPrices" data-parent-group="finance">Preços / Alocações</button>
+            <button class="nav-item nav-subitem" data-view="financeProjection" data-parent-group="finance">Projeção</button>
+          </div>
+        </div>
+        <div class="nav-group" data-nav-group="billingReport">
+          <button class="nav-group-toggle" type="button" data-nav-toggle="billingReport" aria-expanded="false">
+            <span>Billing Report</span>
+            <span class="nav-chevron" aria-hidden="true">›</span>
+          </button>
+          <div class="nav-submenu" data-nav-submenu="billingReport" hidden>
+            <button class="nav-item nav-subitem" data-view="billingReport" data-billing-panel="query" data-parent-group="billingReport">Consultas / Relatórios</button>
+            <button class="nav-item nav-subitem" data-view="billingReport" data-billing-panel="entry" data-parent-group="billingReport">Apontamento</button>
           </div>
         </div>
         <button class="nav-item" data-view="forms">Formulários</button>
@@ -129,7 +143,7 @@
     <main class="app-shell">
       <header class="topbar">
         <div class="topbar-title">
-          <button class="ghost-action home-action" id="homeViewButton" type="button">Menu inicial</button>
+          <button class="ghost-action home-action" id="homeViewButton" type="button">Voltar</button>
           <div>
           <p class="eyebrow">Gestão do negócio</p>
           <h1 id="viewTitle">Alcateia</h1>
@@ -296,6 +310,240 @@
         </section>
       </section>
 
+      <section class="view" id="taxReformSimulator" data-no-auto-maximize>
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Simuladores / Reforma</h2>
+              <span>Composição de preço e simulação fiscal</span>
+            </div>
+          </div>
+          <form id="taxReformSimulatorForm" class="form-grid tax-reform-form" novalidate>
+            <label>Empresa / filial
+              <select name="establishment" required>
+                <option value="sp-consultoria">Alcateia São Paulo - Consultoria / Alocação</option>
+                <option value="barueri-hunting">Alcateia Barueri - Hunting</option>
+                <option value="barueri-consultoria">Alcateia Barueri - Consultoria / Alocação</option>
+              </select>
+            </label>
+            <label>Serviço
+              <select name="service" required>
+                <option>Consultoria</option>
+                <option>Alocação</option>
+                <option>Hunting</option>
+                <option>Projeto</option>
+              </select>
+            </label>
+            <label>Modo de cálculo
+              <select name="mode" required>
+                <option value="preserveMargin">Preservar margem</option>
+                <option value="preservePrice">Preservar preço</option>
+                <option value="ceiling">Preço-teto</option>
+              </select>
+            </label>
+            <label>Cenário
+              <select name="scenario" id="taxReformScenarioSelect" required>
+                <option value="legal">Legal / Base</option>
+                <option value="conservative">Conservador</option>
+                <option value="probable" selected>Provável</option>
+                <option value="optimistic">Otimista</option>
+                <option value="custom">Personalizado</option>
+              </select>
+            </label>
+            <label>Preço atual / negociado
+              <input class="currency-input" name="targetPrice" value="R$ 1.000.000,00" required />
+            </label>
+            <label>Preço-teto cliente
+              <input class="currency-input" name="priceCeiling" value="R$ 1.000.000,00" />
+            </label>
+            <label>Custo direto
+              <input class="currency-input" name="directCost" value="R$ 620.000,00" required />
+            </label>
+            <label>Custo indireto / rateado
+              <input class="currency-input" name="indirectCost" value="R$ 80.000,00" />
+            </label>
+            <label>Despesas creditáveis
+              <input class="currency-input" name="creditableExpenses" value="R$ 200.000,00" />
+            </label>
+            <label>Margem desejada (%)
+              <input name="targetMargin" type="number" min="0" max="95" step="0.01" value="18" required />
+            </label>
+            <label>IBS/CBS cenário (%)
+              <input name="ibsCbsRate" type="number" min="0" max="100" step="0.0001" value="26.5" required />
+            </label>
+            <label>Aproveitamento crédito (%)
+              <input name="creditUtilization" type="number" min="0" max="100" step="0.01" value="90" required />
+            </label>
+            <label>Reajuste receita anual (%)
+              <input name="annualAdjustment" type="number" min="-100" max="100" step="0.01" value="4" />
+            </label>
+            <label>Inflação custo anual (%)
+              <input name="costInflation" type="number" min="-100" max="100" step="0.01" value="4" />
+            </label>
+            <label>Ano inicial
+              <input name="startYear" type="number" min="2026" max="2033" step="1" value="2026" required />
+            </label>
+            <label>Ano final
+              <input name="endYear" type="number" min="2026" max="2033" step="1" value="2033" required />
+            </label>
+            <label class="full">Observação / premissa
+              <textarea name="assumption" rows="2" placeholder="Premissas de cliente, contrato, retenção ou validação contábil pendente"></textarea>
+            </label>
+            <button class="primary-action" type="submit">Calcular simulação</button>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Resultado</h2>
+              <span id="taxReformResultSummary">Aguardando cálculo</span>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Ano</th>
+                  <th>Preço/base</th>
+                  <th>Total nota</th>
+                  <th>Tributos econômicos</th>
+                  <th>Créditos</th>
+                  <th>Retenções</th>
+                  <th>Caixa recebido</th>
+                  <th>Lucro</th>
+                  <th>Margem</th>
+                </tr>
+              </thead>
+              <tbody id="taxReformResultTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel tax-reform-detail-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Memória e conclusão</h2>
+              <span>Rastreabilidade do cálculo</span>
+            </div>
+          </div>
+          <div class="tax-reform-detail-grid">
+            <div>
+              <h3>Conclusão</h3>
+              <p id="taxReformConclusion" class="tax-reform-conclusion">Calcule uma simulação para gerar a leitura executiva.</p>
+            </div>
+            <div>
+              <h3>Memória de cálculo</h3>
+              <ul id="taxReformMemory" class="tax-reform-memory">
+                <li>Sem cálculo gerado.</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" id="allocationPrices" data-no-auto-maximize>
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Preços / Alocações</h2>
+              <span>Simulação</span>
+            </div>
+          </div>
+          <form id="allocationPriceForm" class="form-grid allocation-price-form" novalidate>
+            <label>Valor compra
+              <input class="currency-input" name="purchaseValue" />
+            </label>
+            <label>Valor venda
+              <input class="currency-input" name="saleValue" />
+            </label>
+            <label>Razão
+              <select name="ratio">
+                <option value="50/50">50/50</option>
+                <option value="55/45">55/45</option>
+                <option value="60/40">60/40</option>
+                <option value="65/35">65/35</option>
+                <option value="70/30">70/30</option>
+                <option value="75/25">75/25</option>
+              </select>
+            </label>
+            <label>Reajuste anual (%)
+              <input name="annualAdjustment" type="number" min="-100" max="100" step="0.01" value="4" />
+            </label>
+            <label>Resultado
+              <input id="allocationPriceResult" readonly />
+            </label>
+          </form>
+        </section>
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Previsão Reforma Tributária</h2>
+              <span id="allocationPriceForecastSummary">Mantendo a margem da razão selecionada</span>
+            </div>
+          </div>
+          <div class="allocation-forecast-strip" id="allocationPriceForecastStrip"></div>
+        </section>
+      </section>
+
+      <section class="view" id="financeProjection">
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Projeção</h2>
+              <span id="financeProjectionSummary">Próximos 6 meses</span>
+            </div>
+            <div class="panel-heading-actions">
+              <button class="secondary-action compact-action" id="openBusinessCalendarFromProjection" type="button">Consultar calendário</button>
+            </div>
+          </div>
+          <div class="finance-projection-grid" id="financeProjectionCards"></div>
+        </section>
+      </section>
+
+      <section class="view" id="businessCalendar">
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Manutenção de feriados</h2>
+              <span id="businessCalendarCount">0</span>
+            </div>
+          </div>
+          <form id="businessCalendarForm" class="form-grid compact-form-grid" novalidate>
+            <label>Data<input name="date" type="date" required /></label>
+            <label class="checkbox-field"><input name="allDay" type="checkbox" checked /> Dia inteiro</label>
+            <label>Hora inicial<select name="startTime" id="businessCalendarStartTime"></select></label>
+            <label>Hora final<select name="endTime" id="businessCalendarEndTime"></select></label>
+            <label>Cliente<select name="clientId" id="businessCalendarClientSelect">
+              <option value="">Todos</option>
+            </select></label>
+            <label>Motivo<input name="reason" required /></label>
+            <label class="full">Observação<textarea name="observation" rows="3"></textarea></label>
+            <button class="primary-action" type="submit">Salvar feriado</button>
+          </form>
+        </section>
+        <section class="panel">
+          <div class="panel-heading">
+            <h2>Calendário cadastrado</h2>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Período</th>
+                  <th>Cliente</th>
+                  <th>Motivo</th>
+                  <th>Observação</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="businessCalendarTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
       <section class="view" id="forms">
         <section class="panel forms-admin-panel" data-admin-only data-forms-panel="builder">
           <div class="panel-heading">
@@ -403,6 +651,9 @@
             <label>Primary Contact Name<input name="primaryContactName" /></label>
             <label>Primary Contact Email<input name="primaryContactEmail" type="email" /></label>
             <label>Primary Contact Phone<input name="primaryContactPhone" /></label>
+            <label>Nome do gestor<select name="managerContactId" id="clientManagerContactSelect" disabled>
+              <option value="">Selecione um cliente</option>
+            </select></label>
             <label class="full">Observação<textarea name="observation" rows="3"></textarea></label>
             <button class="primary-action" type="submit">Salvar cliente</button>
           </form>
@@ -410,31 +661,43 @@
         <section class="panel">
           <div class="panel-heading">
             <div>
-              <h2>Contact Client</h2>
-              <span id="contactClientContext">Selecione um cliente para cadastrar contatos</span>
+              <h2>Relatórios de clientes</h2>
+              <span>Contatos e organograma</span>
             </div>
-            <span id="contactClientCount">0</span>
+            <div class="panel-heading-actions">
+              <button class="secondary-action compact-action" id="exportClientsCsvButton" type="button">Exportar CSV</button>
+            </div>
           </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Nome</th>
-                  <th>Área</th>
-                  <th>Cargo</th>
-                  <th>Telefone</th>
-                  <th>E-mail</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody id="contactClientTable"></tbody>
-            </table>
+          <div class="filter-bar client-report-toolbar">
+            <label>Cliente CSV
+              <select id="clientCsvSelect">
+                <option value="">Todos</option>
+              </select>
+            </label>
+            <label>Cliente
+              <select id="clientOrgChartSelect">
+                <option value="">Selecione</option>
+              </select>
+            </label>
+            <button class="primary-action compact-action" id="generateClientOrgChartButton" type="button">Gerar organograma</button>
+          </div>
+          <div class="client-org-report" id="clientOrgChartReport">
+            <p class="empty-state">Selecione um cliente para gerar o organograma de contatos.</p>
           </div>
         </section>
         <section class="panel">
           <div class="panel-heading">
-            <h2>Clientes cadastrados</h2>
-            <span id="clientCount">0</span>
+            <div>
+              <h2>Clientes cadastrados</h2>
+              <span id="clientCount">0</span>
+            </div>
+            <div class="panel-heading-actions">
+              <label class="compact-filter-label">Cliente
+                <select id="clientListFilter">
+                  <option value="">Todos</option>
+                </select>
+              </label>
+            </div>
           </div>
           <div class="table-wrap">
             <table>
@@ -444,6 +707,7 @@
                   <th>Primary Contact Name</th>
                   <th>Primary Contact Email</th>
                   <th>Primary Contact Phone</th>
+                  <th>Nome do gestor</th>
                   <th>Observação</th>
                   <th>Contatos</th>
                 </tr>
@@ -1176,6 +1440,193 @@
         </section>
       </section>
 
+      <section class="view" id="workHours">
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Horas trabalhadas</h2>
+              <span id="workHourAccessSummary">Apontamento mensal</span>
+            </div>
+          </div>
+          <form id="workHourForm" class="form-grid work-hour-form" novalidate>
+            <label>Consultor
+              <select name="allocatedId" id="workHourAllocatedSelect" required></select>
+            </label>
+            <label>Cliente
+              <input name="clientName" id="workHourClientName" readonly />
+            </label>
+            <label>Data
+              <input name="date" type="date" required />
+            </label>
+            <label>Horas trabalhadas
+              <input name="hours" type="number" min="0.5" max="24" step="0.5" placeholder="0,5 a 24" required />
+            </label>
+            <label>Projeto
+              <input name="project" />
+            </label>
+            <label class="full">Observação
+              <textarea name="observation" rows="3"></textarea>
+            </label>
+            <button class="primary-action" type="submit">Salvar apontamento</button>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Fechamento mensal</h2>
+              <span id="workHourClosureSummary">Finalização do período</span>
+            </div>
+          </div>
+          <div class="filter-bar work-hour-close-bar">
+            <label>Consultor
+              <select id="workHourCloseAllocatedSelect"></select>
+            </label>
+            <label>Mês
+              <input id="workHourCloseMonth" type="month" />
+            </label>
+            <button class="primary-action" id="workHourFinalizeButton" type="button">Finalizar período</button>
+          </div>
+          <p class="empty-state" id="workHourClosureStatus"></p>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Consulta de horas</h2>
+              <span id="workHourCount">0</span>
+            </div>
+            <div class="panel-heading-actions" data-admin-only>
+              <button class="secondary-action compact-action" id="workHourExportButton" type="button">Exportar CSV</button>
+            </div>
+          </div>
+          <div class="filter-bar work-hour-filter-bar" data-admin-only>
+            <label>Consultor
+              <select id="workHourFilterAllocated">
+                <option value="">Todos</option>
+              </select>
+            </label>
+            <label>Cliente
+              <select id="workHourFilterClient">
+                <option value="">Todos</option>
+              </select>
+            </label>
+            <label>Data inicial
+              <input id="workHourFilterDateFrom" type="date" />
+            </label>
+            <label>Data final
+              <input id="workHourFilterDateTo" type="date" />
+            </label>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Consultor</th>
+                  <th>Data</th>
+                  <th>Horas</th>
+                  <th>Cliente</th>
+                  <th>Projeto</th>
+                  <th>Observação</th>
+                </tr>
+              </thead>
+              <tbody id="workHourTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel" data-admin-only>
+          <div class="panel-heading">
+            <div>
+              <h2>Importar horas</h2>
+              <span>CSV por id do consultor</span>
+            </div>
+          </div>
+          <div class="import-panel">
+            <input id="workHourImportFile" type="file" accept=".csv,text/csv" />
+            <button class="primary-action" id="workHourImportButton" type="button">Importar CSV</button>
+            <p class="empty-state">Layout: allocatedId;date;hours;project;observation</p>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" id="billingReport">
+        <section class="panel" data-billing-panel="entry">
+          <div class="panel-heading">
+            <div>
+              <h2>Apontamento</h2>
+              <span id="billingEntryAccessSummary">Registro de horas</span>
+            </div>
+          </div>
+          <form id="billingEntryForm" class="form-grid work-hour-form" novalidate>
+            <label>Consultor
+              <select name="allocatedId" id="billingEntryAllocatedSelect" required></select>
+            </label>
+            <label>Cliente
+              <input name="clientName" id="billingEntryClientName" readonly />
+            </label>
+            <label>Data
+              <input name="date" type="date" required />
+            </label>
+            <label>Horas trabalhadas
+              <input name="hours" type="number" min="0.5" max="24" step="0.5" placeholder="0,5 a 24" required />
+            </label>
+            <label>Projeto
+              <input name="project" />
+            </label>
+            <label class="full">Observação
+              <textarea name="observation" rows="3"></textarea>
+            </label>
+            <button class="primary-action" type="submit">Salvar apontamento</button>
+          </form>
+        </section>
+
+        <section class="panel" data-billing-panel="query">
+          <div class="panel-heading">
+            <div>
+              <h2>Consultas / Relatórios</h2>
+              <span id="billingReportCount">0</span>
+            </div>
+            <div class="panel-heading-actions">
+              <button class="secondary-action compact-action" id="billingReportExportButton" type="button">Exportar CSV</button>
+            </div>
+          </div>
+          <div class="filter-bar billing-report-filter-bar">
+            <label>Mês
+              <input id="billingReportMonthFilter" type="month" />
+            </label>
+            <label>Cliente
+              <select id="billingReportClientFilter">
+                <option value="">Todos</option>
+              </select>
+            </label>
+            <label>Consultor
+              <select id="billingReportAllocatedFilter">
+                <option value="">Todos</option>
+              </select>
+            </label>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cliente</th>
+                  <th>Consultor</th>
+                  <th>Mês</th>
+                  <th>Horas apontadas</th>
+                  <th>Horas calendário</th>
+                  <th>Saldo horas</th>
+                  <th>Valor hora venda</th>
+                  <th>Total billing</th>
+                  <th>Status fechamento</th>
+                </tr>
+              </thead>
+              <tbody id="billingReportTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
     </main>
 
     <div class="modal-backdrop hidden" id="contactClientListModal" role="dialog" aria-modal="true" aria-labelledby="contactClientListModalTitle">
@@ -1197,6 +1648,7 @@
                 <th>Nome</th>
                 <th>Área</th>
                 <th>Cargo</th>
+                <th>Gestor</th>
                 <th>Telefone</th>
                 <th>E-mail</th>
                 <th>Ações</th>
@@ -1222,6 +1674,9 @@
           <label>Nome<input name="name" required /></label>
           <label>Área<input name="area" /></label>
           <label>Cargo<input name="role" /></label>
+          <label>Gestor do contato<select name="parentContactId" id="contactParentContactSelect">
+            <option value="">Sem gestor</option>
+          </select></label>
           <label>Telefone<input name="phone" /></label>
           <label>E-mail<input name="email" type="email" /></label>
           <button class="primary-action" id="saveContactClientButton" type="submit">Cadastrar contato</button>
@@ -1285,7 +1740,7 @@
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=20260717-form-request-observations"></script>
+    <script src="/app.js?v=20260724-client-org-manager-map"></script>
   </body>
 </html>
 
