@@ -321,17 +321,16 @@
           <form id="taxReformSimulatorForm" class="form-grid tax-reform-form" novalidate>
             <label>Empresa / filial
               <select name="establishment" required>
-                <option value="sp-consultoria">Alcateia São Paulo - Consultoria / Alocação</option>
-                <option value="barueri-hunting">Alcateia Barueri - Hunting</option>
-                <option value="barueri-consultoria">Alcateia Barueri - Consultoria / Alocação</option>
+                <option value="sp-matriz">Alcateia São Paulo - Matriz</option>
+                <option value="barueri-filial">Alcateia Barueri - Filial</option>
               </select>
             </label>
             <label>Serviço
               <select name="service" required>
-                <option>Consultoria</option>
-                <option>Alocação</option>
-                <option>Hunting</option>
-                <option>Projeto</option>
+                <option value="consultoria-ti">Consultoria em TI</option>
+                <option value="alocacao">Alocação / fornecimento de mão-de-obra</option>
+                <option value="hunting">Hunting / recrutamento e seleção</option>
+                <option value="projeto">Projeto / desenvolvimento</option>
               </select>
             </label>
             <label>Modo de cálculo
@@ -368,8 +367,11 @@
             <label>Margem desejada (%)
               <input name="targetMargin" type="number" min="0" max="95" step="0.01" value="18" required />
             </label>
-            <label>IBS/CBS cenário (%)
-              <input name="ibsCbsRate" type="number" min="0" max="100" step="0.0001" value="26.5" required />
+            <label>CBS cenário (%)
+              <input name="cbsRate" type="number" min="0" max="100" step="0.0001" value="8.8" required />
+            </label>
+            <label>IBS cenário (%)
+              <input name="ibsRate" type="number" min="0" max="100" step="0.0001" value="17.7" required />
             </label>
             <label>Aproveitamento crédito (%)
               <input name="creditUtilization" type="number" min="0" max="100" step="0.01" value="90" required />
@@ -451,6 +453,15 @@
             </div>
           </div>
           <form id="allocationPriceForm" class="form-grid allocation-price-form" novalidate>
+            <label>Empresa / serviço
+              <select name="taxProfile">
+                <option value="sp-matriz:alocacao">São Paulo - Alocação</option>
+                <option value="sp-matriz:consultoria-ti">São Paulo - Consultoria TI</option>
+                <option value="barueri-filial:alocacao">Barueri - Alocação</option>
+                <option value="barueri-filial:hunting">Barueri - Hunting</option>
+                <option value="barueri-filial:consultoria-ti">Barueri - Consultoria TI</option>
+              </select>
+            </label>
             <label>Valor compra
               <input class="currency-input" name="purchaseValue" />
             </label>

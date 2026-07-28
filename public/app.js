@@ -4134,50 +4134,150 @@ function formatRatio(value, digits = 2) {
 }
 
 const taxReformEstablishments = {
-  'sp-consultoria': {
-    label: 'Alcateia Sao Paulo - Consultoria / Alocacao',
-    municipalCode: '02881',
-    issRate: 0.029,
-    irrfRate: 0.015,
-    csrfRate: 0.0465,
-    origin: 'Nota fiscal observada - draft'
+  'sp-matriz': {
+    label: 'Alcateia Sao Paulo - Matriz',
+    cnpj: '26.119.211/0001-31',
+    city: 'Sao Paulo/SP',
+    address: 'Rua Fiacao da Saude, 145, Conj. 114',
+    source: 'CNPJ Matriz e contrato social consolidado'
   },
-  'barueri-hunting': {
-    label: 'Alcateia Barueri - Hunting',
-    municipalCode: '170401220',
-    issRate: 0.02,
-    irrfRate: 0.015,
-    csrfRate: 0,
-    origin: 'Nota fiscal observada - draft'
+  'barueri-filial': {
+    label: 'Alcateia Barueri - Filial',
+    cnpj: '26.119.211/0002-12',
+    city: 'Barueri/SP',
+    address: 'Alameda Rio Negro, 503, Sala 2011',
+    source: 'CNPJ Filial e contrato social consolidado'
+  }
+};
+
+const taxReformServiceProfiles = {
+  'sp-matriz': {
+    'consultoria-ti': {
+      label: 'Consultoria em TI',
+      cnae: '62.04-0-00',
+      municipalCode: '02881',
+      issRate: 0.029,
+      pisCofinsRate: 0.0925,
+      irrfRate: 0.015,
+      csrfRate: 0.0465,
+      creditableExpenseShare: 0.2,
+      origin: 'CNPJ Matriz; FDC Sao Paulo com ISS 2,9% para consultoria em TI'
+    },
+    alocacao: {
+      label: 'Alocacao / fornecimento de mao-de-obra',
+      cnae: '78.10-8-00 / 62.04-0-00',
+      municipalCode: 'A validar no CCM SP',
+      issRate: 0.029,
+      pisCofinsRate: 0.0925,
+      irrfRate: 0.015,
+      csrfRate: 0.0465,
+      creditableExpenseShare: 0.2,
+      requiresFiscalReview: true,
+      origin: 'Objeto social contempla selecao/agenciamento; ISS mantido como premissa SP a validar no CCM'
+    },
+    hunting: {
+      label: 'Hunting / recrutamento e selecao',
+      cnae: '78.10-8-00',
+      municipalCode: 'A validar no CCM SP',
+      issRate: 0.05,
+      pisCofinsRate: 0.0925,
+      irrfRate: 0.015,
+      csrfRate: 0,
+      creditableExpenseShare: 0.15,
+      requiresFiscalReview: true,
+      origin: 'Servico previsto no objeto social; codigo municipal SP pendente de validacao'
+    },
+    projeto: {
+      label: 'Projeto / desenvolvimento',
+      cnae: '62.01-5-01 / 62.02-3-00',
+      municipalCode: '02881',
+      issRate: 0.029,
+      pisCofinsRate: 0.0925,
+      irrfRate: 0.015,
+      csrfRate: 0.0465,
+      creditableExpenseShare: 0.25,
+      origin: 'CNPJ Matriz; desenvolvimento e consultoria em tecnologia'
+    }
   },
-  'barueri-consultoria': {
-    label: 'Alcateia Barueri - Consultoria / Alocacao',
-    municipalCode: '010601220',
-    issRate: 0.02,
-    irrfRate: 0.015,
-    csrfRate: 0.0465,
-    origin: 'Nota fiscal observada - draft'
+  'barueri-filial': {
+    'consultoria-ti': {
+      label: 'Consultoria em TI',
+      cnae: '62.04-0-00',
+      municipalCode: '010602217',
+      issRate: 0.02,
+      pisCofinsRate: 0.0925,
+      irrfRate: 0.015,
+      csrfRate: 0.0465,
+      creditableExpenseShare: 0.2,
+      origin: 'CNPJ Filial; tabela Barueri consultoria em informatica 2%'
+    },
+    alocacao: {
+      label: 'Alocacao / fornecimento de mao-de-obra',
+      cnae: '78.10-8-00',
+      municipalCode: '170501220',
+      issRate: 0.02,
+      pisCofinsRate: 0.0925,
+      irrfRate: 0.015,
+      csrfRate: 0.0465,
+      creditableExpenseShare: 0.2,
+      origin: 'CNPJ Filial; tabela Barueri fornecimento de mao-de-obra 2%'
+    },
+    hunting: {
+      label: 'Hunting / recrutamento e selecao',
+      cnae: '78.10-8-00',
+      municipalCode: '170401220',
+      issRate: 0.02,
+      pisCofinsRate: 0.0925,
+      irrfRate: 0.015,
+      csrfRate: 0,
+      creditableExpenseShare: 0.15,
+      origin: 'CNPJ Filial; tabela Barueri recrutamento/agenciamento 2%'
+    },
+    projeto: {
+      label: 'Projeto / desenvolvimento',
+      cnae: '62.01-5-01 / 62.02-3-00',
+      municipalCode: '010602217',
+      issRate: 0.02,
+      pisCofinsRate: 0.0925,
+      irrfRate: 0.015,
+      csrfRate: 0.0465,
+      creditableExpenseShare: 0.25,
+      origin: 'CNPJ Filial; desenvolvimento e consultoria em tecnologia'
+    }
   }
 };
 
 const taxReformScenarioPresets = {
-  legal: { label: 'Legal / Base', ibsCbsRate: 26.5, creditUtilization: 90, risk: 'Medio' },
-  conservative: { label: 'Conservador', ibsCbsRate: 28, creditUtilization: 80, risk: 'Alto' },
-  probable: { label: 'Provavel', ibsCbsRate: 26.5, creditUtilization: 90, risk: 'Medio' },
-  optimistic: { label: 'Otimista', ibsCbsRate: 25, creditUtilization: 100, risk: 'Baixo' },
-  custom: { label: 'Personalizado', ibsCbsRate: 26.5, creditUtilization: 90, risk: 'A validar' }
+  legal: { label: 'Legal / Base', cbsRate: 8.8, ibsRate: 17.7, creditUtilization: 90, risk: 'Medio' },
+  conservative: { label: 'Conservador', cbsRate: 9.3, ibsRate: 18.7, creditUtilization: 80, risk: 'Alto' },
+  probable: { label: 'Provavel', cbsRate: 8.8, ibsRate: 17.7, creditUtilization: 90, risk: 'Medio' },
+  optimistic: { label: 'Otimista', cbsRate: 8.3, ibsRate: 16.7, creditUtilization: 100, risk: 'Baixo' },
+  custom: { label: 'Personalizado', cbsRate: 8.8, ibsRate: 17.7, creditUtilization: 90, risk: 'A validar' }
 };
 
 const taxReformTransitionFactors = {
-  2026: { legacy: 1, reform: 0, note: 'Ano-teste: IBS/CBS destacados, sem efeito economico no draft.' },
-  2027: { legacy: 1, reform: 0, note: 'Premissa draft: manter comparacao economica ate parametrizacao CBS definitiva.' },
-  2028: { legacy: 1, reform: 0, note: 'Premissa draft: preparar transicao IBS sem alterar snapshot historico.' },
-  2029: { legacy: 0.9, reform: 0.1, note: 'Transicao IBS 10% e legado 90%.' },
-  2030: { legacy: 0.8, reform: 0.2, note: 'Transicao IBS 20% e legado 80%.' },
-  2031: { legacy: 0.7, reform: 0.3, note: 'Transicao IBS 30% e legado 70%.' },
-  2032: { legacy: 0.6, reform: 0.4, note: 'Transicao IBS 40% e legado 60%.' },
-  2033: { legacy: 0, reform: 1, note: 'Modelo integral pos-Reforma no draft.' }
+  2026: { pisCofinsLegacy: 1, issLegacy: 1, cbs: 0, ibs: 0, note: 'Ano-teste: CBS/IBS destacados, sem efeito economico.' },
+  2027: { pisCofinsLegacy: 0, issLegacy: 1, cbs: 1, ibs: 0, note: 'CBS substitui PIS/COFINS; ISS permanece integral.' },
+  2028: { pisCofinsLegacy: 0, issLegacy: 1, cbs: 1, ibs: 0, note: 'CBS integral; IBS ainda sem rampa economica municipal no simulador.' },
+  2029: { pisCofinsLegacy: 0, issLegacy: 0.9, cbs: 1, ibs: 0.1, note: 'CBS integral; IBS 10% e ISS 90%.' },
+  2030: { pisCofinsLegacy: 0, issLegacy: 0.8, cbs: 1, ibs: 0.2, note: 'CBS integral; IBS 20% e ISS 80%.' },
+  2031: { pisCofinsLegacy: 0, issLegacy: 0.7, cbs: 1, ibs: 0.3, note: 'CBS integral; IBS 30% e ISS 70%.' },
+  2032: { pisCofinsLegacy: 0, issLegacy: 0.6, cbs: 1, ibs: 0.4, note: 'CBS integral; IBS 40% e ISS 60%.' },
+  2033: { pisCofinsLegacy: 0, issLegacy: 0, cbs: 1, ibs: 1, note: 'Modelo integral pos-Reforma: CBS e IBS integrais; ISS encerrado.' }
 };
+
+function resolveTaxReformProfile(establishmentKey = 'sp-matriz', serviceKey = 'consultoria-ti') {
+  const establishment = taxReformEstablishments[establishmentKey] || taxReformEstablishments['sp-matriz'];
+  const services = taxReformServiceProfiles[establishmentKey] || taxReformServiceProfiles['sp-matriz'];
+  const service = services[serviceKey] || services['consultoria-ti'] || Object.values(services)[0];
+  return {
+    ...service,
+    establishmentKey,
+    serviceKey,
+    establishment,
+    label: `${establishment.label} - ${service.label}`
+  };
+}
 
 function numericFormValue(form, name, fallback = 0) {
   const element = form?.elements?.[name];
@@ -4192,7 +4292,7 @@ function taxReformFormInputs(form) {
   const endYear = Math.max(startYear, Math.min(2033, Math.trunc(numericFormValue(form, 'endYear', 2033))));
   return {
     establishmentKey: form.elements.establishment.value,
-    service: form.elements.service.value,
+    serviceKey: form.elements.service.value,
     mode: form.elements.mode.value,
     scenarioKey: form.elements.scenario.value,
     targetPrice: numericFormValue(form, 'targetPrice', 0),
@@ -4201,7 +4301,8 @@ function taxReformFormInputs(form) {
     indirectCost: numericFormValue(form, 'indirectCost', 0),
     creditableExpenses: numericFormValue(form, 'creditableExpenses', 0),
     targetMargin: numericFormValue(form, 'targetMargin', 0) / 100,
-    ibsCbsRate: numericFormValue(form, 'ibsCbsRate', 0) / 100,
+    cbsRate: numericFormValue(form, 'cbsRate', 0) / 100,
+    ibsRate: numericFormValue(form, 'ibsRate', 0) / 100,
     creditUtilization: numericFormValue(form, 'creditUtilization', 0) / 100,
     annualAdjustment: numericFormValue(form, 'annualAdjustment', 0) / 100,
     costInflation: numericFormValue(form, 'costInflation', 0) / 100,
@@ -4212,7 +4313,7 @@ function taxReformFormInputs(form) {
 }
 
 function taxReformYearRows(inputs) {
-  const establishment = taxReformEstablishments[inputs.establishmentKey] || taxReformEstablishments['sp-consultoria'];
+  const profile = resolveTaxReformProfile(inputs.establishmentKey, inputs.serviceKey);
   const scenario = taxReformScenarioPresets[inputs.scenarioKey] || taxReformScenarioPresets.probable;
   const baseCost = inputs.directCost + inputs.indirectCost;
   const rows = [];
@@ -4222,10 +4323,16 @@ function taxReformYearRows(inputs) {
     const transition = taxReformTransitionFactors[year] || taxReformTransitionFactors[2033];
     const costGross = baseCost * ((1 + inputs.costInflation) ** elapsed);
     const creditableExpenses = inputs.creditableExpenses * ((1 + inputs.costInflation) ** elapsed);
-    const legacyEconomicRate = (establishment.issRate + 0.0925) * transition.legacy;
-    const reformEconomicRate = inputs.ibsCbsRate * transition.reform;
-    const economicRate = legacyEconomicRate + reformEconomicRate;
-    const credits = Math.min(creditableExpenses * inputs.ibsCbsRate * inputs.creditUtilization * Math.max(transition.reform, 0), reformEconomicRate * Math.max(inputs.targetPrice, 1));
+    const legacyFederalRate = profile.pisCofinsRate * transition.pisCofinsLegacy;
+    const legacyMunicipalRate = profile.issRate * transition.issLegacy;
+    const cbsEconomicRate = inputs.cbsRate * transition.cbs;
+    const ibsEconomicRate = inputs.ibsRate * transition.ibs;
+    const reformEconomicRate = cbsEconomicRate + ibsEconomicRate;
+    const economicRate = legacyFederalRate + legacyMunicipalRate + reformEconomicRate;
+    const credits = Math.min(
+      creditableExpenses * reformEconomicRate * inputs.creditUtilization,
+      reformEconomicRate * Math.max(inputs.targetPrice, 1)
+    );
     const netCost = Math.max(costGross - credits, 0);
     const denominator = 1 - inputs.targetMargin - economicRate;
     const mathematicallyViable = denominator > 0;
@@ -4242,7 +4349,7 @@ function taxReformYearRows(inputs) {
     const noteTotal = priceBase + reformHighlighted;
     const grossEconomicTax = priceBase * economicRate;
     const netEconomicTax = Math.max(grossEconomicTax - credits, 0);
-    const retentions = priceBase * (establishment.irrfRate + establishment.csrfRate);
+    const retentions = priceBase * (profile.irrfRate + profile.csrfRate);
     const cashReceived = noteTotal - retentions;
     const profit = priceBase - costGross - netEconomicTax;
     const effectiveMargin = priceBase > 0 ? profit / priceBase : 0;
@@ -4250,9 +4357,14 @@ function taxReformYearRows(inputs) {
 
     rows.push({
       year,
-      establishment,
+      establishment: profile.establishment,
+      profile,
       scenario,
       transition,
+      legacyFederalRate,
+      legacyMunicipalRate,
+      cbsEconomicRate,
+      ibsEconomicRate,
       priceBase,
       noteTotal,
       costGross,
@@ -4326,13 +4438,16 @@ function renderTaxReformSimulator() {
   $('#taxReformConclusion').textContent = `No cenario ${taxReformScenarioPresets[inputs.scenarioKey]?.label || 'selecionado'}, a simulacao de ${modeLabel} encerra ${inputs.endYear} com margem efetiva de ${formatRatio(lastRow.effectiveMargin * 100)} e carga liquida de ${formatRatio(lastRow.netTaxRate * 100)}. A variacao frente ao ano inicial e de ${formatRatio(marginDelta)} na margem e ${formatRatio(taxDelta)} p.p. na carga. Risco ${risk}: validar creditos, retencoes e fonte fiscal antes de converter em proposta.`;
 
   $('#taxReformMemory').innerHTML = [
-    `Filial: ${lastRow.establishment.label}; codigo municipal ${lastRow.establishment.municipalCode}; origem ${lastRow.establishment.origin}.`,
-    `Servico: ${inputs.service}; modo: ${modeLabel}; cenario: ${taxReformScenarioPresets[inputs.scenarioKey]?.label || '-'}.`,
+    `Filial: ${lastRow.establishment.label}; CNPJ ${lastRow.establishment.cnpj}; municipio ${lastRow.establishment.city}.`,
+    `Servico: ${lastRow.profile.label}; CNAE ${lastRow.profile.cnae}; codigo municipal ${lastRow.profile.municipalCode}; origem ${lastRow.profile.origin}.`,
+    `Modo: ${modeLabel}; cenario: ${taxReformScenarioPresets[inputs.scenarioKey]?.label || '-'}; CBS ${formatRatio(inputs.cbsRate * 100)}; IBS ${formatRatio(inputs.ibsRate * 100)}.`,
+    `Carga do ano final: PIS/COFINS legado ${formatRatio(lastRow.legacyFederalRate * 100)}, ISS legado ${formatRatio(lastRow.legacyMunicipalRate * 100)}, CBS ${formatRatio(lastRow.cbsEconomicRate * 100)}, IBS ${formatRatio(lastRow.ibsEconomicRate * 100)}.`,
     `Custo bruto final: ${formatCurrency(lastRow.costGross)}; credito estimado: ${formatCurrency(lastRow.credits)}; custo liquido economico: ${formatCurrency(Math.max(lastRow.costGross - lastRow.credits, 0))}.`,
     `Tributos economicos liquidos: ${formatCurrency(lastRow.netEconomicTax)}; retencoes: ${formatCurrency(lastRow.retentions)}; caixa recebido: ${formatCurrency(lastRow.cashReceived)}.`,
     `Transicao ${lastRow.year}: ${lastRow.transition.note}`,
+    lastRow.profile.requiresFiscalReview ? 'Alerta: perfil fiscal depende de validacao no cadastro municipal antes de virar proposta.' : '',
     inputs.assumption ? `Premissa informada: ${inputs.assumption}` : 'Premissa: parametros em draft exigem validacao contabil/fiscal antes de publicacao.'
-  ].map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+  ].filter(Boolean).map((item) => `<li>${escapeHtml(item)}</li>`).join('');
 }
 
 function allocationPurchaseShare(value) {
@@ -4358,7 +4473,8 @@ function allocationPriceInputs(form = $('#allocationPriceForm')) {
       saleValue: 0,
       ratio: '50/50',
       purchaseShare: 0.5,
-      annualAdjustment: 0.04
+      annualAdjustment: 0.04,
+      taxProfileKey: 'sp-matriz:alocacao'
     };
   }
 
@@ -4367,39 +4483,40 @@ function allocationPriceInputs(form = $('#allocationPriceForm')) {
   const ratio = form.elements.ratio?.value || '50/50';
   const purchaseShare = allocationPurchaseShare(ratio);
   const annualAdjustment = numericFormValue(form, 'annualAdjustment', 4) / 100;
+  const taxProfileKey = form.elements.taxProfile?.value || 'sp-matriz:alocacao';
   return {
     purchaseValue: purchaseValue > 0 ? purchaseValue : saleValue * purchaseShare,
     saleValue: saleValue > 0 ? saleValue : (purchaseValue > 0 ? purchaseValue / purchaseShare : 0),
     ratio,
     purchaseShare,
-    annualAdjustment
+    annualAdjustment,
+    taxProfileKey
   };
 }
 
-const allocationPriceTaxProfile = Object.freeze({
-  label: 'Alcateia Sao Paulo - Alocacao',
-  issRate: 0.029,
-  pisCofinsRate: 0.0925,
-  ibsCbsRate: 0.265,
-  creditableExpenseShare: 0.2,
-  creditUtilization: 0.9
-});
+function allocationTaxProfileFromKey(value = 'sp-matriz:alocacao') {
+  const [establishmentKey = 'sp-matriz', serviceKey = 'alocacao'] = String(value || '').split(':');
+  return resolveTaxReformProfile(establishmentKey, serviceKey);
+}
 
 function allocationForecastRows(form = $('#allocationPriceForm')) {
   const inputs = allocationPriceInputs(form);
-  const currentBaselineTaxRate = allocationPriceTaxProfile.issRate + allocationPriceTaxProfile.pisCofinsRate;
+  const profile = allocationTaxProfileFromKey(inputs.taxProfileKey);
+  const currentBaselineTaxRate = profile.issRate + profile.pisCofinsRate;
+  const scenario = taxReformScenarioPresets.probable;
+  const cbsRate = scenario.cbsRate / 100;
+  const ibsRate = scenario.ibsRate / 100;
 
   return Object.entries(taxReformTransitionFactors)
     .map(([year, transition]) => {
       const numericYear = Number(year);
       const yearsAfterBase = Math.max(numericYear - 2026, 0);
       const adjustedPurchaseValue = inputs.purchaseValue * ((1 + inputs.annualAdjustment) ** yearsAfterBase);
-      const legacyEconomicRate = currentBaselineTaxRate * transition.legacy;
-      const reformGrossRate = allocationPriceTaxProfile.ibsCbsRate * transition.reform;
-      const estimatedCreditRate = allocationPriceTaxProfile.creditableExpenseShare
-        * allocationPriceTaxProfile.ibsCbsRate
-        * allocationPriceTaxProfile.creditUtilization
-        * transition.reform;
+      const legacyEconomicRate = (profile.pisCofinsRate * transition.pisCofinsLegacy) + (profile.issRate * transition.issLegacy);
+      const reformGrossRate = (cbsRate * transition.cbs) + (ibsRate * transition.ibs);
+      const estimatedCreditRate = profile.creditableExpenseShare
+        * reformGrossRate
+        * scenario.creditUtilization / 100;
       const netTaxRate = Math.max(legacyEconomicRate + reformGrossRate - estimatedCreditRate, 0);
       const incrementalTaxRate = Math.max(netTaxRate - currentBaselineTaxRate, 0);
       const denominator = inputs.purchaseShare - incrementalTaxRate;
@@ -4411,6 +4528,7 @@ function allocationForecastRows(form = $('#allocationPriceForm')) {
       return {
         year: numericYear,
         ratio: inputs.ratio,
+        profile,
         purchaseValue: adjustedPurchaseValue,
         baseSaleValue: inputs.saleValue,
         netTaxRate,
@@ -4431,10 +4549,11 @@ function renderAllocationPriceResult() {
   resultField.value = formatCurrencyInput(calculateAllocationPriceResult(form));
 
   const inputs = allocationPriceInputs(form);
+  const profile = allocationTaxProfileFromKey(inputs.taxProfileKey);
   const summary = $('#allocationPriceForecastSummary');
   if (summary) {
     summary.textContent = inputs.purchaseValue > 0
-      ? `${allocationPriceTaxProfile.label}; razão ${inputs.ratio}, reajuste ${formatRatio(inputs.annualAdjustment * 100)} ao ano`
+      ? `${profile.label}; razão ${inputs.ratio}, ISS ${formatRatio(profile.issRate * 100)}, reajuste ${formatRatio(inputs.annualAdjustment * 100)} ao ano`
       : 'Informe valor compra ou venda para projetar';
   }
 
@@ -4451,6 +4570,7 @@ function renderAllocationPriceResult() {
       <strong>${row.viable ? formatCurrency(row.requiredSaleValue) : 'Inviavel'}</strong>
       <small>Compra ${formatCurrency(row.purchaseValue)}</small>
       <small>Impacto ${formatRatio(row.incrementalTaxRate * 100)}</small>
+      <small>ISS ${formatRatio(row.profile.issRate * 100)}</small>
       <small>Var. ${formatRatio(row.variation * 100)}</small>
     </article>
   `).join('');
@@ -8725,7 +8845,8 @@ function applyTaxReformScenarioPreset() {
   const scenarioKey = form.elements.scenario.value || 'probable';
   const preset = taxReformScenarioPresets[scenarioKey] || taxReformScenarioPresets.probable;
   if (scenarioKey !== 'custom') {
-    form.elements.ibsCbsRate.value = preset.ibsCbsRate;
+    form.elements.cbsRate.value = preset.cbsRate;
+    form.elements.ibsRate.value = preset.ibsRate;
     form.elements.creditUtilization.value = preset.creditUtilization;
   }
 }
@@ -8749,7 +8870,7 @@ function bindAllocationPriceActions() {
   const form = $('#allocationPriceForm');
   if (!form) return;
 
-  ['purchaseValue', 'saleValue', 'ratio', 'annualAdjustment'].forEach((name) => {
+  ['taxProfile', 'purchaseValue', 'saleValue', 'ratio', 'annualAdjustment'].forEach((name) => {
     form.elements[name]?.addEventListener('input', renderAllocationPriceResult);
     form.elements[name]?.addEventListener('change', renderAllocationPriceResult);
   });

@@ -97,7 +97,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260724-client-org-manager-map';
+const APP_VERSION = '20260728-fiscal-simulator-parameters';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 
 async function loadLocalEnv() {
