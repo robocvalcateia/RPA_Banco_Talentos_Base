@@ -83,6 +83,7 @@ const REQUIRED_COLLECTIONS = [
   'workHourClosures',
   'businessCalendar',
   'rateCards',
+  'statusReports',
   'candidatePool',
   'contactClients',
   'cvFilters',
@@ -534,6 +535,7 @@ export function normalizeDatabase(data = {}) {
   data.workHourClosures = data.workHourClosures.map((closure) => normalizeWorkHourClosure(closure));
   data.businessCalendar = data.businessCalendar.map((entry) => normalizeBusinessCalendarEntry(entry));
   data.rateCards = data.rateCards.map((rateCard) => normalizeRateCard(rateCard));
+  data.statusReports = data.statusReports.map((report) => normalizeStatusReport(report));
   ensureDefaultRateCards(data);
   data.candidatePool = data.candidatePool.map((item) => normalizeCandidatePool(item));
   ensureDefaultCandidatePool(data);
@@ -1328,6 +1330,40 @@ export function normalizeRateCard(rateCard) {
   };
 }
 
+export function normalizeStatusReport(report = {}) {
+  const clientId = String(report.clientId ?? report.clienteId ?? '').trim();
+  const allocatedId = String(report.allocatedId ?? report.alocadoId ?? report.consultorId ?? '').trim();
+  const period = String(report.period ?? report.periodo ?? '').trim();
+  const statusLightInput = String(report.statusLight ?? report.farol ?? 'verde').trim().toLowerCase();
+  const statusLight = ['verde', 'amarelo', 'vermelho'].includes(statusLightInput) ? statusLightInput : 'verde';
+
+  return {
+    ...report,
+    id: String(report.id ?? createId('status_report', `${clientId}-${allocatedId}-${period}`)).trim(),
+    clientId,
+    allocatedId,
+    period,
+    clientName: String(report.clientName ?? report.nomeCliente ?? '').trim(),
+    consultantName: String(report.consultantName ?? report.consultor ?? '').trim(),
+    consultantEmail: String(report.consultantEmail ?? report.emailConsultor ?? '').trim().toLowerCase(),
+    alcateiaOwner: String(report.alcateiaOwner ?? report.responsavelAlcateia ?? '').trim(),
+    reportDate: String(report.reportDate ?? report.data ?? toISODate().slice(0, 10)).trim(),
+    statusLight,
+    executiveSummary: String(report.executiveSummary ?? report.resumoExecutivo ?? '').trim(),
+    tasks: String(report.tasks ?? report.tarefas ?? '').trim(),
+    nextSteps: String(report.nextSteps ?? report.proximasAtividades ?? '').trim(),
+    attentionPoints: String(report.attentionPoints ?? report.pontosAtencao ?? '').trim(),
+    risks: String(report.risks ?? report.riscos ?? '').trim(),
+    recommendedActions: String(report.recommendedActions ?? report.acoesRecomendadas ?? '').trim(),
+    governanceNote: String(report.governanceNote ?? report.observacaoGovernanca ?? 'Gestao diaria sob responsabilidade do cliente; acompanhamento Alcateia para mitigacao de riscos e antecipacao de pontos de atencao.').trim(),
+    createdById: String(report.createdById ?? '').trim(),
+    createdByName: String(report.createdByName ?? '').trim(),
+    createdByEmail: String(report.createdByEmail ?? '').trim().toLowerCase(),
+    createdAt: String(report.createdAt ?? toISODate()).trim(),
+    updatedAt: String(report.updatedAt ?? report.createdAt ?? toISODate()).trim()
+  };
+}
+
 export function normalizeCandidatePool(item) {
   const profile = String(item.profile ?? item.perfil ?? item['Perfil (Select: Técnico, Funcional)'] ?? '').trim();
   const normalizedProfile = CANDIDATE_POOL_PROFILES.includes(profile) ? profile : 'Funcional';
@@ -1549,6 +1585,19 @@ export function enrichRateCard(rateCard, db) {
   return {
     ...rateCard,
     clientName: client?.customerName ?? ''
+  };
+}
+
+export function enrichStatusReport(report, db) {
+  const client = db.clients.find((item) => item.id === report.clientId);
+  const allocated = db.allocateds.find((item) => item.id === report.allocatedId);
+
+  return {
+    ...report,
+    clientName: client?.customerName ?? report.clientName ?? '',
+    consultantName: allocated?.consultant ?? report.consultantName ?? '',
+    consultantEmail: allocated?.consultantEmail ?? report.consultantEmail ?? '',
+    clientManagerName: client?.managerContactName ?? ''
   };
 }
 

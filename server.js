@@ -15,6 +15,7 @@ import {
   enrichCandidatePool,
   enrichCvFilter,
   enrichRateCard,
+  enrichStatusReport,
   enrichSelectedCandidate,
   monthYearFromDate,
   moveCandidateStage,
@@ -36,6 +37,7 @@ import {
   normalizeCandidatePool,
   normalizeFaturamento,
   normalizeRateCard,
+  normalizeStatusReport,
   normalizeWorkHourClosure,
   normalizeWorkHourEntry,
   normalizeStage,
@@ -97,7 +99,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260728-fiscal-simulator-parameters';
+const APP_VERSION = '20260729-status-report-module';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 
 async function loadLocalEnv() {
@@ -1050,6 +1052,16 @@ function visibleWorkHourClosuresForUser(workHourClosures = [], allocateds = [], 
   if (isAdminUser(user)) return workHourClosures;
   const visibleAllocatedIds = new Set(activeAllocatedsForUser(allocateds, user).map((allocated) => allocated.id));
   return workHourClosures.filter((closure) => visibleAllocatedIds.has(closure.allocatedId));
+}
+
+function visibleStatusReportsForUser(statusReports = [], allocateds = [], user = {}) {
+  if (isAdminUser(user)) return statusReports;
+  const visibleAllocatedIds = new Set(activeAllocatedsForUser(allocateds, user).map((allocated) => allocated.id));
+  const userEmail = String(user.email || '').trim().toLowerCase();
+  return statusReports.filter((report) => (
+    visibleAllocatedIds.has(report.allocatedId)
+    || String(report.createdByEmail || '').trim().toLowerCase() === userEmail
+  ));
 }
 
 function buildWorkHourEntryFromPayload(payload, allocated, user, existing = {}) {
@@ -2975,6 +2987,7 @@ async function handleApi(request, response) {
       );
       const visibleWorkHours = visibleWorkHoursForUser(responseDb.workHours, responseDb.allocateds, auth.user);
       const visibleWorkHourClosures = visibleWorkHourClosuresForUser(responseDb.workHourClosures, responseDb.allocateds, auth.user);
+      const visibleStatusReports = visibleStatusReportsForUser(responseDb.statusReports, responseDb.allocateds, auth.user);
       sendJson(response, 200, {
         clients: responseDb.clients,
         contactClients: responseDb.contactClients,
@@ -2998,6 +3011,7 @@ async function handleApi(request, response) {
         workHourClosures: visibleWorkHourClosures,
         businessCalendar: responseDb.businessCalendar,
         rateCards: responseDb.rateCards.map((rateCard) => enrichRateCard(rateCard, responseDb)),
+        statusReports: visibleStatusReports.map((report) => enrichStatusReport(report, responseDb)),
         candidatePool: responseDb.candidatePool.map((item) => enrichCandidatePool(item, responseDb)),
         users: responseDb.users.map(sanitizeUser),
         currentUser: sanitizeUser(auth.user),
@@ -4925,6 +4939,128 @@ async function handleApi(request, response) {
       Object.assign(allocated, updated);
       await writeDatabaseCollections(db, ['allocateds']);
       sendJson(response, 200, enrichAllocated(allocated, db));
+      return;
+    }
+
+    if (request.method === 'POST' && pathname === '/api/status-reports') {
+      const payload = await readJsonBody(request);
+      const db = await readDatabaseCollections(['clients', 'allocateds', 'statusReports']);
+      const allocated = db.allocateds.find((item) => item.id === String(payload.allocatedId || '').trim());
+      if (!allocated) {
+        sendError(response, 422, 'Selecione um consultor alocado valido.');
+        return;
+      }
+      if (!canUserAccessAllocated(auth.user, allocated)) {
+        sendError(response, 403, 'Voce nao tem acesso a este consultor.');
+        return;
+      }
+      const client = db.clients.find((item) => item.id === allocated.clientId);
+      if (!client) {
+        sendError(response, 422, 'Cliente do alocado nao encontrado.');
+        return;
+      }
+
+      const report = normalizeStatusReport({
+        id: createId('status_report', `${allocated.id}-${payload.period || payload.reportDate || ''}`),
+        ...payload,
+        clientId: client.id,
+        allocatedId: allocated.id,
+        clientName: client.customerName,
+        consultantName: allocated.consultant,
+        consultantEmail: allocated.consultantEmail,
+        createdById: auth.user.id,
+        createdByName: auth.user.name,
+        createdByEmail: auth.user.email,
+        createdAt: toISODate(),
+        updatedAt: toISODate()
+      });
+
+      if (!report.period) {
+        sendError(response, 422, 'Informe o periodo de referencia.');
+        return;
+      }
+      if (!report.executiveSummary) {
+        sendError(response, 422, 'Informe o resumo executivo.');
+        return;
+      }
+
+      db.statusReports.push(report);
+      await writeDatabaseCollections(db, ['statusReports']);
+      sendJson(response, 201, enrichStatusReport(report, db));
+      return;
+    }
+
+    if (request.method === 'PATCH' && /^\/api\/status-reports\/[^/]+$/.test(pathname)) {
+      const reportId = decodeURIComponent(pathname.split('/').at(-1));
+      const payload = await readJsonBody(request);
+      const db = await readDatabaseCollections(['clients', 'allocateds', 'statusReports']);
+      const report = db.statusReports.find((item) => item.id === reportId);
+      if (!report) {
+        sendError(response, 404, 'Status report nao encontrado.');
+        return;
+      }
+      const allocated = db.allocateds.find((item) => item.id === String(payload.allocatedId || report.allocatedId || '').trim());
+      if (!allocated) {
+        sendError(response, 422, 'Selecione um consultor alocado valido.');
+        return;
+      }
+      if (!canUserAccessAllocated(auth.user, allocated)) {
+        sendError(response, 403, 'Voce nao tem acesso a este status report.');
+        return;
+      }
+      const client = db.clients.find((item) => item.id === allocated.clientId);
+      if (!client) {
+        sendError(response, 422, 'Cliente do alocado nao encontrado.');
+        return;
+      }
+
+      const updated = normalizeStatusReport({
+        ...report,
+        ...payload,
+        id: report.id,
+        clientId: client.id,
+        allocatedId: allocated.id,
+        clientName: client.customerName,
+        consultantName: allocated.consultant,
+        consultantEmail: allocated.consultantEmail,
+        createdById: report.createdById,
+        createdByName: report.createdByName,
+        createdByEmail: report.createdByEmail,
+        createdAt: report.createdAt,
+        updatedAt: toISODate()
+      });
+
+      if (!updated.period) {
+        sendError(response, 422, 'Informe o periodo de referencia.');
+        return;
+      }
+      if (!updated.executiveSummary) {
+        sendError(response, 422, 'Informe o resumo executivo.');
+        return;
+      }
+
+      Object.assign(report, updated);
+      await writeDatabaseCollections(db, ['statusReports']);
+      sendJson(response, 200, enrichStatusReport(report, db));
+      return;
+    }
+
+    if (request.method === 'DELETE' && /^\/api\/status-reports\/[^/]+$/.test(pathname)) {
+      const reportId = decodeURIComponent(pathname.split('/').at(-1));
+      const db = await readDatabaseCollections(['allocateds', 'statusReports']);
+      const report = db.statusReports.find((item) => item.id === reportId);
+      if (!report) {
+        sendError(response, 404, 'Status report nao encontrado.');
+        return;
+      }
+      const allocated = db.allocateds.find((item) => item.id === report.allocatedId);
+      if (!canUserAccessAllocated(auth.user, allocated || {})) {
+        sendError(response, 403, 'Voce nao tem acesso a este status report.');
+        return;
+      }
+      db.statusReports = db.statusReports.filter((item) => item.id !== reportId);
+      await writeDatabaseCollections(db, ['statusReports']);
+      sendJson(response, 200, { ok: true });
       return;
     }
 

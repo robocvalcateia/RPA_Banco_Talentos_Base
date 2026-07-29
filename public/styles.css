@@ -1074,6 +1074,254 @@ label.full,
   gap: 2px;
 }
 
+.status-report-form {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.status-report-one-page {
+  overflow-x: auto;
+}
+
+.status-report-page {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 16px;
+  min-width: 1120px;
+  padding: 18px;
+}
+
+.status-report-page .status-report-hero {
+  align-items: flex-start;
+  background: #071111;
+  border-bottom: 6px solid var(--alcateia-green);
+  border-radius: 8px;
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  padding: 22px 26px;
+}
+
+.status-report-title-block {
+  align-items: center;
+  display: flex;
+  gap: 18px;
+}
+
+.status-report-title-block img {
+  background: #071111;
+  border-radius: 4px;
+  height: 132px;
+  object-fit: contain;
+  padding: 0;
+  width: 112px;
+}
+
+.status-report-page header span {
+  color: var(--alcateia-green);
+  font-size: 13px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.status-report-page h1 {
+  color: #ffffff;
+  font-size: 34px;
+  line-height: 1.05;
+  margin: 8px 0;
+}
+
+.status-report-page header p {
+  color: #ffffff;
+}
+
+.status-report-page h2 {
+  font-size: 15px;
+  margin: 0 0 10px;
+  text-transform: uppercase;
+}
+
+.status-report-page p,
+.status-report-page li,
+.status-report-page span {
+  line-height: 1.45;
+}
+
+.status-report-signal {
+  border-radius: 8px;
+  color: #ffffff;
+  min-width: 148px;
+  padding: 18px;
+  text-align: center;
+}
+
+.status-report-signal strong {
+  display: block;
+  font-size: 24px;
+}
+
+.status-report-signal small {
+  display: block;
+  font-weight: 800;
+  margin-top: 6px;
+  text-transform: uppercase;
+}
+
+.status-report-light-verde .status-report-signal,
+.status-report-pill-verde {
+  background: var(--alcateia-green);
+}
+
+.status-report-light-amarelo .status-report-signal,
+.status-report-pill-amarelo {
+  background: #f4a51c;
+  color: #111827;
+}
+
+.status-report-light-vermelho .status-report-signal,
+.status-report-pill-vermelho {
+  background: #c92a2a;
+}
+
+.status-report-meta,
+.status-report-grid,
+.status-report-band,
+.status-report-next-actions {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.status-report-grid,
+.status-report-next-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.status-report-hero-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(170px, 1fr));
+  min-width: 460px;
+}
+
+.status-report-hero-grid div {
+  background: #081515;
+  border-left: 4px solid var(--alcateia-green);
+  border-radius: 4px;
+  display: grid;
+  gap: 3px;
+  min-height: 50px;
+  padding: 8px 10px;
+}
+
+.status-report-hero-grid strong {
+  color: #9ee8da;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.status-report-hero-grid span {
+  color: #ffffff;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.status-report-band {
+  grid-template-columns: 180px 1fr 1fr;
+}
+
+.status-report-meta div,
+.status-report-summary,
+.status-report-grid div,
+.status-report-actions-box,
+.status-report-band > div,
+.status-report-two-columns > div,
+.status-report-next-actions > div,
+.status-report-page footer {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.status-report-two-columns {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.status-report-meta strong,
+.status-report-band strong,
+.status-report-page footer strong {
+  display: block;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.status-report-grid ul,
+.status-report-actions-box ul,
+.status-report-two-columns ul,
+.status-report-next-actions ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.status-report-update-section {
+  display: grid;
+  gap: 10px;
+}
+
+.status-report-update-section h2 {
+  background: var(--alcateia-green);
+  border-radius: 4px;
+  color: #ffffff;
+  margin: 0;
+  padding: 8px 12px;
+  text-align: center;
+}
+
+.status-report-update-section table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.status-report-update-section th {
+  background: #eef4f4;
+  color: #314141;
+  font-size: 13px;
+  padding: 12px;
+  text-align: left;
+}
+
+.status-report-update-section td {
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+  padding: 12px;
+  vertical-align: top;
+}
+
+.status-report-empty {
+  color: var(--muted);
+  margin: 0;
+}
+
+.status-report-page footer {
+  background: #f7fbfb;
+  display: grid;
+  gap: 6px;
+}
+
+.status-report-pill {
+  border-radius: 999px;
+  color: #ffffff;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 900;
+  justify-content: center;
+  min-width: 92px;
+  padding: 6px 12px;
+}
+
 .finance-projection-values b {
   color: var(--ink);
   font-size: 1rem;

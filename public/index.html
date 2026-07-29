@@ -101,6 +101,7 @@
           <div class="nav-submenu" data-nav-submenu="contracts" hidden>
             <button class="nav-item nav-subitem" data-view="allocateds" data-parent-group="contracts">Alocados</button>
             <button class="nav-item nav-subitem" data-view="workHours" data-parent-group="contracts">Horas Trabalhadas</button>
+            <button class="nav-item nav-subitem" data-view="statusReports" data-parent-group="contracts">Status Report</button>
             <button class="nav-item nav-subitem" data-view="candidatePool" data-parent-group="contracts">Bolsão de Candidatos</button>
             <button class="nav-item nav-subitem" data-view="huntings" data-parent-group="contracts">Huntings</button>
             <button class="nav-item nav-subitem" data-view="rateCards" data-parent-group="contracts">Rate Cards</button>
@@ -1557,6 +1558,123 @@
             <input id="workHourImportFile" type="file" accept=".csv,text/csv" />
             <button class="primary-action" id="workHourImportButton" type="button">Importar CSV</button>
             <p class="empty-state">Layout: allocatedId;date;hours;project;observation</p>
+          </div>
+        </section>
+      </section>
+
+      <section class="view" id="statusReports">
+        <section class="panel status-report-editor-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Status Report</h2>
+              <span>One page executivo para acompanhamento Alcateia</span>
+            </div>
+          </div>
+          <form id="statusReportForm" class="form-grid status-report-form" novalidate>
+            <label>Consultor alocado
+              <select name="allocatedId" id="statusReportAllocatedSelect" required></select>
+            </label>
+            <label>Cliente
+              <input name="clientName" id="statusReportClientName" readonly />
+            </label>
+            <label>Período
+              <input name="period" placeholder="Ex.: Julho/2026 ou Semana 30" required />
+            </label>
+            <label>Data do report
+              <input name="reportDate" type="date" required />
+            </label>
+            <label>Responsável Alcateia
+              <input name="alcateiaOwner" placeholder="Nome do responsável pelo acompanhamento" />
+            </label>
+            <label>Farol
+              <select name="statusLight" required>
+                <option value="verde">Verde</option>
+                <option value="amarelo">Amarelo</option>
+                <option value="vermelho">Vermelho</option>
+              </select>
+            </label>
+            <label class="full">Resumo executivo
+              <textarea name="executiveSummary" rows="3" required placeholder="Síntese objetiva do momento do consultor no cliente"></textarea>
+            </label>
+            <label>Tarefas realizadas
+              <textarea name="tasks" rows="5" placeholder="Uma tarefa por linha"></textarea>
+            </label>
+            <label>Próximas atividades
+              <textarea name="nextSteps" rows="5" placeholder="Uma atividade por linha"></textarea>
+            </label>
+            <label>Pontos de atenção
+              <textarea name="attentionPoints" rows="5" placeholder="Pontos que exigem acompanhamento"></textarea>
+            </label>
+            <label>Riscos
+              <textarea name="risks" rows="5" placeholder="Riscos percebidos, bloqueios ou dependências"></textarea>
+            </label>
+            <label class="full">Ações recomendadas
+              <textarea name="recommendedActions" rows="3" placeholder="Ações sugeridas para Alcateia e/ou cliente"></textarea>
+            </label>
+            <label class="full">Nota de governança
+              <textarea name="governanceNote" rows="2">Gestão diária sob responsabilidade do cliente; acompanhamento Alcateia para mitigação de riscos e antecipação de pontos de atenção.</textarea>
+            </label>
+            <button class="primary-action" type="submit">Salvar status report</button>
+            <button class="secondary-action" id="statusReportClearButton" type="button">Novo report</button>
+          </form>
+        </section>
+
+        <section class="panel status-report-preview-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>One page view</h2>
+              <span>Prévia para contratante</span>
+            </div>
+            <div class="panel-heading-actions">
+              <button class="secondary-action compact-action" id="statusReportExportImageButton" type="button">Exportar imagem</button>
+              <button class="secondary-action compact-action" id="statusReportExportPdfButton" type="button">Exportar PDF</button>
+            </div>
+          </div>
+          <div id="statusReportPreview" class="status-report-one-page"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Status reports cadastrados</h2>
+              <span id="statusReportCount">0</span>
+            </div>
+          </div>
+          <div class="filter-bar status-report-filter-bar">
+            <label>Cliente
+              <select id="statusReportFilterClient">
+                <option value="">Todos</option>
+              </select>
+            </label>
+            <label>Consultor
+              <select id="statusReportFilterAllocated">
+                <option value="">Todos</option>
+              </select>
+            </label>
+            <label>Farol
+              <select id="statusReportFilterLight">
+                <option value="">Todos</option>
+                <option value="verde">Verde</option>
+                <option value="amarelo">Amarelo</option>
+                <option value="vermelho">Vermelho</option>
+              </select>
+            </label>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cliente</th>
+                  <th>Consultor</th>
+                  <th>Período</th>
+                  <th>Data</th>
+                  <th>Farol</th>
+                  <th>Responsável</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="statusReportTable"></tbody>
+            </table>
           </div>
         </section>
       </section>

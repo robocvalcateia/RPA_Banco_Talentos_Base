@@ -17,6 +17,7 @@
   workHourClosures: [],
   businessCalendar: [],
   rateCards: [],
+  statusReports: [],
   candidatePool: [],
   users: [],
   currentUser: null,
@@ -46,6 +47,7 @@
   allocatedFilter: { type: '', value: '', status: '' },
   workHourFilter: { allocatedId: '', clientId: '', dateFrom: '', dateTo: '' },
   billingReportFilter: { monthYear: '', clientId: '', allocatedId: '' },
+  statusReportFilter: { clientId: '', allocatedId: '', statusLight: '' },
   selectedAllocatedIds: new Set(),
   huntingFilter: { type: '', value: '' },
   rateCardFilter: { clientId: '' },
@@ -67,6 +69,7 @@
     candidateId: '',
     allocatedId: '',
     rateCardId: '',
+    statusReportId: '',
     candidatePoolId: '',
     huntingId: '',
     userId: '',
@@ -178,6 +181,7 @@ const viewTitles = {
   candidatePool: 'Contratos/Bolsão de Candidatos',
   huntings: 'Contratos/Huntings',
   rateCards: 'Contratos/Rate Cards',
+  statusReports: 'Contratos/Status Report',
   cvFilters: 'Deals/Filtro de CVs',
   selectedCandidates: 'Deals/Candidatos Selecionados',
   curriculums: 'Banco de Talentos',
@@ -213,8 +217,8 @@ const launcherNodes = {
   contracts: {
     label: 'Contratos',
     eyebrow: 'Seção',
-    description: 'Alocados, horas trabalhadas, bolsão de candidatos, huntings e rate cards',
-    children: ['allocateds', 'workHours', 'candidatePool', 'huntings', 'rateCards']
+    description: 'Alocados, horas trabalhadas, status report, bolsão de candidatos, huntings e rate cards',
+    children: ['allocateds', 'workHours', 'statusReports', 'candidatePool', 'huntings', 'rateCards']
   },
   finance: {
     label: 'Financeiro',
@@ -364,6 +368,12 @@ const launcherNodes = {
     eyebrow: 'Contratos',
     description: 'Tabelas comerciais por cliente',
     view: 'rateCards'
+  },
+  statusReports: {
+    label: 'Status Report',
+    eyebrow: 'Contratos',
+    description: 'One page executivo por cliente, consultor, farol e pontos de atenção',
+    view: 'statusReports'
   },
   curriculums: {
     label: 'Banco de Talentos',
@@ -5320,6 +5330,529 @@ async function finalizeWorkHourPeriod(button, confirmMissingDays = false) {
   }
 }
 
+function statusReportLightLabel(value = 'verde') {
+  const light = String(value || 'verde').toLowerCase();
+  if (light === 'vermelho') return 'Vermelho';
+  if (light === 'amarelo') return 'Amarelo';
+  return 'Verde';
+}
+
+function statusReportLightClass(value = 'verde') {
+  const light = String(value || 'verde').toLowerCase();
+  return ['verde', 'amarelo', 'vermelho'].includes(light) ? light : 'verde';
+}
+
+function reportTextLines(value = '') {
+  return String(value || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+}
+
+function renderReportLineList(value = '', emptyLabel = '-') {
+  const lines = reportTextLines(value);
+  if (!lines.length) return `<p class="status-report-empty">${escapeHtml(emptyLabel)}</p>`;
+  return `<ul>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>`;
+}
+
+function activeStatusReportAllocatedOptions() {
+  return state.allocateds
+    .filter((allocated) => allocated.active === true)
+    .slice()
+    .sort((first, second) => String(first.consultant || '').localeCompare(String(second.consultant || ''), 'pt-BR', { sensitivity: 'base' }));
+}
+
+function selectedStatusReportAllocated() {
+  const allocatedId = $('#statusReportAllocatedSelect')?.value || '';
+  return state.allocateds.find((allocated) => allocated.id === allocatedId) || null;
+}
+
+function syncStatusReportClientName() {
+  const allocated = selectedStatusReportAllocated();
+  const client = state.clients.find((item) => item.id === allocated?.clientId);
+  const input = $('#statusReportClientName');
+  if (input) input.value = client?.customerName || '';
+  renderStatusReportPreview();
+}
+
+function statusReportFormDraft() {
+  const form = $('#statusReportForm');
+  if (!form) return {};
+  const allocated = selectedStatusReportAllocated();
+  const client = state.clients.find((item) => item.id === allocated?.clientId);
+  return {
+    ...formPayload(form),
+    clientId: client?.id || '',
+    clientName: client?.customerName || '',
+    consultantName: allocated?.consultant || '',
+    consultantEmail: allocated?.consultantEmail || ''
+  };
+}
+
+function buildStatusReportOnePageHtml(report = statusReportFormDraft(), standalone = false) {
+  const light = statusReportLightClass(report.statusLight);
+  const activityRows = reportTextLines(report.tasks);
+  const rows = activityRows.length ? activityRows : ['Informe as principais atividades, entregas ou movimentos acompanhados no período.'];
+  const content = `
+    <article class="status-report-page status-report-light-${light}">
+      <header class="status-report-hero">
+        <div class="status-report-title-block">
+          <img src="/brand/logo-alcateia-oficial.png" alt="" />
+          <div>
+            <span>Acompanhamento Alcateia</span>
+            <h1>Status de Atuação<br />do Consultor</h1>
+            <p>${escapeHtml(report.clientName || 'Cliente')} | ${escapeHtml(report.period || 'Período')}</p>
+          </div>
+        </div>
+        <div class="status-report-hero-grid">
+          <div><strong>Cliente</strong><span>${escapeHtml(report.clientName || '-')}</span></div>
+          <div><strong>Consultor alocado</strong><span>${escapeHtml(report.consultantName || '-')}</span></div>
+          <div><strong>Preparado por</strong><span>${escapeHtml(report.alcateiaOwner || '-')}</span></div>
+          <div><strong>Período reportado</strong><span>${escapeHtml(report.period || '-')}</span></div>
+        </div>
+      </header>
+      <section class="status-report-band">
+        <div class="status-report-signal">
+          <strong>${escapeHtml(statusReportLightLabel(light))}</strong>
+          <small>Farol da atuação</small>
+        </div>
+        <div>
+          <strong>Data do report</strong>
+          <span>${escapeHtml(formatDateOnlyBR(report.reportDate) || '-')}</span>
+        </div>
+        <div>
+          <strong>E-mail consultor</strong>
+          <span>${escapeHtml(report.consultantEmail || '-')}</span>
+        </div>
+      </section>
+      <section class="status-report-two-columns">
+        <div>
+          <h2>Destaques da atuação</h2>
+          <p>${escapeHtml(report.executiveSummary || 'Sintetize a atuação do consultor, principais avanços percebidos e contexto do período.')}</p>
+          ${renderReportLineList(report.tasks, 'Sem tarefas ou entregas informadas.')}
+        </div>
+        <div>
+          <h2>Pontos de atenção</h2>
+          ${renderReportLineList([report.attentionPoints, report.risks].filter(Boolean).join('\n'), 'Sem pontos de atenção ou riscos informados.')}
+        </div>
+      </section>
+      <section class="status-report-update-section">
+        <h2>Status da atuação</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Atividade ou entrega acompanhada</th>
+              <th>Responsável direto</th>
+              <th>Farol</th>
+              <th>Anotações Alcateia</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.slice(0, 5).map((row, index) => `
+              <tr>
+                <td>${escapeHtml(row)}</td>
+                <td>${escapeHtml(report.consultantName || 'Consultor')}</td>
+                <td><span class="status-report-pill status-report-pill-${light}">${escapeHtml(statusReportLightLabel(light))}</span></td>
+                <td>${escapeHtml(index === 0 ? (report.recommendedActions || report.nextSteps || report.attentionPoints || '-') : (report.nextSteps || report.recommendedActions || '-'))}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </section>
+      <section class="status-report-next-actions">
+        <div>
+          <h2>Próximas atividades</h2>
+          ${renderReportLineList(report.nextSteps, 'Sem próximas atividades informadas.')}
+        </div>
+        <div>
+          <h2>Ações recomendadas</h2>
+          ${renderReportLineList(report.recommendedActions, 'Sem ações recomendadas.')}
+        </div>
+      </section>
+      <footer>
+        <strong>Governança</strong>
+        <span>${escapeHtml(report.governanceNote || 'Gestão diária sob responsabilidade do cliente; acompanhamento Alcateia para mitigação de riscos.')}</span>
+      </footer>
+    </article>
+  `;
+  if (!standalone) return content;
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8" /><title>Status de Atuação - ${escapeHtml(report.clientName || 'Alcateia')}</title><link rel="stylesheet" href="/styles.css" /></head><body class="status-report-export-body">${content}</body></html>`;
+}
+
+function renderStatusReportPreview(report = statusReportFormDraft()) {
+  const preview = $('#statusReportPreview');
+  if (!preview) return;
+  preview.innerHTML = buildStatusReportOnePageHtml(report);
+}
+
+function statusReportCurrentExportData() {
+  return state.editing.statusReportId
+    ? state.statusReports.find((item) => item.id === state.editing.statusReportId) || statusReportFormDraft()
+    : statusReportFormDraft();
+}
+
+function loadStatusReportLogo() {
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => resolve(null);
+    image.src = '/brand/logo-alcateia-oficial.png';
+  });
+}
+
+function drawCanvasImageContain(ctx, image, x, y, width, height) {
+  if (!image) return;
+  const ratio = Math.min(width / image.naturalWidth, height / image.naturalHeight);
+  const drawWidth = image.naturalWidth * ratio;
+  const drawHeight = image.naturalHeight * ratio;
+  const offsetX = x + ((width - drawWidth) / 2);
+  const offsetY = y + ((height - drawHeight) / 2);
+  ctx.drawImage(image, offsetX, offsetY, drawWidth, drawHeight);
+}
+
+function wrapCanvasText(ctx, text, x, y, maxWidth, lineHeight, maxLines = 4) {
+  const words = String(text || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    const testLine = line ? `${line} ${word}` : word;
+    if (ctx.measureText(testLine).width > maxWidth && line) {
+      lines.push(line);
+      line = word;
+      if (lines.length >= maxLines) break;
+    } else {
+      line = testLine;
+    }
+  }
+  if (line && lines.length < maxLines) lines.push(line);
+  lines.forEach((item, index) => ctx.fillText(item, x, y + (index * lineHeight)));
+  return y + (lines.length * lineHeight);
+}
+
+function drawStatusReportBox(ctx, x, y, width, height, title, body, options = {}) {
+  ctx.fillStyle = options.fill || '#ffffff';
+  ctx.strokeStyle = options.stroke || '#d9e4e5';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(x, y, width, height, 12);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = options.titleColor || '#0f766e';
+  ctx.font = '700 22px Arial';
+  ctx.fillText(String(title || '').toUpperCase(), x + 24, y + 38);
+  ctx.fillStyle = '#152022';
+  ctx.font = '24px Arial';
+  wrapCanvasText(ctx, body || '-', x + 24, y + (options.bodyOffset || 78), width - 48, options.lineHeight || 32, options.maxLines || 4);
+}
+
+function drawStatusReportList(ctx, value, x, y, maxWidth, maxItems = 4) {
+  const lines = reportTextLines(value).slice(0, maxItems);
+  if (!lines.length) {
+    ctx.fillStyle = '#647475';
+    ctx.font = '22px Arial';
+    ctx.fillText('-', x, y);
+    return;
+  }
+  ctx.fillStyle = '#152022';
+  ctx.font = '22px Arial';
+  let cursorY = y;
+  for (const line of lines) {
+    ctx.fillText('•', x, cursorY);
+    cursorY = wrapCanvasText(ctx, line, x + 28, cursorY, maxWidth - 28, 28, 2) + 10;
+  }
+}
+
+async function createStatusReportCanvas(report = statusReportCurrentExportData()) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1600;
+  canvas.height = 980;
+  const ctx = canvas.getContext('2d');
+  const green = '#00b894';
+  const dark = '#071111';
+  const muted = '#647475';
+  const line = '#d9e4e5';
+  const light = statusReportLightClass(report.statusLight);
+  const lightColor = light === 'vermelho' ? '#c92a2a' : light === 'amarelo' ? '#f4a51c' : green;
+
+  ctx.fillStyle = '#f4f8f8';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(28, 28, 1544, 924);
+
+  ctx.fillStyle = dark;
+  ctx.fillRect(28, 28, 1544, 160);
+  ctx.fillStyle = green;
+  ctx.fillRect(28, 188, 1544, 8);
+
+  const logo = await loadStatusReportLogo();
+  if (logo) drawCanvasImageContain(ctx, logo, 52, 44, 112, 132);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '700 28px Arial';
+  ctx.fillText('ACOMPANHAMENTO ALCATEIA', 188, 72);
+  ctx.font = '700 48px Arial';
+  ctx.fillText('Status de Atuação', 188, 126);
+  ctx.fillText('do Consultor', 188, 174);
+
+  const meta = [
+    ['Cliente', report.clientName || '-'],
+    ['Consultor alocado', report.consultantName || '-'],
+    ['Preparado por', report.alcateiaOwner || '-'],
+    ['Período reportado', report.period || '-']
+  ];
+  meta.forEach(([label, value], index) => {
+    const col = index % 2;
+    const row = Math.floor(index / 2);
+    const x = 1040 + (col * 250);
+    const y = 48 + (row * 64);
+    ctx.fillStyle = '#0b1717';
+    ctx.fillRect(x, y, 230, 44);
+    ctx.fillStyle = '#9ee8da';
+    ctx.font = '700 15px Arial';
+    ctx.fillText(label, x, y - 8);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '18px Arial';
+    wrapCanvasText(ctx, value, x + 10, y + 27, 210, 21, 1);
+  });
+
+  drawStatusReportBox(ctx, 60, 230, 700, 160, 'Destaques da atuação', report.executiveSummary || 'Sintetize a atuação do consultor no período.', { titleColor: green, maxLines: 3 });
+  drawStatusReportBox(ctx, 840, 230, 700, 160, 'Pontos de atenção', [report.attentionPoints, report.risks].filter(Boolean).join(' | ') || 'Sem pontos de atenção informados.', { titleColor: lightColor, maxLines: 3 });
+
+  ctx.fillStyle = green;
+  ctx.fillRect(60, 430, 1480, 36);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '700 24px Arial';
+  ctx.fillText('Status da atuação', 690, 456);
+
+  const tableX = 86;
+  const tableY = 496;
+  const columns = [360, 260, 190, 590];
+  const headers = ['Atividade ou entrega', 'Responsável direto', 'Farol', 'Anotações Alcateia'];
+  ctx.fillStyle = '#eef4f4';
+  ctx.fillRect(tableX, tableY, columns.reduce((sum, item) => sum + item, 0), 56);
+  ctx.strokeStyle = line;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(tableX, tableY, columns.reduce((sum, item) => sum + item, 0), 272);
+  let x = tableX;
+  headers.forEach((header, index) => {
+    ctx.fillStyle = '#334142';
+    ctx.font = '700 20px Arial';
+    ctx.fillText(header, x + 18, tableY + 35);
+    if (index > 0) {
+      ctx.strokeStyle = line;
+      ctx.beginPath();
+      ctx.moveTo(x, tableY);
+      ctx.lineTo(x, tableY + 272);
+      ctx.stroke();
+    }
+    x += columns[index];
+  });
+
+  const activityRows = reportTextLines(report.tasks);
+  const rows = (activityRows.length ? activityRows : ['Atuação em acompanhamento']).slice(0, 3);
+  rows.forEach((row, index) => {
+    const rowY = tableY + 56 + (index * 72);
+    ctx.strokeStyle = line;
+    ctx.beginPath();
+    ctx.moveTo(tableX, rowY);
+    ctx.lineTo(tableX + 1400, rowY);
+    ctx.stroke();
+    ctx.fillStyle = '#152022';
+    ctx.font = '20px Arial';
+    wrapCanvasText(ctx, row, tableX + 18, rowY + 28, columns[0] - 36, 24, 2);
+    wrapCanvasText(ctx, report.consultantName || 'Consultor', tableX + columns[0] + 18, rowY + 28, columns[1] - 36, 24, 2);
+    ctx.fillStyle = lightColor;
+    ctx.beginPath();
+    ctx.roundRect(tableX + columns[0] + columns[1] + 18, rowY + 18, 120, 34, 17);
+    ctx.fill();
+    ctx.fillStyle = light === 'amarelo' ? '#111827' : '#ffffff';
+    ctx.font = '700 18px Arial';
+    ctx.fillText(statusReportLightLabel(light), tableX + columns[0] + columns[1] + 43, rowY + 41);
+    ctx.fillStyle = '#152022';
+    ctx.font = '19px Arial';
+    const note = index === 0 ? (report.recommendedActions || report.nextSteps || report.attentionPoints || '-') : (report.nextSteps || report.recommendedActions || '-');
+    wrapCanvasText(ctx, note, tableX + columns[0] + columns[1] + columns[2] + 18, rowY + 28, columns[3] - 36, 24, 2);
+  });
+
+  drawStatusReportBox(ctx, 60, 798, 700, 142, 'Próximas atividades', report.nextSteps || '-', { maxLines: 3, bodyOffset: 64, lineHeight: 26 });
+  drawStatusReportBox(ctx, 840, 798, 700, 142, 'Governança', report.governanceNote || 'Gestão diária sob responsabilidade do cliente; acompanhamento Alcateia.', { maxLines: 3, bodyOffset: 64, lineHeight: 26, fill: '#f7fbfb' });
+  ctx.fillStyle = muted;
+  ctx.font = '18px Arial';
+  ctx.fillText(`Data do report: ${formatDateOnlyBR(report.reportDate) || '-'}`, 60, 214);
+  return canvas;
+}
+
+function downloadDataUrl(dataUrl, filename) {
+  const link = document.createElement('a');
+  link.href = dataUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+function asciiBytes(value) {
+  return new TextEncoder().encode(value);
+}
+
+function dataUrlToBytes(dataUrl) {
+  const binary = atob(String(dataUrl).split(',')[1] || '');
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+function pdfBlobFromJpegDataUrl(dataUrl, imageWidth, imageHeight) {
+  const imageBytes = dataUrlToBytes(dataUrl);
+  const pageWidth = 842;
+  const pageHeight = 595;
+  const scale = Math.min(pageWidth / imageWidth, pageHeight / imageHeight);
+  const drawWidth = imageWidth * scale;
+  const drawHeight = imageHeight * scale;
+  const offsetX = (pageWidth - drawWidth) / 2;
+  const offsetY = (pageHeight - drawHeight) / 2;
+  const content = `q\n${drawWidth.toFixed(2)} 0 0 ${drawHeight.toFixed(2)} ${offsetX.toFixed(2)} ${offsetY.toFixed(2)} cm\n/Im0 Do\nQ\n`;
+  const objects = [
+    asciiBytes('1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n'),
+    asciiBytes('2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n'),
+    asciiBytes(`3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>\nendobj\n`),
+    [asciiBytes(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${imageWidth} /Height ${imageHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imageBytes.length} >>\nstream\n`), imageBytes, asciiBytes('\nendstream\nendobj\n')],
+    asciiBytes(`5 0 obj\n<< /Length ${content.length} >>\nstream\n${content}endstream\nendobj\n`)
+  ];
+  const chunks = [asciiBytes('%PDF-1.4\n')];
+  const offsets = [0];
+  let length = chunks[0].length;
+  for (const object of objects) {
+    offsets.push(length);
+    const objectChunks = Array.isArray(object) ? object : [object];
+    for (const chunk of objectChunks) {
+      chunks.push(chunk);
+      length += chunk.length;
+    }
+  }
+  const xrefOffset = length;
+  const xref = [
+    `xref\n0 ${objects.length + 1}\n`,
+    '0000000000 65535 f \n',
+    ...offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`),
+    `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`
+  ].join('');
+  chunks.push(asciiBytes(xref));
+  return new Blob(chunks, { type: 'application/pdf' });
+}
+
+async function exportStatusReportImage() {
+  const report = statusReportCurrentExportData();
+  const canvas = await createStatusReportCanvas(report);
+  downloadDataUrl(canvas.toDataURL('image/png'), `status-report-${safeFilename(report.clientName || 'alcateia')}-${new Date().toISOString().slice(0, 10)}.png`);
+  toast('Imagem do status report gerada.');
+}
+
+async function exportStatusReportPdf() {
+  const report = statusReportCurrentExportData();
+  const canvas = await createStatusReportCanvas(report);
+  const pdfBlob = pdfBlobFromJpegDataUrl(canvas.toDataURL('image/jpeg', 0.95), canvas.width, canvas.height);
+  downloadBlob(pdfBlob, `status-report-${safeFilename(report.clientName || 'alcateia')}-${new Date().toISOString().slice(0, 10)}.pdf`);
+  toast('PDF do status report gerado.');
+}
+
+function getFilteredStatusReports() {
+  return state.statusReports
+    .filter((report) => !state.statusReportFilter.clientId || report.clientId === state.statusReportFilter.clientId)
+    .filter((report) => !state.statusReportFilter.allocatedId || report.allocatedId === state.statusReportFilter.allocatedId)
+    .filter((report) => !state.statusReportFilter.statusLight || report.statusLight === state.statusReportFilter.statusLight)
+    .slice()
+    .sort((first, second) => String(second.reportDate || '').localeCompare(String(first.reportDate || '')));
+}
+
+function renderStatusReportOptions() {
+  const allocateds = activeStatusReportAllocatedOptions();
+  const options = allocateds.map((allocated) => {
+    const client = state.clients.find((item) => item.id === allocated.clientId);
+    const label = [allocated.consultant, client?.customerName].filter(Boolean).join(' - ');
+    return `<option value="${escapeHtml(allocated.id)}">${escapeHtml(label || allocated.id)}</option>`;
+  }).join('');
+  const select = $('#statusReportAllocatedSelect');
+  if (select) {
+    const current = select.value || allocateds[0]?.id || '';
+    select.innerHTML = options || '<option value="">Nenhum alocado ativo</option>';
+    select.value = allocateds.some((allocated) => allocated.id === current) ? current : allocateds[0]?.id || '';
+  }
+  const reportDate = $('#statusReportForm input[name="reportDate"]');
+  if (reportDate && !reportDate.value) reportDate.value = new Date().toISOString().slice(0, 10);
+  const filterAllocated = $('#statusReportFilterAllocated');
+  if (filterAllocated) {
+    const current = filterAllocated.value;
+    filterAllocated.innerHTML = '<option value="">Todos</option>' + options;
+    filterAllocated.value = allocateds.some((allocated) => allocated.id === current) ? current : '';
+  }
+  const filterClient = $('#statusReportFilterClient');
+  if (filterClient) {
+    const current = filterClient.value;
+    filterClient.innerHTML = '<option value="">Todos</option>' + state.clients
+      .slice()
+      .sort((first, second) => String(first.customerName || '').localeCompare(String(second.customerName || ''), 'pt-BR', { sensitivity: 'base' }))
+      .map((client) => `<option value="${escapeHtml(client.id)}">${escapeHtml(client.customerName)}</option>`)
+      .join('');
+    filterClient.value = state.clients.some((client) => client.id === current) ? current : '';
+  }
+  syncStatusReportClientName();
+}
+
+function renderStatusReports() {
+  renderStatusReportOptions();
+  const rows = getFilteredStatusReports();
+  const count = $('#statusReportCount');
+  if (count) count.textContent = rows.length;
+  const table = $('#statusReportTable');
+  if (table) {
+    table.innerHTML = rows.length ? rows.map((report) => `
+      <tr class="clickable-row" data-edit-status-report="${escapeHtml(report.id)}">
+        <td><strong>${escapeHtml(report.clientName || '-')}</strong></td>
+        <td>${escapeHtml(report.consultantName || '-')}</td>
+        <td>${escapeHtml(report.period || '-')}</td>
+        <td>${escapeHtml(formatDateOnlyBR(report.reportDate) || '-')}</td>
+        <td><span class="status-report-pill status-report-pill-${statusReportLightClass(report.statusLight)}">${escapeHtml(statusReportLightLabel(report.statusLight))}</span></td>
+        <td>${escapeHtml(report.alcateiaOwner || '-')}</td>
+        <td><div class="stage-actions"><button class="secondary-action compact-action" type="button" data-preview-status-report="${escapeHtml(report.id)}">Abrir</button><button class="danger-action compact-action" type="button" data-delete-status-report="${escapeHtml(report.id)}">Excluir</button></div></td>
+      </tr>
+    `).join('') : '<tr><td colspan="7">Nenhum status report encontrado.</td></tr>';
+  }
+  if (!state.editing.statusReportId) renderStatusReportPreview();
+}
+
+function loadStatusReportForEdit(report, previewOnly = false) {
+  if (!report) return;
+  fillForm('#statusReportForm', {
+    allocatedId: report.allocatedId,
+    clientName: report.clientName,
+    period: report.period,
+    reportDate: report.reportDate,
+    alcateiaOwner: report.alcateiaOwner,
+    statusLight: report.statusLight,
+    executiveSummary: report.executiveSummary,
+    tasks: report.tasks,
+    nextSteps: report.nextSteps,
+    attentionPoints: report.attentionPoints,
+    risks: report.risks,
+    recommendedActions: report.recommendedActions,
+    governanceNote: report.governanceNote
+  }, previewOnly ? 'Salvar status report' : 'Atualizar status report');
+  state.editing.statusReportId = previewOnly ? '' : report.id;
+  syncStatusReportClientName();
+  renderStatusReportPreview(report);
+  toast(previewOnly ? 'Status report aberto para visualizacao.' : 'Status report carregado para edicao.');
+}
+
+function clearStatusReportForm() {
+  const form = $('#statusReportForm');
+  if (!form) return;
+  form.reset();
+  state.editing.statusReportId = '';
+  const dateField = form.elements.reportDate;
+  if (dateField) dateField.value = new Date().toISOString().slice(0, 10);
+  const governance = form.elements.governanceNote;
+  if (governance) governance.value = 'Gestão diária sob responsabilidade do cliente; acompanhamento Alcateia para mitigação de riscos e antecipação de pontos de atenção.';
+  syncStatusReportClientName();
+  setSubmitLabel(form, 'Salvar status report');
+}
+
 function billingReportRows() {
   const grouped = new Map();
   for (const entry of state.workHours || []) {
@@ -6586,6 +7119,7 @@ function render() {
   renderAllocatedFilters();
   renderAllocateds();
   renderWorkHours();
+  renderStatusReports();
   renderBillingReport();
   renderTaxReformSimulator();
   renderAllocationPriceResult();
@@ -8690,6 +9224,90 @@ function bindWorkHourActions() {
   });
 }
 
+function bindStatusReportActions() {
+  $('#statusReportAllocatedSelect')?.addEventListener('change', syncStatusReportClientName);
+
+  $('#statusReportForm')?.addEventListener('input', () => renderStatusReportPreview());
+  $('#statusReportForm')?.addEventListener('change', () => renderStatusReportPreview());
+
+  $('#statusReportForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submitButton = $('button[type="submit"]', form);
+    const editingId = state.editing.statusReportId;
+    const payload = formPayload(form);
+    delete payload.clientName;
+    const originalText = setSubmitButtonBusy(submitButton, 'Salvando...');
+    try {
+      const saved = await api(editingId ? `/api/status-reports/${encodeURIComponent(editingId)}` : '/api/status-reports', {
+        method: editingId ? 'PATCH' : 'POST',
+        body: JSON.stringify(payload)
+      });
+      upsertStateItem('statusReports', saved);
+      state.editing.statusReportId = saved.id;
+      renderStatusReports();
+      renderStatusReportPreview(saved);
+      setSubmitLabel(form, 'Atualizar status report');
+      toast(editingId ? 'Status report atualizado.' : 'Status report salvo.');
+    } catch (error) {
+      toast(error.message || 'Não foi possível salvar o status report.');
+    } finally {
+      restoreSubmitButton(submitButton, originalText || (editingId ? 'Atualizar status report' : 'Salvar status report'));
+    }
+  });
+
+  $('#statusReportClearButton')?.addEventListener('click', clearStatusReportForm);
+
+  ['#statusReportFilterClient', '#statusReportFilterAllocated', '#statusReportFilterLight'].forEach((selector) => {
+    $(selector)?.addEventListener('change', () => {
+      state.statusReportFilter = {
+        clientId: $('#statusReportFilterClient')?.value || '',
+        allocatedId: $('#statusReportFilterAllocated')?.value || '',
+        statusLight: $('#statusReportFilterLight')?.value || ''
+      };
+      renderStatusReports();
+    });
+  });
+
+  $('#statusReportExportImageButton')?.addEventListener('click', () => {
+    exportStatusReportImage();
+  });
+
+  $('#statusReportExportPdfButton')?.addEventListener('click', () => {
+    exportStatusReportPdf();
+  });
+
+  $('#statusReportTable')?.addEventListener('click', async (event) => {
+    const deleteButton = event.target.closest('[data-delete-status-report]');
+    if (deleteButton) {
+      const reportId = deleteButton.dataset.deleteStatusReport;
+      if (!window.confirm('Excluir este status report?')) return;
+      try {
+        await api(`/api/status-reports/${encodeURIComponent(reportId)}`, { method: 'DELETE' });
+        removeStateItem('statusReports', reportId);
+        if (state.editing.statusReportId === reportId) clearStatusReportForm();
+        renderStatusReports();
+        toast('Status report excluído.');
+      } catch (error) {
+        toast(error.message || 'Não foi possível excluir o status report.');
+      }
+      return;
+    }
+
+    const previewButton = event.target.closest('[data-preview-status-report]');
+    if (previewButton) {
+      const report = state.statusReports.find((item) => item.id === previewButton.dataset.previewStatusReport);
+      loadStatusReportForEdit(report, true);
+      return;
+    }
+
+    if (event.target.closest('button, a, input, select, textarea')) return;
+    const row = event.target.closest('[data-edit-status-report]');
+    const report = state.statusReports.find((item) => item.id === row?.dataset.editStatusReport);
+    if (report) loadStatusReportForEdit(report);
+  });
+}
+
 function bindBillingReportActions() {
   $('#billingEntryAllocatedSelect')?.addEventListener('change', () => {
     const clientField = $('#billingEntryClientName');
@@ -9775,6 +10393,7 @@ bindFaturamentoFilters();
 bindOpportunityFilters();
 bindAllocatedFilters();
 bindWorkHourActions();
+bindStatusReportActions();
 bindBillingReportActions();
 bindClientReportActions();
 bindBusinessCalendarActions();
