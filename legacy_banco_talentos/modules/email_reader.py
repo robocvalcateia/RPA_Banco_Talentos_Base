@@ -50,27 +50,54 @@ class EmailReader:
             if folder.strip()
         ]
 
+    def _get_folder_page(self, url, headers, params=None):
+        folders = []
+        request_params = params
+
+        while url:
+            response = requests.get(url, headers=headers, params=request_params)
+            response.raise_for_status()
+            payload = response.json()
+            folders.extend(payload.get("value", []))
+            url = payload.get('@odata.nextLink')
+            request_params = None
+
+        return folders
+
+    def _get_child_folders(self, folder_id, headers):
+        url = f"{self.base_url}/users/{self.email}/mailFolders/{folder_id}/childFolders"
+        return self._get_folder_page(url, headers, params={'$top': 999})
+
     def _get_folder_id(self, folder_name):
-        """Resolve o ID de uma pasta pelo displayName."""
-        if folder_name.lower() == 'inbox':
+        """Resolve o ID de uma pasta pelo displayName, inclusive subpastas."""
+        normalized_folder_name = folder_name.lower()
+        if normalized_folder_name == 'inbox':
             return 'inbox'
 
         headers = self.graph_config.get_headers()
         folders_url = f"{self.base_url}/users/{self.email}/mailFolders"
-        response = requests.get(folders_url, headers=headers, params={'$top': 999})
-        response.raise_for_status()
+        folders = self._get_folder_page(folders_url, headers, params={'$top': 999})
+        queue = [(folder, folder.get("displayName", "")) for folder in folders]
+        visited = set()
 
-        folders = response.json().get("value", [])
-        destination_folder = next(
-            (f for f in folders if f.get("displayName", "").lower() == folder_name.lower()),
-            None
-        )
+        while queue:
+            folder, folder_path = queue.pop(0)
+            folder_id = folder.get("id")
+            if not folder_id or folder_id in visited:
+                continue
+            visited.add(folder_id)
 
-        if not destination_folder:
-            logger.warning(f"Pasta nao encontrada para leitura: {folder_name}")
-            return None
+            display_name = folder.get("displayName", "")
+            if display_name.lower() == normalized_folder_name or folder_path.lower() == normalized_folder_name:
+                logger.info(f" Pasta encontrada para leitura: {folder_path}")
+                return folder_id
 
-        return destination_folder.get("id")
+            for child in self._get_child_folders(folder_id, headers):
+                child_path = f"{folder_path}/{child.get('displayName', '')}"
+                queue.append((child, child_path))
+
+        logger.warning(f"Pasta nao encontrada para leitura: {folder_name}")
+        return None
 
     def _matches_subject_filter(self, email_item):
         if not self.subject_filter:
