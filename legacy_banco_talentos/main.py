@@ -20,6 +20,7 @@ from modules.email_reader import EmailReader
 from modules.whatsapp_reader import process_whatsapp_messages
 from modules.gemini_extractor import extract_cv_data_detalhado
 from modules.deduplication import process_candidate_data
+from modules.original_file_store import save_original_cv_file
 from utils.file_handler import FileHandler
 from modules.mongodb_handler import get_mongodb_handler
 from utils.email_sender import enviar_email_resumo_graph
@@ -38,6 +39,8 @@ class BancoTalentosOrchestrator:
             'novos_candidatos': 0,
             'candidatos_atualizados': 0,
             'sem_mudancas': 0,
+            'arquivos_originais_gravados': 0,
+            'arquivos_originais_ja_existentes': 0,
             'erros': 0,
 
             # NOVO - rastreabilidade
@@ -287,6 +290,28 @@ class BancoTalentosOrchestrator:
                         )
                         Move_Folder = Folder_Mail_Erro
 
+                    if Move_Folder == Folder_Mail_Sucesso:
+                        try:
+                            original_file_result = save_original_cv_file(
+                                file_path,
+                                file_info,
+                                result,
+                                document_hash,
+                                candidate_data
+                            )
+                            if original_file_result.get('saved'):
+                                self.stats['arquivos_originais_gravados'] += 1
+                            elif original_file_result.get('existing'):
+                                self.stats['arquivos_originais_ja_existentes'] += 1
+                        except Exception as e:
+                            self._registrar_erro(
+                                tipo="falha_gravar_arquivo_original",
+                                mensagem=f"CV processado, mas nao foi possivel gravar o arquivo original: {filename}",
+                                file_info=file_info,
+                                exception=e,
+                                acao="Processamento do candidato preservado; arquivo original devera ser reprocessado se necessario."
+                            )
+
                     # Move Mail Folder
                     mover_email_uma_vez(file_info, Move_Folder)
 
@@ -360,6 +385,8 @@ class BancoTalentosOrchestrator:
         self.logger.info(f" Novos candidatos: {self.stats['novos_candidatos']}")
         self.logger.info(f" Candidatos atualizados: {self.stats['candidatos_atualizados']}")
         self.logger.info(f"Sem mudanças: {self.stats['sem_mudancas']}")
+        self.logger.info(f" Arquivos originais gravados: {self.stats.get('arquivos_originais_gravados', 0)}")
+        self.logger.info(f" Arquivos originais ja existentes: {self.stats.get('arquivos_originais_ja_existentes', 0)}")
         self.logger.info(f" Erros: {self.stats['erros']}")
         if self.stats.get('erros_por_tipo'):
             self.logger.info("\n Erros por tipo:")

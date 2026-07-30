@@ -30,3 +30,17 @@ test('candidate reprocessing preserves existing non-empty data when extraction r
   assert.match(updateCandidateSource, /for field_name, value in field_map\.items\(\):\s+self\._set_if_filled/s);
   assert.doesNotMatch(updateCandidateSource, /'experiencia_profissional': candidate_data\.get\('Experiencia_Profissional', ''\)\.strip\(\)/);
 });
+
+test('reprocessing stores original CV files with candidate links', () => {
+  const mainSource = readRepoFile('legacy_banco_talentos/main.py');
+  const storeSource = readRepoFile('legacy_banco_talentos/modules/original_file_store.py');
+
+  assert.match(mainSource, /save_original_cv_file/);
+  assert.match(mainSource, /arquivos_originais_gravados/);
+  assert.match(mainSource, /arquivos_originais_ja_existentes/);
+  assert.match(storeSource, /gridfs\.GridFS/);
+  assert.match(storeSource, /metadata\.document_hash/);
+  assert.match(storeSource, /unique=True/);
+  assert.match(storeSource, /arquivos_originais/);
+  assert.match(storeSource, /tem_arquivo_original/);
+});
