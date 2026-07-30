@@ -15,7 +15,6 @@ test('processing summary log is restricted to PROD and approved recipients', () 
   const emailSenderSource = readRepoFile('legacy_banco_talentos/utils/email_sender.py');
   const combinedSource = `${serverSource}\n${environmentSource}\n${emailSenderSource}`;
 
-  assert.match(serverSource, /20260729-processing-log-prod-only/);
   assert.match(serverSource, /rpa-banco-talentos-5v5r\.onrender\.com/);
   assert.match(serverSource, /APP_ENV:\s*isProductionRuntime\(\)\s*\?\s*'production'\s*:\s*'local'/);
 

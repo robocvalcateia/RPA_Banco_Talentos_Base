@@ -53,6 +53,6 @@ test('status report usa envio de avaliacao e nome padronizado do PDF', () => {
 
   assert.match(indexSource, />Enviar avaliação<\/button>/);
   assert.match(appSource, /Status_\$\{statusReportFilenamePart\(report\.consultantName/);
-  assert.match(appSource, /Report Acompanhamento Consultor Alcateia/);
+  assert.match(appSource, /ALCATEIA - Relat.rio Acompanhamento Consultor/);
   assert.match(appSource, /mailto:/);
 });

@@ -5786,7 +5786,7 @@ function openStatusReportEvaluationEmail(report = {}) {
   }
   const consultantName = report.consultantName || 'consultor';
   const managerName = manager.name || 'gestor';
-  const subject = `Report Acompanhamento Consultor Alcateia ${consultantName}`;
+  const subject = `ALCATEIA - Relatório Acompanhamento Consultor ${consultantName}`;
   const body = [
     `Bom dia! Prezado ${managerName},`,
     '',
