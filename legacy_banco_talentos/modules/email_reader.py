@@ -43,6 +43,7 @@ class EmailReader:
         self.email = self.graph_config.get_email()
         self.dias_atras = int(os.getenv('DIAS_ATRAS', 730))
         self.subject_filter = os.getenv('EMAIL_SUBJECT_FILTER', '').strip().lower()
+        self.max_messages = max(0, int(os.getenv('EMAIL_MAX_MESSAGES', '0') or 0))
         self.folder_names = [
             folder.strip()
             for folder in os.getenv('EMAIL_FOLDERS', 'inbox').split(',')
@@ -124,6 +125,10 @@ class EmailReader:
                 logger.info(
                     f" {len(emails)} de {before} e-mails mantidos pelo filtro: {self.subject_filter}"
                 )
+
+            if self.max_messages and len(emails) > self.max_messages:
+                logger.info(f" Limitando leitura a {self.max_messages} e-mails neste lote")
+                emails = emails[:self.max_messages]
 
             logger.info(f" {len(emails)} e-mails encontrados no total")
             

@@ -17,6 +17,17 @@ class DeduplicationHandler:
         self.db = get_mongodb().get_db()
         self.collection_name = get_candidate_collection_name()
         self.collection = self.db[self.collection_name]
+
+    def _has_value(self, value):
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        return value != ''
+
+    def _set_if_filled(self, update_data, field_name, value):
+        if self._has_value(value):
+            update_data[field_name] = value.strip() if isinstance(value, str) else value
     
     def gerar_id_controle(self):
         """
@@ -228,32 +239,41 @@ class DeduplicationHandler:
         """
         try:
             now = datetime.now().isoformat()
+            existing_doc = self.collection.find_one({'_id': existing_id}) or {}
             email_normalizado = Validators.normalize_email(candidate_data.get('Email', ''))
             telefone_normalizado = Validators.normalize_phone(candidate_data.get('Telefone', ''))
-            # Normalizar dados
+
             update_data = {
+                'data_atualizacao': now
+            }
+
+            if source_date:
+                update_data['data_origem'] = source_date
+
+            field_map = {
                 'nome': Validators.normalize_name(candidate_data.get('Nome', '')),
                 'telefone': telefone_normalizado,
-                'endereco': candidate_data.get('Endereco', '').strip(),
-                'nacionalidade': candidate_data.get('Nacionalidade', '').strip(),
-                'estado_civil': candidate_data.get('Estado_Civil', '').strip(),
+                'endereco': candidate_data.get('Endereco', ''),
+                'nacionalidade': candidate_data.get('Nacionalidade', ''),
+                'estado_civil': candidate_data.get('Estado_Civil', ''),
                 'idade': candidate_data.get('Idade', ''),
                 'data_nascimento': candidate_data.get('DataNascimento', ''),
-                'linkedin': candidate_data.get('Link_Linkedin', '').strip(),
-                'skills': candidate_data.get('Skil', '').strip(),
-                'formacao_academica': candidate_data.get('Formacao_Academica', '').strip(),
-                'cursos_certificacoes': candidate_data.get('Cursos_Certificacoes', '').strip(),
-                'nivel_ingles': candidate_data.get('Nivel_Idioma_Ingles', '').strip(),
-                'nivel_espanhol': candidate_data.get('Nivel_Idioma_Espanhol', '').strip(),
-                'conhecimento_tecnico': candidate_data.get('Conhecimento_Tecnico', '').strip(),
-                'experiencia_profissional': candidate_data.get('Experiencia_Profissional', '').strip(),
+                'linkedin': candidate_data.get('Link_Linkedin', ''),
+                'skills': candidate_data.get('Skil', ''),
+                'formacao_academica': candidate_data.get('Formacao_Academica', ''),
+                'cursos_certificacoes': candidate_data.get('Cursos_Certificacoes', ''),
+                'nivel_ingles': candidate_data.get('Nivel_Idioma_Ingles', ''),
+                'nivel_espanhol': candidate_data.get('Nivel_Idioma_Espanhol', ''),
+                'conhecimento_tecnico': candidate_data.get('Conhecimento_Tecnico', ''),
+                'experiencia_profissional': candidate_data.get('Experiencia_Profissional', ''),
                 'search_text_all': (
-                    candidate_data.get('Texto_Integral_Original', '').strip()
-                    or candidate_data.get('Experiencia_Profissional', '').strip()
-                ),
-                'data_atualizacao': now,
-                'data_origem': source_date
+                    candidate_data.get('Texto_Integral_Original', '')
+                    or candidate_data.get('Experiencia_Profissional', '')
+                )
             }
+
+            for field_name, value in field_map.items():
+                self._set_if_filled(update_data, field_name, value)
 
             if email_normalizado:
                 update_data['email'] = email_normalizado
@@ -261,6 +281,17 @@ class DeduplicationHandler:
             # Adicionar hash se for novo documento
             if document_hash:
                 update_data['hash_documento'] = document_hash
+
+            skipped_empty_fields = [
+                field_name
+                for field_name in field_map
+                if not self._has_value(field_map[field_name]) and self._has_value(existing_doc.get(field_name))
+            ]
+            if skipped_empty_fields:
+                logger.info(
+                    " Campos existentes preservados por falta de valor no reprocessamento: "
+                    + ", ".join(skipped_empty_fields)
+                )
             
             # Atualizar registro
             result = self.collection.update_one(
@@ -276,12 +307,12 @@ class DeduplicationHandler:
                 }
             )
             
-            logger.info(f" Candidato atualizado: {update_data['nome']}")
+            logger.info(f" Candidato atualizado: {update_data.get('nome') or existing_doc.get('nome') or existing_id}")
             
             return {
                 'status': 'atualizado',
                 'id': str(existing_id),
-                'nome': update_data['nome']
+                'nome': update_data.get('nome') or existing_doc.get('nome')
             }
             
         except Exception as e:

@@ -99,7 +99,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260729-allocated-manager-patch';
+const APP_VERSION = '20260730-reprocessamento-batch';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -1575,6 +1575,10 @@ export function shouldSyncLegacyAfterProcessing(result) {
 function startLegacyEmailProcessing(options = {}) {
   const jobId = randomBytes(12).toString('hex');
   const subjectFilter = String(options.subjectFilter || options.query || '').trim();
+  const requestedMaxMessages = Number(options.maxMessages || options.limit || process.env.EMAIL_MAX_MESSAGES || 0);
+  const maxMessages = Number.isFinite(requestedMaxMessages)
+    ? Math.max(0, Math.min(500, Math.floor(requestedMaxMessages)))
+    : 0;
   const foldersFromPayload = Array.isArray(options.folders)
     ? options.folders.map((folder) => String(folder).trim()).filter(Boolean).join(',')
     : String(options.folders || '').trim();
@@ -1594,6 +1598,7 @@ function startLegacyEmailProcessing(options = {}) {
     'Processamento de e-mails iniciado.',
     subjectFilter ? `Filtro: ${subjectFilter}` : '',
     `Pastas: ${emailFolders}`,
+    maxMessages ? `Limite de e-mails: ${maxMessages}` : '',
     ''
   ].filter(Boolean).join('\n');
 
@@ -1605,6 +1610,7 @@ function startLegacyEmailProcessing(options = {}) {
       APP_ENV: isProductionRuntime() ? 'production' : 'local',
       EMAIL_SUBJECT_FILTER: subjectFilter,
       EMAIL_FOLDERS: emailFolders,
+      EMAIL_MAX_MESSAGES: maxMessages ? String(maxMessages) : '',
       MONGODB_COLLECTION: process.env.MONGODB_CURRICULUM_COLLECTION || 'curriculums',
       GRAPH_EMAIL_TO: buildGraphLogRecipients()
     },
