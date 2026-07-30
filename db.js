@@ -1346,6 +1346,8 @@ export function normalizeStatusReport(report = {}) {
     clientName: String(report.clientName ?? report.nomeCliente ?? '').trim(),
     consultantName: String(report.consultantName ?? report.consultor ?? '').trim(),
     consultantEmail: String(report.consultantEmail ?? report.emailConsultor ?? '').trim().toLowerCase(),
+    managerName: String(report.managerName ?? report.gestor ?? '').trim(),
+    managerEmail: String(report.managerEmail ?? report.emailGestor ?? '').trim().toLowerCase(),
     alcateiaOwner: String(report.alcateiaOwner ?? report.responsavelAlcateia ?? '').trim(),
     reportDate: String(report.reportDate ?? report.data ?? toISODate().slice(0, 10)).trim(),
     statusLight,
@@ -1597,6 +1599,8 @@ export function enrichStatusReport(report, db) {
     clientName: client?.customerName ?? report.clientName ?? '',
     consultantName: allocated?.consultant ?? report.consultantName ?? '',
     consultantEmail: allocated?.consultantEmail ?? report.consultantEmail ?? '',
+    managerName: allocated?.manager ?? report.managerName ?? '',
+    managerEmail: allocated?.managerEmail ?? report.managerEmail ?? '',
     clientManagerName: client?.managerContactName ?? ''
   };
 }

@@ -1202,6 +1202,7 @@ label.full,
   display: grid;
   gap: 10px;
   grid-template-columns: repeat(2, minmax(170px, 1fr));
+  margin-top: 16px;
   min-width: 460px;
 }
 

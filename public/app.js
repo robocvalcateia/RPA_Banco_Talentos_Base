@@ -5382,7 +5382,27 @@ function statusReportFormDraft() {
     clientId: client?.id || '',
     clientName: client?.customerName || '',
     consultantName: allocated?.consultant || '',
-    consultantEmail: allocated?.consultantEmail || ''
+    consultantEmail: allocated?.consultantEmail || '',
+    managerName: allocated?.manager || '',
+    managerEmail: allocated?.managerEmail || ''
+  };
+}
+
+function statusReportAllocatedForReport(report = {}) {
+  if (report.allocatedId) {
+    const allocated = state.allocateds.find((item) => item.id === report.allocatedId);
+    if (allocated) return allocated;
+  }
+  const consultantKey = normalizeSearchValue(report.consultantName || '');
+  if (!consultantKey) return null;
+  return state.allocateds.find((allocated) => normalizeSearchValue(allocated.consultant || '') === consultantKey) || null;
+}
+
+function statusReportManagerForReport(report = {}) {
+  const allocated = statusReportAllocatedForReport(report);
+  return {
+    name: String(allocated?.manager || report.managerName || report.clientManagerName || '').trim(),
+    email: String(allocated?.managerEmail || report.managerEmail || '').trim().toLowerCase()
   };
 }
 
@@ -5600,7 +5620,7 @@ async function createStatusReportCanvas(report = statusReportCurrentExportData()
     const col = index % 2;
     const row = Math.floor(index / 2);
     const x = 1040 + (col * 250);
-    const y = 48 + (row * 64);
+    const y = 64 + (row * 64);
     ctx.fillStyle = '#0b1717';
     ctx.fillRect(x, y, 230, 44);
     ctx.fillStyle = '#9ee8da';
@@ -5744,12 +5764,52 @@ async function exportStatusReportImage() {
   toast('Imagem do status report gerada.');
 }
 
-async function exportStatusReportPdf() {
+function statusReportFilenamePart(value, fallback = 'relatorio') {
+  const cleaned = String(value || fallback)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return cleaned || fallback;
+}
+
+function statusReportPdfFilename(report = {}) {
+  const date = String(report.reportDate || new Date().toISOString().slice(0, 10)).replace(/[^0-9]/g, '') || new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  return `Status_${statusReportFilenamePart(report.consultantName || 'Consultor', 'Consultor')}_${date}.pdf`;
+}
+
+function openStatusReportEvaluationEmail(report = {}) {
+  const manager = statusReportManagerForReport(report);
+  if (!manager.email) {
+    toast('Gestor direto sem e-mail cadastrado para este consultor.');
+    return false;
+  }
+  const consultantName = report.consultantName || 'consultor';
+  const managerName = manager.name || 'gestor';
+  const subject = `Report Acompanhamento Consultor Alcateia ${consultantName}`;
+  const body = [
+    `Bom dia! Prezado ${managerName},`,
+    '',
+    'visando um melhor alinhamento entre o feedback do consultor e a visão de seu gestor direto, segue anexo os detalhes de nossa última conversa.',
+    '',
+    'Qualquer dúvida e/ou necessidade de uma conversa específica sobre, estamos à disposição.'
+  ].join('\n');
+  const link = document.createElement('a');
+  link.href = `mailto:${encodeURIComponent(manager.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  return true;
+}
+
+async function sendStatusReportEvaluation() {
   const report = statusReportCurrentExportData();
   const canvas = await createStatusReportCanvas(report);
   const pdfBlob = pdfBlobFromJpegDataUrl(canvas.toDataURL('image/jpeg', 0.95), canvas.width, canvas.height);
-  downloadBlob(pdfBlob, `status-report-${safeFilename(report.clientName || 'alcateia')}-${new Date().toISOString().slice(0, 10)}.pdf`);
-  toast('PDF do status report gerado.');
+  const filename = statusReportPdfFilename(report);
+  downloadBlob(pdfBlob, filename);
+  const opened = openStatusReportEvaluationEmail(report);
+  toast(opened ? `PDF ${filename} gerado. Outlook aberto para envio da avaliação.` : `PDF ${filename} gerado.`);
 }
 
 function getFilteredStatusReports() {
@@ -9274,7 +9334,7 @@ function bindStatusReportActions() {
   });
 
   $('#statusReportExportPdfButton')?.addEventListener('click', () => {
-    exportStatusReportPdf();
+    sendStatusReportEvaluation();
   });
 
   $('#statusReportTable')?.addEventListener('click', async (event) => {

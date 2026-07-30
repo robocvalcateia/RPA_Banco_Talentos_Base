@@ -99,7 +99,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260729-status-report-module';
+const APP_VERSION = '20260729-status-report-evaluation';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 
 async function loadLocalEnv() {
@@ -4968,6 +4968,8 @@ async function handleApi(request, response) {
         clientName: client.customerName,
         consultantName: allocated.consultant,
         consultantEmail: allocated.consultantEmail,
+        managerName: allocated.manager,
+        managerEmail: allocated.managerEmail,
         createdById: auth.user.id,
         createdByName: auth.user.name,
         createdByEmail: auth.user.email,
@@ -5023,6 +5025,8 @@ async function handleApi(request, response) {
         clientName: client.customerName,
         consultantName: allocated.consultant,
         consultantEmail: allocated.consultantEmail,
+        managerName: allocated.manager,
+        managerEmail: allocated.managerEmail,
         createdById: report.createdById,
         createdByName: report.createdByName,
         createdByEmail: report.createdByEmail,

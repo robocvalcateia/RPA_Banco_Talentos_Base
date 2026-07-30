@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   enrichStatusReport,
@@ -29,7 +30,7 @@ test('status report normaliza estrutura executiva e farol', () => {
 test('base normalizada cria colecao de status reports e enriquece cliente e consultor', () => {
   const db = normalizeDatabase({
     clients: [{ id: 'client_1', customerName: 'Totvs', managerContactName: 'Eloi' }],
-    allocateds: [{ id: 'alloc_1', code: 'P-1', consultant: 'Maria Silva', clientId: 'client_1', consultantEmail: 'maria@example.com' }],
+    allocateds: [{ id: 'alloc_1', code: 'P-1', consultant: 'Maria Silva', clientId: 'client_1', consultantEmail: 'maria@example.com', manager: 'Pedro Gestor', managerEmail: 'pedro@example.com' }],
     statusReports: [{ clientId: 'client_1', allocatedId: 'alloc_1', period: 'Julho/2026', executiveSummary: 'Tudo ok' }]
   });
 
@@ -37,9 +38,21 @@ test('base normalizada cria colecao de status reports e enriquece cliente e cons
   const enriched = enrichStatusReport(db.statusReports[0], db);
   assert.equal(enriched.clientName, 'Totvs');
   assert.equal(enriched.consultantName, 'Maria Silva');
+  assert.equal(enriched.managerName, 'Pedro Gestor');
+  assert.equal(enriched.managerEmail, 'pedro@example.com');
   assert.equal(enriched.clientManagerName, 'Eloi');
 });
 
 test('status reports fazem parte das colecoes operacionais do Mongo app', () => {
   assert.ok(MONGO_APP_COLLECTIONS.includes('statusReports'));
+});
+
+test('status report usa envio de avaliacao e nome padronizado do PDF', () => {
+  const appSource = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+  const indexSource = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+
+  assert.match(indexSource, />Enviar avaliação<\/button>/);
+  assert.match(appSource, /Status_\$\{statusReportFilenamePart\(report\.consultantName/);
+  assert.match(appSource, /Report Acompanhamento Consultor Alcateia/);
+  assert.match(appSource, /mailto:/);
 });
