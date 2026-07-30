@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   advanceSelectedCandidateToInterview,
   approvedCandidatesForOpportunity,
@@ -140,6 +141,13 @@ test('codigo de alocado duplicado e detectado de forma normalizada', () => {
   assert.equal(findAllocatedByCode(allocateds, 'P-00126-A', 'alloc_1')?.id, 'alloc_2');
   assert.equal(findAllocatedByCode(allocateds, 'P-00126-B', 'alloc_3'), null);
   assert.equal(duplicatedAllocatedCodeGroups(allocateds).length, 1);
+});
+
+test('edicao de alocado valida duplicidade somente quando codigo muda', () => {
+  const serverSource = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+
+  assert.match(serverSource, /const codeChanged = comparableAllocatedCode\(updated\.code\) !== comparableAllocatedCode\(allocated\.code\);/);
+  assert.match(serverSource, /if \(codeChanged && validateAllocatedUniqueCode\(response, db\.allocateds, updated, allocated\.id\)\)/);
 });
 
 test('candidato aprovado gera codigo unico quando codigo automatico colide', () => {

@@ -99,7 +99,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260729-status-report-subject';
+const APP_VERSION = '20260729-allocated-manager-patch';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -4951,7 +4951,8 @@ async function handleApi(request, response) {
         sendError(response, 422, 'Selecione um cliente valido.');
         return;
       }
-      if (validateAllocatedUniqueCode(response, db.allocateds, updated, allocated.id)) {
+      const codeChanged = comparableAllocatedCode(updated.code) !== comparableAllocatedCode(allocated.code);
+      if (codeChanged && validateAllocatedUniqueCode(response, db.allocateds, updated, allocated.id)) {
         return;
       }
 
