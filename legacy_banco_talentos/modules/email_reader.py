@@ -70,7 +70,7 @@ class EmailReader:
 
     def _get_folder_id(self, folder_name):
         """Resolve o ID de uma pasta pelo displayName, inclusive subpastas."""
-        normalized_folder_name = folder_name.lower()
+        normalized_folder_name = folder_name.strip().lower()
         if normalized_folder_name == 'inbox':
             return 'inbox'
 
@@ -79,24 +79,29 @@ class EmailReader:
         folders = self._get_folder_page(folders_url, headers, params={'$top': 999})
         queue = [(folder, folder.get("displayName", "")) for folder in folders]
         visited = set()
+        available_paths = []
 
         while queue:
             folder, folder_path = queue.pop(0)
+            folder_path = folder_path.strip()
             folder_id = folder.get("id")
             if not folder_id or folder_id in visited:
                 continue
             visited.add(folder_id)
+            available_paths.append(folder_path)
 
-            display_name = folder.get("displayName", "")
+            display_name = folder.get("displayName", "").strip()
             if display_name.lower() == normalized_folder_name or folder_path.lower() == normalized_folder_name:
                 logger.info(f" Pasta encontrada para leitura: {folder_path}")
                 return folder_id
 
             for child in self._get_child_folders(folder_id, headers):
-                child_path = f"{folder_path}/{child.get('displayName', '')}"
+                child_path = f"{folder_path}/{child.get('displayName', '').strip()}"
                 queue.append((child, child_path))
 
         logger.warning(f"Pasta nao encontrada para leitura: {folder_name}")
+        if available_paths:
+            logger.warning("Pastas disponiveis: " + " | ".join(available_paths[:120]))
         return None
 
     def _matches_subject_filter(self, email_item):
