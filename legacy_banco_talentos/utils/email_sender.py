@@ -1,17 +1,16 @@
-import os
 import requests
 from config.mongodb import get_candidate_collection_name
 from config.microsoft_graph import get_microsoft_graph
 from utils.environment import is_production_environment
 
-PROCESSING_LOG_REQUIRED_RECIPIENTS = [
+PROCESSING_LOG_ALLOWED_RECIPIENTS = (
     "gerson@alcateiaconsulting.com.br",
     "bruno@alcateiaconsulting.com.br",
-]
+)
 
 
-def build_processing_log_recipients(configured_recipients):
-    return list(PROCESSING_LOG_REQUIRED_RECIPIENTS)
+def build_processing_log_recipients():
+    return list(PROCESSING_LOG_ALLOWED_RECIPIENTS)
 
 
 def montar_html_erros(stats):
@@ -71,6 +70,7 @@ def montar_html_erros(stats):
     </table>
     """
 
+
 def enviar_email_resumo_graph(stats, total_candidatos):
     if not is_production_environment():
         print("Resumo de processamento nao enviado: ambiente nao produtivo.")
@@ -79,15 +79,15 @@ def enviar_email_resumo_graph(stats, total_candidatos):
     graph_config = get_microsoft_graph()
     headers = graph_config.get_headers()
     email_from = graph_config.get_email()
-    emails_to = os.getenv("GRAPH_EMAIL_TO", email_from)
     collection_name = stats.get("collection") or get_candidate_collection_name()
-    
 
     url = f"https://graph.microsoft.com/v1.0/users/{email_from}/sendMail"
 
     html_erros = montar_html_erros(stats)
     corpo_html = f"""
     <h2>Resumo do Processamento</h2>
+
+    <p><strong>Ambiente:</strong> PROD</p>
 
     <ul>
         <li>E-mails processados: {stats.get('emails_processados', 0)}</li>
@@ -110,11 +110,11 @@ def enviar_email_resumo_graph(stats, total_candidatos):
     """
     to_recipients = [
         {"emailAddress": {"address": email}}
-        for email in build_processing_log_recipients(emails_to)
+        for email in build_processing_log_recipients()
     ]
     payload = {
         "message": {
-            "subject": "📊 Relatório Diário - Banco de Talentos",
+            "subject": "Relatório Diário PROD - Banco de Talentos",
             "body": {
                 "contentType": "HTML",
                 "content": corpo_html

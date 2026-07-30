@@ -99,8 +99,10 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260729-status-report-evaluation';
+const APP_VERSION = '20260729-processing-log-prod-only';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
+const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
+const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
 
 async function loadLocalEnv() {
   try {
@@ -1528,6 +1530,22 @@ function buildGraphLogRecipients() {
   return PROCESSING_LOG_RECIPIENTS.join(',');
 }
 
+function getHostnameFromUrl(value) {
+  try {
+    return new URL(String(value || '').trim()).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function isProductionRuntime() {
+  const serviceName = String(process.env.RENDER_SERVICE_NAME || '').trim().toLowerCase();
+  if (serviceName === PRODUCTION_RENDER_SERVICE) return true;
+
+  return ['APP_BASE_URL', 'PUBLIC_BASE_URL', 'RENDER_EXTERNAL_URL']
+    .some((key) => getHostnameFromUrl(process.env[key]) === PRODUCTION_RENDER_HOST);
+}
+
 function parseLegacyProcessResult(output) {
   const lines = String(output || '').split(/\r?\n/).reverse();
   const marker = '__RESULT_JSON__=';
@@ -1584,10 +1602,11 @@ function startLegacyEmailProcessing(options = {}) {
     env: {
       ...process.env,
       PYTHONIOENCODING: 'utf-8',
+      APP_ENV: isProductionRuntime() ? 'production' : 'local',
       EMAIL_SUBJECT_FILTER: subjectFilter,
       EMAIL_FOLDERS: emailFolders,
       MONGODB_COLLECTION: process.env.MONGODB_CURRICULUM_COLLECTION || 'curriculums',
-      GRAPH_EMAIL_TO: buildGraphLogRecipients(options)
+      GRAPH_EMAIL_TO: buildGraphLogRecipients()
     },
     windowsHide: true
   });
