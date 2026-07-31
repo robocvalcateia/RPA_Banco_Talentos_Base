@@ -1572,6 +1572,11 @@ export function shouldSyncLegacyAfterProcessing(result) {
   ].some((value) => Number(value) > 0);
 }
 
+function isTerminalEmailProcessingState() {
+  return ['finalizado', 'erro'].includes(emailProcessing.status)
+    && Boolean(emailProcessing.finishedAt || emailProcessing.resultado || emailProcessing.erro);
+}
+
 function startLegacyEmailProcessing(options = {}) {
   const jobId = randomBytes(12).toString('hex');
   const subjectFilter = String(options.subjectFilter || options.query || '').trim();
@@ -1632,6 +1637,8 @@ function startLegacyEmailProcessing(options = {}) {
   });
 
   child.on('error', (error) => {
+    if (emailProcessing.jobId !== jobId) return;
+
     emailProcessing.running = false;
     emailProcessing.status = 'erro';
     emailProcessing.finishedAt = formatDateTimeBR();
@@ -1645,6 +1652,8 @@ function startLegacyEmailProcessing(options = {}) {
   });
 
   child.on('close', async (code) => {
+    if (emailProcessing.jobId !== jobId) return;
+
     const result = parseLegacyProcessResult(combinedOutput);
     emailProcessing.finishedAt = formatDateTimeBR();
 
@@ -1656,12 +1665,16 @@ function startLegacyEmailProcessing(options = {}) {
       if (shouldSyncLegacyAfterProcessing(result) && isMongoTalentosConfigured()) {
         try {
           const sync = await syncLegacyCandidatesIntoCurriculums();
+          if (emailProcessing.jobId !== jobId) return;
+
           emailProcessing.resultado = {
             ...result,
             sync,
             message: `${result.message || 'Processamento finalizado.'} ${sync.message}`
           };
         } catch (error) {
+          if (emailProcessing.jobId !== jobId) return;
+
           emailProcessing.status = 'erro';
           emailProcessing.erro = `Processamento concluiu, mas a sincronizacao com curriculums falhou: ${error.message}`;
           emailProcessing.resultado = {
@@ -1683,7 +1696,9 @@ function startLegacyEmailProcessing(options = {}) {
       };
     }
 
-    emailProcessing.running = false;
+    if (emailProcessing.jobId === jobId) {
+      emailProcessing.running = false;
+    }
   });
 
   return jobId;
@@ -3250,6 +3265,10 @@ async function handleApi(request, response) {
 
     if (request.method === 'POST' && pathname === '/api/processar-emails') {
       const payload = await readJsonBody(request).catch(() => ({}));
+
+      if (emailProcessing.running && isTerminalEmailProcessingState()) {
+        emailProcessing.running = false;
+      }
 
       if (emailProcessing.running) {
         sendJson(response, 409, {
