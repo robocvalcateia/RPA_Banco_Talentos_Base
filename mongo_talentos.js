@@ -30,6 +30,68 @@ function readMongoConfig(env = process.env) {
   };
 }
 
+const CURRICULUM_BOOTSTRAP_PROJECTION = {
+  _id: 1,
+  id: 1,
+  id_controle: 1,
+  idControle: 1,
+  nome: 1,
+  email: 1,
+  telefone: 1,
+  phone: 1,
+  endereco: 1,
+  nacionalidade: 1,
+  estado_civil: 1,
+  idade: 1,
+  linkedin: 1,
+  skills: 1,
+  Skil: 1,
+  formacao_academica: 1,
+  Formacao_Academica: 1,
+  nivel_ingles: 1,
+  Nivel_Idioma_Ingles: 1,
+  nivel_espanhol: 1,
+  Nivel_Idioma_Espanhol: 1,
+  cursos_certificacoes: 1,
+  Cursos_Certificacoes: 1,
+  conhecimento_tecnico: 1,
+  Conhecimento_Tecnico: 1,
+  experiencia_profissional: 1,
+  Experiencia_Profissional: 1,
+  hash_documento: 1,
+  fonte: 1,
+  data_criacao: 1,
+  data_atualizacao: 1,
+  data_origem: 1,
+  data_nascimento: 1,
+  cargo_alvo: 1,
+  observacoes_entrevista: 1,
+  feedback_entrevista_ingles: 1,
+  disponibilidade_viagem: 1,
+  experiencias: 1,
+  experiences: 1,
+  atividades: 1,
+  atividades_exercidas: 1,
+  atividadesExercidas: 1,
+  empresas: 1,
+  projetos: 1,
+  tecnologias: 1,
+  blackflag: 1,
+  blackFlag: 1,
+  black_flag: 1,
+  blacklist: 1,
+  blackList: 1,
+  black_list: 1,
+  blackflagObservation: 1,
+  blackFlagObservation: 1,
+  blackflag_observation: 1,
+  blacklistObservation: 1,
+  blackListObservation: 1,
+  blacklist_observation: 1,
+  tem_arquivo_original: 1,
+  arquivo_original_atualizado_em: 1
+};
+
 export function isMongoTalentosConfigured(env = process.env) {
   const config = readMongoConfig(env);
   return Boolean(config.url && config.dbName && config.collectionName);
@@ -163,7 +225,10 @@ export async function getCurriculumsFromMongo() {
   const collection = await getMongoTalentosCollection();
 
   const docs = await collection
-    .find({}, { limit: config.limit })
+    .find({}, {
+      projection: CURRICULUM_BOOTSTRAP_PROJECTION,
+      limit: config.limit
+    })
     .toArray();
 
   const total = await collection.countDocuments({});
