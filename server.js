@@ -99,7 +99,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260731-talent-bootstrap-fallback';
+const APP_VERSION = '20260731-won-placement-guard';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -2519,6 +2519,10 @@ export function syncApprovedCandidatePlacement(candidate, db) {
     return { type: 'allocated', action: 'skipped', reason: 'Cliente da oportunidade nao encontrado.' };
   }
 
+  if (opportunity.status !== 'WON') {
+    return { type: 'allocated', action: 'skipped', reason: 'Oportunidade ainda nao esta WON.' };
+  }
+
   const allocated = db.allocateds.find((item) => (
     item.candidateId === candidate.id
     || (candidate.curriculumId && item.curriculumId === candidate.curriculumId && item.opportunityId === candidate.opportunityId)
@@ -2535,6 +2539,12 @@ export function syncApprovedCandidatePlacement(candidate, db) {
   return { type: 'allocated', action: 'created', allocatedId: synced.id };
 }
 
+export function syncApprovedCandidatePlacementsForOpportunity(db, opportunityId) {
+  return approvedCandidatesForOpportunity(db, opportunityId)
+    .map((candidate) => syncApprovedCandidatePlacement(candidate, db))
+    .filter(Boolean);
+}
+
 export function approvedCandidatesForOpportunity(db, opportunityId) {
   const targetOpportunityId = String(opportunityId || '').trim();
   if (!targetOpportunityId) return [];
@@ -2547,6 +2557,44 @@ export function approvedCandidatesForOpportunity(db, opportunityId) {
       || candidate.status === 'Aprovado'
     )
   ));
+}
+
+function isApprovedCandidateForAllocated(db, allocated) {
+  const candidateId = String(allocated?.candidateId || '').trim();
+  const opportunityId = String(allocated?.opportunityId || '').trim();
+  if (!candidateId || !opportunityId) return false;
+
+  return approvedCandidatesForOpportunity(db, opportunityId).some((candidate) => (
+    String(candidate.id || '').trim() === candidateId
+  ));
+}
+
+function validateActiveAllocatedPlacement(response, db, allocated) {
+  if (allocated?.active !== true) return false;
+
+  const opportunityId = String(allocated.opportunityId || '').trim();
+  if (!opportunityId) {
+    sendError(response, 422, 'Alocado ativo precisa estar vinculado a uma oportunidade WON e a um candidato aprovado.');
+    return true;
+  }
+
+  const opportunity = db.opportunities.find((item) => item.id === opportunityId);
+  if (!opportunity) {
+    sendError(response, 422, 'Oportunidade vinculada ao alocado nao encontrada.');
+    return true;
+  }
+
+  if (opportunity.status !== 'WON') {
+    sendError(response, 422, 'Alocado ativo só pode ser gravado quando a oportunidade vinculada estiver WON.');
+    return true;
+  }
+
+  if (!isApprovedCandidateForAllocated(db, allocated)) {
+    sendError(response, 422, 'Alocado ativo precisa estar vinculado ao candidato aprovado da mesma oportunidade WON.');
+    return true;
+  }
+
+  return false;
 }
 
 function sendWonRequiresApprovedCandidate(response, opportunityId) {
@@ -4221,8 +4269,14 @@ async function handleApi(request, response) {
       }
 
       syncCandidatesWithOpportunityClosures(db);
-      await writeDatabaseCollections(db, ['opportunities', 'candidates']);
-      sendJson(response, 200, opportunity);
+      const placements = opportunity.status === 'WON'
+        ? syncApprovedCandidatePlacementsForOpportunity(db, opportunity.id)
+        : [];
+      await writeDatabaseCollections(db, ['opportunities', 'candidates', 'allocateds']);
+      sendJson(response, 200, {
+        ...opportunity,
+        placements
+      });
       return;
     }
 
@@ -5091,6 +5145,9 @@ async function handleApi(request, response) {
       candidate.approved = true;
       candidate.status = 'Aprovado';
       candidate.updatedAt = toISODate();
+      if (validateActiveAllocatedPlacement(response, db, allocated)) {
+        return;
+      }
 
       db.allocateds.push(allocated);
       await writeDatabaseCollections(db, ['candidates', 'allocateds']);
@@ -5103,7 +5160,7 @@ async function handleApi(request, response) {
 
     if (request.method === 'POST' && pathname === '/api/allocateds') {
       const payload = await readJsonBody(request);
-      const db = await readDatabaseCollections(['clients', 'allocateds']);
+      const db = await readDatabaseCollections(['clients', 'allocateds', 'candidates', 'opportunities']);
       const allocated = normalizeAllocated({
         id: createId('alloc', payload.code || payload.consultant),
         ...payload,
@@ -5125,6 +5182,9 @@ async function handleApi(request, response) {
       if (validateAllocatedUniqueCode(response, db.allocateds, allocated)) {
         return;
       }
+      if (validateActiveAllocatedPlacement(response, db, allocated)) {
+        return;
+      }
 
       db.allocateds.push(allocated);
       await writeDatabaseCollections(db, ['allocateds']);
@@ -5135,7 +5195,7 @@ async function handleApi(request, response) {
     if (request.method === 'PATCH' && pathname.startsWith('/api/allocateds/')) {
       const allocatedId = decodeURIComponent(pathname.split('/').at(-1));
       const payload = await readJsonBody(request);
-      const db = await readDatabaseCollections(['clients', 'allocateds']);
+      const db = await readDatabaseCollections(['clients', 'allocateds', 'candidates', 'opportunities']);
       const allocated = db.allocateds.find((item) => item.id === allocatedId);
 
       if (!allocated) {
@@ -5165,6 +5225,9 @@ async function handleApi(request, response) {
       }
       const codeChanged = comparableAllocatedCode(updated.code) !== comparableAllocatedCode(allocated.code);
       if (codeChanged && validateAllocatedUniqueCode(response, db.allocateds, updated, allocated.id)) {
+        return;
+      }
+      if (validateActiveAllocatedPlacement(response, db, updated)) {
         return;
       }
 

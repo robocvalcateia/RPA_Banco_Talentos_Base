@@ -15,6 +15,7 @@ import {
   resolveCandidateCurriculum,
   shouldSyncLegacyAfterProcessing,
   shouldResetEnvUserPasswords,
+  syncApprovedCandidatePlacementsForOpportunity,
   syncApprovedCandidatePlacement
 } from '../server.js';
 
@@ -92,6 +93,7 @@ test('responsavel de oportunidade referencia usuario por nome', () => {
 
 test('candidato aprovado cria ou atualiza alocado sem duplicar', () => {
   const db = buildDb();
+  db.opportunities[0].status = 'WON';
   const candidate = buildCandidate();
 
   const created = syncApprovedCandidatePlacement(candidate, db);
@@ -110,6 +112,28 @@ test('candidato aprovado cria ou atualiza alocado sem duplicar', () => {
   assert.equal(updated.type, 'allocated');
   assert.equal(updated.action, 'updated');
   assert.equal(db.allocateds.length, 1);
+});
+
+test('candidato aprovado em oportunidade aberta nao cria alocado ativo', () => {
+  const db = buildDb();
+  const candidate = buildCandidate();
+  db.candidates.push(candidate);
+
+  const skipped = syncApprovedCandidatePlacement(candidate, db);
+
+  assert.equal(skipped.type, 'allocated');
+  assert.equal(skipped.action, 'skipped');
+  assert.match(skipped.reason, /WON/);
+  assert.equal(db.allocateds.length, 0);
+
+  db.opportunities[0].status = 'WON';
+  const placements = syncApprovedCandidatePlacementsForOpportunity(db, 'opp_a');
+
+  assert.equal(placements.length, 1);
+  assert.equal(placements[0].action, 'created');
+  assert.equal(db.allocateds.length, 1);
+  assert.equal(db.allocateds[0].opportunityId, 'opp_a');
+  assert.equal(db.allocateds[0].candidateId, 'cand_a');
 });
 
 test('WON exige candidato aprovado na propria oportunidade', () => {
@@ -152,6 +176,7 @@ test('edicao de alocado valida duplicidade somente quando codigo muda', () => {
 
 test('candidato aprovado gera codigo unico quando codigo automatico colide', () => {
   const db = buildDb();
+  db.opportunities[0].status = 'WON';
   db.curriculums[0].id_controle = 'DUP-1';
   db.curriculums[0].id = 'DUP-1';
   db.allocateds.push({
