@@ -586,9 +586,10 @@ export async function readMongoAppDatabase() {
   await Promise.all(MONGO_APP_COLLECTIONS.map(async (collection) => {
     data[collection] = await mongoDb
       .collection(mongoAppCollectionName(collection, config))
-      .find({})
-      .sort({ createdAt: 1, id: 1, _id: 1 })
-      .allowDiskUse(true)
+      .find({}, {
+        sort: { createdAt: 1, id: 1, _id: 1 },
+        allowDiskUse: true
+      })
       .toArray()
       .then((docs) => docs.map(stripMongoInternalFields));
   }));
@@ -607,9 +608,10 @@ export async function readMongoAppCollections(collections = MONGO_APP_COLLECTION
   await Promise.all(targetCollections.map(async (collection) => {
     data[collection] = await mongoDb
       .collection(mongoAppCollectionName(collection, config))
-      .find({})
-      .sort({ createdAt: 1, id: 1, _id: 1 })
-      .allowDiskUse(true)
+      .find({}, {
+        sort: { createdAt: 1, id: 1, _id: 1 },
+        allowDiskUse: true
+      })
       .toArray()
       .then((docs) => docs.map(stripMongoInternalFields));
   }));

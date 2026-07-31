@@ -163,10 +163,11 @@ export async function getCurriculumsFromMongo() {
   const collection = await getMongoTalentosCollection();
 
   const docs = await collection
-    .find({})
-    .sort({ data_atualizacao: -1, data_criacao: -1, _id: -1 })
-    .allowDiskUse(true)
-    .limit(config.limit)
+    .find({}, {
+      sort: { data_atualizacao: -1, data_criacao: -1, _id: -1 },
+      limit: config.limit,
+      allowDiskUse: true
+    })
     .toArray();
 
   const total = await collection.countDocuments({});

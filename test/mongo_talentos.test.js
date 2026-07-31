@@ -107,7 +107,7 @@ test('leitura de curriculos no Mongo permite sort em disco e tem indice de orden
   const mongoSource = readFileSync(new URL('../mongo_talentos.js', import.meta.url), 'utf8');
   const indexSource = readFileSync(new URL('../scripts/create_mongo_indexes.mjs', import.meta.url), 'utf8');
 
-  assert.match(mongoSource, /\.find\(\{\}\)\s*\.sort\(\{ data_atualizacao: -1, data_criacao: -1, _id: -1 \}\)\s*\.allowDiskUse\(true\)/);
+  assert.match(mongoSource, /find\(\{\}, \{\s*sort: \{ data_atualizacao: -1, data_criacao: -1, _id: -1 \},\s*limit: config\.limit,\s*allowDiskUse: true\s*\}\)/);
   assert.match(indexSource, /data_atualizacao: -1, data_criacao: -1, _id: -1/);
   assert.match(indexSource, /idx_curriculum_load_order/);
 });

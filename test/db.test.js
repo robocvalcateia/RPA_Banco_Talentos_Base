@@ -857,7 +857,7 @@ test('bulk write do Mongo app agrupa updates por documento', () => {
 test('leituras ordenadas do Mongo app permitem sort em disco', () => {
   const dbSource = readFileSync(new URL('../db.js', import.meta.url), 'utf8');
 
-  assert.match(dbSource, /\.find\(\{\}\)\s*\.sort\(\{ createdAt: 1, id: 1, _id: 1 \}\)\s*\.allowDiskUse\(true\)/);
+  assert.match(dbSource, /find\(\{\}, \{\s*sort: \{ createdAt: 1, id: 1, _id: 1 \},\s*allowDiskUse: true\s*\}\)/);
 });
 
 test('gravacao parcial em JSON preserva colecoes fora do alvo', async () => {
