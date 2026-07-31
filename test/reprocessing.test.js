@@ -19,6 +19,16 @@ test('email reprocessing can run bounded folder batches', () => {
   assert.match(readerSource, /emails\[:self\.max_messages\]/);
 });
 
+test('email reprocessing filter also matches attachment filenames', () => {
+  const readerSource = readRepoFile('legacy_banco_talentos/modules/email_reader.py');
+
+  assert.match(readerSource, /def _normalize_filter_text/);
+  assert.match(readerSource, /def _attachment_names_for_filter/);
+  assert.match(readerSource, /attachment_text = self\._normalize_filter_text/);
+  assert.match(readerSource, /filter_text in attachment_text/);
+  assert.match(readerSource, /unicodedata\.normalize\('NFD'/);
+});
+
 test('candidate reprocessing preserves existing non-empty data when extraction returns blanks', () => {
   const deduplicationSource = readRepoFile('legacy_banco_talentos/modules/deduplication.py');
   const updateCandidateSource = deduplicationSource.slice(deduplicationSource.indexOf('    def update_candidate'));

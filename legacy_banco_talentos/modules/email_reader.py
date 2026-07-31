@@ -6,6 +6,7 @@ import os
 from datetime import datetime, timedelta
 import logging
 import email
+import unicodedata
 from email import policy
 from config.microsoft_graph import get_microsoft_graph
 from utils.file_handler import FileHandler
@@ -104,14 +105,31 @@ class EmailReader:
             logger.warning("Pastas disponiveis: " + " | ".join(available_paths[:120]))
         return None
 
-    def _matches_subject_filter(self, email_item):
+    @staticmethod
+    def _normalize_filter_text(value):
+        text = unicodedata.normalize('NFD', str(value or ''))
+        text = ''.join(char for char in text if unicodedata.category(char) != 'Mn')
+        return ' '.join(text.lower().split())
+
+    def _attachment_names_for_filter(self, email_item):
+        if not email_item.get('hasAttachments'):
+            return []
+        return [
+            str(attachment.get('name') or '')
+            for attachment in self.get_email_attachments(email_item.get('id'))
+            if attachment.get('name')
+        ]
+
+    def _matches_subject_filter(self, email_item, attachment_names=None):
         if not self.subject_filter:
             return True
 
-        subject = str(email_item.get('subject') or '').lower()
+        filter_text = self._normalize_filter_text(self.subject_filter)
+        subject = self._normalize_filter_text(email_item.get('subject'))
         sender = email_item.get('from', {}).get('emailAddress', {})
-        sender_text = f"{sender.get('name', '')} {sender.get('address', '')}".lower()
-        return self.subject_filter in subject or self.subject_filter in sender_text
+        sender_text = self._normalize_filter_text(f"{sender.get('name', '')} {sender.get('address', '')}")
+        attachment_text = self._normalize_filter_text(' '.join(attachment_names or []))
+        return filter_text in subject or filter_text in sender_text or filter_text in attachment_text
     
     def get_emails(self):
         """Obtm lista de e-mails dos ltimos 2 anos"""
@@ -153,7 +171,16 @@ class EmailReader:
 
             if self.subject_filter:
                 before = len(emails)
-                emails = [item for item in emails if self._matches_subject_filter(item)]
+                filtered_emails = []
+                for item in emails:
+                    attachment_names = []
+                    if not self._matches_subject_filter(item):
+                        attachment_names = self._attachment_names_for_filter(item)
+                    if self._matches_subject_filter(item, attachment_names):
+                        if attachment_names:
+                            item['_filter_attachment_names'] = attachment_names
+                        filtered_emails.append(item)
+                emails = filtered_emails
                 logger.info(
                     f" {len(emails)} de {before} e-mails mantidos pelo filtro: {self.subject_filter}"
                 )
