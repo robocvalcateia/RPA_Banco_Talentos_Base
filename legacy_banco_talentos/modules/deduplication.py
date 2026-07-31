@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 from config.mongodb import get_candidate_collection_name, get_mongodb
 from utils.validators import Validators
+from pymongo.errors import DuplicateKeyError
 from pymongo import ReturnDocument
 
 logger = logging.getLogger(__name__)
@@ -210,7 +211,25 @@ class DeduplicationHandler:
             if email_normalizado:
                 normalized_data['email'] = email_normalizado
             
-            result = self.collection.insert_one(normalized_data)
+            try:
+                result = self.collection.insert_one(normalized_data)
+            except DuplicateKeyError as error:
+                key_value = (getattr(error, 'details', None) or {}).get('keyValue') or {}
+                existing = self.collection.find_one(key_value) if key_value else None
+                if existing:
+                    logger.warning(
+                        " Duplicidade detectada ao inserir; atualizando registro existente: "
+                        + str(key_value)
+                    )
+                    return self.update_candidate(
+                        existing['_id'],
+                        candidate_data,
+                        document_hash,
+                        source,
+                        source_date
+                    )
+                raise
+
             logger.info(f" Novo candidato inserido: {normalized_data['nome']} (ID: {result.inserted_id})")
             
             return {
@@ -290,7 +309,17 @@ class DeduplicationHandler:
 
             # Adicionar hash se for novo documento
             if document_hash:
-                update_data['hash_documento'] = document_hash
+                hash_owner = self.collection.find_one({
+                    'hash_documento': document_hash,
+                    '_id': {'$ne': existing_id}
+                })
+                if hash_owner:
+                    logger.warning(
+                        f" Hash {document_hash} ja pertence a outro candidato; "
+                        "campo preservado para evitar duplicidade."
+                    )
+                else:
+                    update_data['hash_documento'] = document_hash
 
             skipped_empty_fields = [
                 field_name
