@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { evaluateCandidateTextForFilter } from '../apinfo.js';
 import { __mongoTalentosTest } from '../mongo_talentos.js';
 
@@ -100,6 +101,15 @@ test('sincronizacao legado monta query a partir da chave duplicada do MongoDB', 
   assert.deepEqual(__mongoTalentosTest.duplicateKeyQueryFromError(error), {
     email: 'pessoa@example.com'
   });
+});
+
+test('leitura de curriculos no Mongo permite sort em disco e tem indice de ordenacao', () => {
+  const mongoSource = readFileSync(new URL('../mongo_talentos.js', import.meta.url), 'utf8');
+  const indexSource = readFileSync(new URL('../scripts/create_mongo_indexes.mjs', import.meta.url), 'utf8');
+
+  assert.match(mongoSource, /\.find\(\{\}\)\s*\.allowDiskUse\(true\)\s*\.sort\(\{ data_atualizacao: -1, data_criacao: -1, _id: -1 \}\)/);
+  assert.match(indexSource, /data_atualizacao: -1, data_criacao: -1, _id: -1/);
+  assert.match(indexSource, /idx_curriculum_load_order/);
 });
 
 test('candidato selecionado nao usa observacao como experiencia ou conhecimento tecnico', () => {

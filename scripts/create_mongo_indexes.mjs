@@ -41,6 +41,7 @@ const client = new MongoClient(url, {
 const indexPlan = {
   [curriculumCollection]: [
     [{ id_controle: 1 }, { unique: true, sparse: true, name: 'uid_id_controle' }],
+    [{ data_atualizacao: -1, data_criacao: -1, _id: -1 }, { name: 'idx_curriculum_load_order' }],
     [{ email: 1 }, { sparse: true, name: 'idx_email' }],
     [{ telefone: 1 }, { sparse: true, name: 'idx_telefone' }],
     [{ hash_documento: 1 }, { sparse: true, name: 'idx_hash_documento' }],

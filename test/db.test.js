@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -851,6 +852,12 @@ test('bulk write do Mongo app agrupa updates por documento', () => {
     }
   });
   assert.equal('_id' in operations[0].replaceOne.replacement, false);
+});
+
+test('leituras ordenadas do Mongo app permitem sort em disco', () => {
+  const dbSource = readFileSync(new URL('../db.js', import.meta.url), 'utf8');
+
+  assert.match(dbSource, /\.find\(\{\}\)\s*\.allowDiskUse\(true\)\s*\.sort\(\{ createdAt: 1, id: 1, _id: 1 \}\)/);
 });
 
 test('gravacao parcial em JSON preserva colecoes fora do alvo', async () => {
