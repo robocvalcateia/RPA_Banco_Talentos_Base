@@ -76,3 +76,24 @@ test('black flag is edited as a logical field with current observation', () => {
   assert.match(appSource, /blackflagObservation: observation/);
   assert.doesNotMatch(appSource, /dataset\.nextBlacklist/);
 });
+
+test('curriculum detail action buttons stay green except variable black flag', () => {
+  const appSource = readRepoFile('public/app.js');
+  const indexSource = readRepoFile('public/index.html');
+  const greenActionIds = [
+    'selectCurriculumCandidateButton',
+    'editCurriculumButton',
+    'saveCurriculumButton',
+    'cancelCurriculumEditButton',
+    'exportAlcateiaButton',
+    'exportDttButton',
+    'openOriginalCurriculumButton',
+    'curriculumObservationsButton'
+  ];
+
+  for (const actionId of greenActionIds) {
+    assert.match(indexSource, new RegExp(`class="primary-action" id="${actionId}"`));
+  }
+
+  assert.match(appSource, /blacklistButton\.classList\.add\(blacklisted \? 'danger-action' : 'primary-action'\)/);
+});
