@@ -163,15 +163,18 @@ export async function getCurriculumsFromMongo() {
   const collection = await getMongoTalentosCollection();
 
   const docs = await collection
-    .find({}, {
-      sort: { data_atualizacao: -1, data_criacao: -1, _id: -1 },
-      limit: config.limit,
-      allowDiskUse: true
-    })
+    .find({}, { limit: config.limit })
     .toArray();
 
   const total = await collection.countDocuments({});
-  const curriculums = docs.map(mongoCandidateToCurriculum);
+  const curriculums = docs
+    .map(mongoCandidateToCurriculum)
+    .sort((left, right) => {
+      const leftDate = new Date(left.data_atualizacao || left.data_criacao || 0).getTime();
+      const rightDate = new Date(right.data_atualizacao || right.data_criacao || 0).getTime();
+      if (rightDate !== leftDate) return rightDate - leftDate;
+      return String(right.mongoId || right.id || '').localeCompare(String(left.mongoId || left.id || ''));
+    });
 
   return {
     source: 'mongodb',

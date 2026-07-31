@@ -103,11 +103,12 @@ test('sincronizacao legado monta query a partir da chave duplicada do MongoDB', 
   });
 });
 
-test('leitura de curriculos no Mongo permite sort em disco e tem indice de ordenacao', () => {
+test('leitura de curriculos no Mongo evita sort bloqueante e mantem indice de ordenacao para consultas diretas', () => {
   const mongoSource = readFileSync(new URL('../mongo_talentos.js', import.meta.url), 'utf8');
   const indexSource = readFileSync(new URL('../scripts/create_mongo_indexes.mjs', import.meta.url), 'utf8');
 
-  assert.match(mongoSource, /find\(\{\}, \{\s*sort: \{ data_atualizacao: -1, data_criacao: -1, _id: -1 \},\s*limit: config\.limit,\s*allowDiskUse: true\s*\}\)/);
+  assert.match(mongoSource, /find\(\{\}, \{ limit: config\.limit \}\)/);
+  assert.doesNotMatch(mongoSource, /sort: \{ data_atualizacao: -1, data_criacao: -1, _id: -1 \}/);
   assert.match(indexSource, /data_atualizacao: -1, data_criacao: -1, _id: -1/);
   assert.match(indexSource, /idx_curriculum_load_order/);
 });
