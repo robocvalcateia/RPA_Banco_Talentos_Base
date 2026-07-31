@@ -238,9 +238,12 @@ function isProductionRuntime(env = process.env) {
 }
 
 function readMongoAppConfig(env = process.env) {
+  const hasMongoUrl = Boolean(env.MONGODB_URL || env.MONGODB_URI);
   return {
     enabled: env.MONGODB_APP_COLLECTIONS !== 'false',
-    required: env.MONGODB_APP_REQUIRED === 'true' || isProductionRuntime(env),
+    required: env.MONGODB_APP_REQUIRED === 'false'
+      ? false
+      : env.MONGODB_APP_REQUIRED === 'true' || isProductionRuntime(env) || hasMongoUrl,
     url: env.MONGODB_URL || env.MONGODB_URI || '',
     dbName: env.MONGODB_DB || 'Banco_de_Talentos',
     prefix: env.MONGODB_APP_COLLECTION_PREFIX || ''
