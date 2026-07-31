@@ -100,7 +100,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260731-email-filter-attachments';
+const APP_VERSION = '20260731-email-auto-reprocess';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -217,6 +217,10 @@ const emailProcessing = {
   logs: ''
 };
 const APP_TIME_ZONE = process.env.APP_TIME_ZONE || 'America/Sao_Paulo';
+const EMAIL_INBOX_PROCESSING_INTERVAL_MS = Math.max(
+  1,
+  Number(process.env.EMAIL_INBOX_INTERVAL_HOURS || 6)
+) * 60 * 60 * 1000;
 
 function formatDateTimeBR(date = new Date()) {
   return date.toLocaleString('pt-BR', {
@@ -1606,6 +1610,18 @@ function isTerminalEmailProcessingState() {
     && Boolean(emailProcessing.finishedAt || emailProcessing.resultado || emailProcessing.erro);
 }
 
+function emailProcessingStatsNumber(stats, field) {
+  const value = Number(stats?.[field] || 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function emailProcessingCapturedAnything(result) {
+  const stats = result?.stats || {};
+  return emailProcessingStatsNumber(stats, 'emails_processados') > 0
+    || emailProcessingStatsNumber(stats, 'arquivos_baixados') > 0
+    || emailProcessingStatsNumber(stats, 'arquivos_processados') > 0;
+}
+
 async function getGraphAccessTokenForDiagnostics() {
   const tenantId = String(process.env.GRAPH_TENANT_ID || '').trim();
   const clientId = String(process.env.GRAPH_CLIENT_ID || '').trim();
@@ -1749,6 +1765,7 @@ async function getMailFolderDiagnostics() {
 function startLegacyEmailProcessing(options = {}) {
   const jobId = randomBytes(12).toString('hex');
   const subjectFilter = String(options.subjectFilter || options.query || '').trim();
+  const repeatUntilEmpty = Boolean(options.repeatUntilEmpty || options.repeat_until_empty);
   const requestedMaxMessages = Number(options.maxMessages || options.limit || process.env.EMAIL_MAX_MESSAGES || 0);
   const maxMessages = Number.isFinite(requestedMaxMessages)
     ? Math.max(0, Math.min(500, Math.floor(requestedMaxMessages)))
@@ -1773,6 +1790,7 @@ function startLegacyEmailProcessing(options = {}) {
     subjectFilter ? `Filtro: ${subjectFilter}` : '',
     `Pastas: ${emailFolders}`,
     maxMessages ? `Limite de e-mails: ${maxMessages}` : '',
+    repeatUntilEmpty ? 'Repetir em lotes ate a pasta esvaziar.' : '',
     ''
   ].filter(Boolean).join('\n');
 
@@ -1828,7 +1846,7 @@ function startLegacyEmailProcessing(options = {}) {
 
     if (result) {
       emailProcessing.resultado = result;
-      emailProcessing.status = result.success ? 'finalizado' : 'erro';
+      emailProcessing.status = result.success ? 'sincronizando' : 'erro';
       emailProcessing.erro = result.success ? '' : (result.message || `Processamento finalizado com codigo ${code}.`);
 
       if (shouldSyncLegacyAfterProcessing(result) && isMongoTalentosConfigured()) {
@@ -1854,6 +1872,10 @@ function startLegacyEmailProcessing(options = {}) {
           };
         }
       }
+
+      if (emailProcessing.status !== 'erro') {
+        emailProcessing.status = result.success ? 'finalizado' : 'erro';
+      }
     } else {
       emailProcessing.status = code === 0 ? 'finalizado' : 'erro';
       emailProcessing.erro = code === 0 ? '' : `Processamento finalizado com codigo ${code}, mas sem retorno JSON.`;
@@ -1868,9 +1890,54 @@ function startLegacyEmailProcessing(options = {}) {
     if (emailProcessing.jobId === jobId) {
       emailProcessing.running = false;
     }
+
+    if (
+      repeatUntilEmpty
+      && emailProcessing.jobId === jobId
+      && emailProcessing.status === 'finalizado'
+      && emailProcessingCapturedAnything(emailProcessing.resultado)
+    ) {
+      setTimeout(() => {
+        if (emailProcessing.running) return;
+        startLegacyEmailProcessing({
+          ...options,
+          repeatUntilEmpty: true,
+          maxMessages
+        });
+      }, 3000);
+    }
   });
 
   return jobId;
+}
+
+function startScheduledInboxEmailProcessingJob() {
+  if (!isProductionRuntime()) return;
+  if (String(process.env.EMAIL_INBOX_SCHEDULE_ENABLED || 'true').toLowerCase() === 'false') return;
+
+  const run = () => {
+    if (emailProcessing.running && isTerminalEmailProcessingState()) {
+      emailProcessing.running = false;
+    }
+    if (emailProcessing.running) {
+      console.log('Processamento agendado da caixa de entrada ignorado: ja existe processamento em andamento.');
+      return;
+    }
+
+    try {
+      const maxMessages = Number(process.env.EMAIL_INBOX_MAX_MESSAGES || 0) || 0;
+      const jobId = startLegacyEmailProcessing({
+        folders: 'inbox',
+        maxMessages
+      });
+      console.log(`Processamento agendado da caixa de entrada iniciado: ${jobId}`);
+    } catch (error) {
+      console.error('Falha ao iniciar processamento agendado da caixa de entrada:', error.message);
+    }
+  };
+
+  setInterval(run, EMAIL_INBOX_PROCESSING_INTERVAL_MS);
+  console.log(`Processamento agendado da caixa de entrada configurado a cada ${EMAIL_INBOX_PROCESSING_INTERVAL_MS / 3600000} hora(s).`);
 }
 
 async function listCurriculumTemplates() {
@@ -5831,6 +5898,7 @@ const server = http.createServer((request, response) => {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   server.listen(PORT, () => {
     startFormRequestReminderJob();
+    startScheduledInboxEmailProcessingJob();
     console.log(`Gestão do Negócio Alcateia MVP em http://localhost:${PORT}`);
   });
 }

@@ -29,6 +29,25 @@ test('email reprocessing filter also matches attachment filenames', () => {
   assert.match(readerSource, /unicodedata\.normalize\('NFD'/);
 });
 
+test('email processing can repeat 100-message batches until folder is empty', () => {
+  const serverSource = readRepoFile('server.js');
+
+  assert.match(serverSource, /repeatUntilEmpty/);
+  assert.match(serverSource, /emailProcessingCapturedAnything/);
+  assert.match(serverSource, /Repetir em lotes ate a pasta esvaziar/);
+  assert.match(serverSource, /maxMessages/);
+});
+
+test('production inbox processing is scheduled every six hours with log recipients', () => {
+  const serverSource = readRepoFile('server.js');
+
+  assert.match(serverSource, /EMAIL_INBOX_PROCESSING_INTERVAL_MS/);
+  assert.match(serverSource, /EMAIL_INBOX_INTERVAL_HOURS \|\| 6/);
+  assert.match(serverSource, /startScheduledInboxEmailProcessingJob/);
+  assert.match(serverSource, /folders: 'inbox'/);
+  assert.match(serverSource, /GRAPH_EMAIL_TO: buildGraphLogRecipients/);
+});
+
 test('candidate reprocessing preserves existing non-empty data when extraction returns blanks', () => {
   const deduplicationSource = readRepoFile('legacy_banco_talentos/modules/deduplication.py');
   const updateCandidateSource = deduplicationSource.slice(deduplicationSource.indexOf('    def update_candidate'));
