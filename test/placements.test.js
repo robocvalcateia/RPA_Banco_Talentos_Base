@@ -181,6 +181,14 @@ test('formulario de alocado respeita checkbox ativo ao atualizar', () => {
   assert.doesNotMatch(appSource, /payload\.status = payload\.status \|\| 'Ativo';/);
 });
 
+test('manutencao de alocado legado ativo nao exige oportunidade retroativa', () => {
+  const serverSource = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+
+  assert.match(serverSource, /function canMaintainLegacyActiveAllocated\(previousAllocated, allocated\)/);
+  assert.match(serverSource, /if \(canMaintainLegacyActiveAllocated\(previousAllocated, allocated\)\) return false;/);
+  assert.match(serverSource, /validateActiveAllocatedPlacement\(response, db, updated, allocated\)/);
+});
+
 test('candidato aprovado gera codigo unico quando codigo automatico colide', () => {
   const db = buildDb();
   db.opportunities[0].status = 'WON';

@@ -99,7 +99,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260731-allocated-active-checkbox';
+const APP_VERSION = '20260731-allocated-active-maintenance';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -2569,8 +2569,18 @@ function isApprovedCandidateForAllocated(db, allocated) {
   ));
 }
 
-function validateActiveAllocatedPlacement(response, db, allocated) {
+function canMaintainLegacyActiveAllocated(previousAllocated, allocated) {
+  if (previousAllocated?.active !== true || allocated?.active !== true) return false;
+
+  const hadPlacement = Boolean(String(previousAllocated.opportunityId || '').trim() || String(previousAllocated.candidateId || '').trim());
+  const hasPlacement = Boolean(String(allocated.opportunityId || '').trim() || String(allocated.candidateId || '').trim());
+
+  return !hadPlacement && !hasPlacement;
+}
+
+function validateActiveAllocatedPlacement(response, db, allocated, previousAllocated = null) {
   if (allocated?.active !== true) return false;
+  if (canMaintainLegacyActiveAllocated(previousAllocated, allocated)) return false;
 
   const opportunityId = String(allocated.opportunityId || '').trim();
   if (!opportunityId) {
@@ -5227,7 +5237,7 @@ async function handleApi(request, response) {
       if (codeChanged && validateAllocatedUniqueCode(response, db.allocateds, updated, allocated.id)) {
         return;
       }
-      if (validateActiveAllocatedPlacement(response, db, updated)) {
+      if (validateActiveAllocatedPlacement(response, db, updated, allocated)) {
         return;
       }
 
