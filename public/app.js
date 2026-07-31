@@ -8392,8 +8392,7 @@ function bindForms() {
     const form = event.currentTarget;
     const submitButton = $('button[type="submit"]', form);
     const payload = formPayload(form);
-    payload.status = payload.status || 'Ativo';
-    payload.active = payload.status === 'Ativo';
+    payload.active = Boolean(form.elements.active?.checked);
     const editingId = state.editing.allocatedId;
 
     if (!String(payload.code || '').trim()) {

@@ -174,6 +174,13 @@ test('edicao de alocado valida duplicidade somente quando codigo muda', () => {
   assert.match(serverSource, /if \(codeChanged && validateAllocatedUniqueCode\(response, db\.allocateds, updated, allocated\.id\)\)/);
 });
 
+test('formulario de alocado respeita checkbox ativo ao atualizar', () => {
+  const appSource = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+
+  assert.match(appSource, /payload\.active = Boolean\(form\.elements\.active\?\.checked\);/);
+  assert.doesNotMatch(appSource, /payload\.status = payload\.status \|\| 'Ativo';/);
+});
+
 test('candidato aprovado gera codigo unico quando codigo automatico colide', () => {
   const db = buildDb();
   db.opportunities[0].status = 'WON';
