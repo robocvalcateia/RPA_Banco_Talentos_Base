@@ -44,3 +44,33 @@ test('reprocessing stores original CV files with candidate links', () => {
   assert.match(storeSource, /arquivos_originais/);
   assert.match(storeSource, /tem_arquivo_original/);
 });
+
+test('curriculum detail exposes original CV download from GridFS without bootstrapping blobs', () => {
+  const serverSource = readRepoFile('server.js');
+  const mongoSource = readRepoFile('mongo_talentos.js');
+  const indexSource = readRepoFile('public/index.html');
+  const appSource = readRepoFile('public/app.js');
+
+  assert.match(indexSource, /openOriginalCurriculumButton/);
+  assert.match(indexSource, /CV Original/);
+  assert.match(appSource, /hasOriginalCurriculumFile/);
+  assert.match(appSource, /apiDownload\(`\/api\/curriculums\/\$\{encodeURIComponent\(curriculumIdentifier\(current\)\)\}\/original-file`/);
+  assert.match(serverSource, /original-file\$\//);
+  assert.match(serverSource, /sendStreamDownload/);
+  assert.match(mongoSource, /GridFSBucket/);
+  assert.match(mongoSource, /getOriginalCurriculumFileFromMongo/);
+  assert.match(mongoSource, /candidate_original_files/);
+  assert.doesNotMatch(mongoSource, /data: 1/);
+});
+
+test('black flag is edited as a logical field with current observation', () => {
+  const appSource = readRepoFile('public/app.js');
+  const indexSource = readRepoFile('public/index.html');
+
+  assert.match(indexSource, /blacklistCurriculumButton/);
+  assert.match(appSource, /select name="blackflag"/);
+  assert.match(appSource, /blacklistButton\.classList\.add\(blacklisted \? 'danger-action' : 'primary-action'\)/);
+  assert.match(appSource, /blackflag: nextBlacklisted/);
+  assert.match(appSource, /blackflagObservation: observation/);
+  assert.doesNotMatch(appSource, /dataset\.nextBlacklist/);
+});

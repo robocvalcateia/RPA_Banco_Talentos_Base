@@ -5,14 +5,18 @@ let mongoClient = null;
 let mongoClientUrl = '';
 let MongoClientCtor = null;
 let ObjectIdCtor = null;
+let GridFSBucketCtor = null;
 
 async function loadMongoDriver() {
-  if (MongoClientCtor && ObjectIdCtor) return { MongoClient: MongoClientCtor, ObjectId: ObjectIdCtor };
+  if (MongoClientCtor && ObjectIdCtor && GridFSBucketCtor) {
+    return { MongoClient: MongoClientCtor, ObjectId: ObjectIdCtor, GridFSBucket: GridFSBucketCtor };
+  }
   try {
     const driver = await import('mongodb');
     MongoClientCtor = driver.MongoClient;
     ObjectIdCtor = driver.ObjectId;
-    return { MongoClient: MongoClientCtor, ObjectId: ObjectIdCtor };
+    GridFSBucketCtor = driver.GridFSBucket;
+    return { MongoClient: MongoClientCtor, ObjectId: ObjectIdCtor, GridFSBucket: GridFSBucketCtor };
   } catch {
     throw new Error('Dependencia mongodb nao instalada. Rode npm install antes de usar MONGODB_URL.');
   }
@@ -26,6 +30,7 @@ function readMongoConfig(env = process.env) {
     dbName: env.MONGODB_DB || 'Banco_de_Talentos',
     collectionName,
     legacyCollectionName: legacyCollectionName === collectionName ? '' : legacyCollectionName,
+    originalFilesBucket: env.MONGODB_ORIGINAL_FILES_BUCKET || 'candidate_original_files',
     limit: Math.max(1, Math.min(Number(env.MONGODB_CURRICULUM_LIMIT || 5000), 20000))
   };
 }
@@ -547,6 +552,85 @@ export async function getCurriculumFromMongo(identifier) {
 
   const doc = await collection.findOne(query);
   return doc ? mongoCandidateToCurriculum(doc) : null;
+}
+
+function objectIdFromString(value) {
+  const text = String(value || '').trim();
+  if (!ObjectIdCtor || !/^[0-9a-fA-F]{24}$/.test(text)) return null;
+  try {
+    return new ObjectIdCtor(text);
+  } catch {
+    return null;
+  }
+}
+
+function originalFileIdsFromCurriculum(doc = {}) {
+  return (Array.isArray(doc.arquivos_originais) ? doc.arquivos_originais : [])
+    .map((item) => objectIdFromString(item?.file_id || item?.fileId || item))
+    .filter(Boolean);
+}
+
+export async function getOriginalCurriculumFileFromMongo(identifier) {
+  const { GridFSBucket } = await loadMongoDriver();
+  const config = readMongoConfig();
+  const client = await getMongoClient(config);
+  const db = client.db(config.dbName);
+  const collection = await getMongoTalentosCollection();
+  const query = buildCandidateIdentifierQuery(identifier);
+  if (!query) return null;
+
+  const doc = await collection.findOne(query, {
+    projection: {
+      _id: 1,
+      id: 1,
+      id_controle: 1,
+      nome: 1,
+      hash_documento: 1,
+      arquivos_originais: 1,
+      tem_arquivo_original: 1
+    }
+  });
+  if (!doc) return null;
+
+  const filesCollection = db.collection(`${config.originalFilesBucket}.files`);
+  const fileIds = originalFileIdsFromCurriculum(doc);
+  let fileDoc = null;
+
+  if (fileIds.length) {
+    fileDoc = await filesCollection
+      .find({ _id: { $in: fileIds } })
+      .sort({ uploadDate: -1 })
+      .limit(1)
+      .next();
+  }
+
+  if (!fileDoc) {
+    const candidateIds = [
+      normalizeMongoId(doc._id),
+      doc.id_controle,
+      doc.id
+    ].map((value) => String(value || '').trim()).filter(Boolean);
+    const or = [];
+    if (candidateIds.length) or.push({ 'metadata.candidate_id': { $in: candidateIds } });
+    if (doc.hash_documento) or.push({ 'metadata.document_hash': String(doc.hash_documento).trim() });
+    if (or.length) {
+      fileDoc = await filesCollection
+        .find({ $or: or })
+        .sort({ uploadDate: -1 })
+        .limit(1)
+        .next();
+    }
+  }
+
+  if (!fileDoc) return null;
+
+  const bucket = new GridFSBucket(db, { bucketName: config.originalFilesBucket });
+  return {
+    filename: fileDoc.filename || fileDoc.metadata?.original_filename || `${doc.nome || 'curriculo'}-original`,
+    contentType: fileDoc.contentType || fileDoc.metadata?.contentType || 'application/octet-stream',
+    length: fileDoc.length,
+    stream: bucket.openDownloadStream(fileDoc._id)
+  };
 }
 
 function curriculumPayloadToMongoUpdate(payload = {}) {

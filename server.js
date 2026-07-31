@@ -85,6 +85,7 @@ import {
   deleteCurriculumFromMongo,
   getCurriculumsFromMongo,
   getCurriculumFromMongo,
+  getOriginalCurriculumFileFromMongo,
   getMongoTalentStats,
   isMongoTalentosConfigured,
   renameLegacyCurriculumsCollection,
@@ -99,7 +100,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260731-mongo-bootstrap-projection';
+const APP_VERSION = '20260731-cv-original-blackflag';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -1977,6 +1978,24 @@ function sendBufferDownload(response, filename, content, contentType) {
   response.end(content);
 }
 
+function sendStreamDownload(response, filename, stream, contentType = 'application/octet-stream', contentLength = 0) {
+  const headers = {
+    'Content-Type': contentType,
+    'Content-Disposition': `attachment; filename="${safeDocxFileName(filename)}"`,
+    'Cache-Control': 'no-store, max-age=0'
+  };
+  if (Number(contentLength) > 0) headers['Content-Length'] = Number(contentLength);
+  response.writeHead(200, headers);
+  stream.on('error', () => {
+    if (!response.headersSent) {
+      sendError(response, 500, 'Nao foi possivel baixar o CV original.');
+      return;
+    }
+    response.destroy();
+  });
+  stream.pipe(response);
+}
+
 function findLocalCurriculum(db, identifier) {
   const value = String(identifier || '').trim();
   if (!value) return null;
@@ -3392,6 +3411,29 @@ async function handleApi(request, response) {
       }
 
       sendJson(response, 200, updated);
+      return;
+    }
+
+    if (request.method === 'GET' && /^\/api\/curriculums\/[^/]+\/original-file$/.test(pathname)) {
+      if (!isMongoTalentosConfigured()) {
+        sendError(response, 404, 'CV original disponivel apenas para curriculos armazenados no MongoDB.');
+        return;
+      }
+
+      const curriculumId = decodeURIComponent(pathname.split('/').at(-2));
+      const originalFile = await getOriginalCurriculumFileFromMongo(curriculumId);
+      if (!originalFile) {
+        sendError(response, 404, 'CV original nao encontrado para este candidato.');
+        return;
+      }
+
+      sendStreamDownload(
+        response,
+        originalFile.filename,
+        originalFile.stream,
+        originalFile.contentType,
+        originalFile.length
+      );
       return;
     }
 

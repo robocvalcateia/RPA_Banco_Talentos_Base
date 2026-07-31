@@ -3341,6 +3341,15 @@ function curriculumBlacklistObservation(curriculum) {
   ).trim();
 }
 
+function hasOriginalCurriculumFile(curriculum) {
+  return isFlagEnabled(
+    curriculum?.tem_arquivo_original
+    ?? curriculum?.hasOriginalFile
+    ?? curriculum?.arquivoOriginal
+    ?? false
+  );
+}
+
 function renderBlackflagName(name, source) {
   const label = escapeHtml(name || '-');
   return isCurriculumBlacklisted(source)
@@ -3513,7 +3522,15 @@ panel.classList.remove('hidden');
     blacklistButton.classList.remove('primary-action', 'danger-action', 'secondary-action');
     blacklistButton.classList.add(blacklisted ? 'danger-action' : 'primary-action');
     blacklistButton.textContent = 'Black Flag';
-    blacklistButton.setAttribute('aria-label', blacklisted ? 'Remover Black Flag do candidato' : 'Marcar candidato com Black Flag');
+    blacklistButton.setAttribute('aria-label', blacklisted ? 'Black Flag ativo. Clique para atualizar/remover.' : 'Black Flag inativo. Clique para atualizar/marcar.');
+  }
+  const originalButton = $('#openOriginalCurriculumButton');
+  if (originalButton) {
+    const hasOriginalFile = hasOriginalCurriculumFile(curriculum);
+    originalButton.disabled = !hasOriginalFile;
+    originalButton.title = hasOriginalFile
+      ? 'Abrir ou baixar o CV original processado no e-mail'
+      : 'CV original ainda nao armazenado para este candidato';
   }
   const observationsButton = $('#curriculumObservationsButton');
   if (observationsButton) {
@@ -3601,6 +3618,37 @@ async function exportSelectedCurriculumTemplate(templateId, button) {
   } finally {
     generationButtons.forEach((item) => { item.disabled = false; });
     if (button) button.textContent = originalText;
+  }
+}
+
+async function openOriginalCurriculumFile(button) {
+  const current = selectedCurriculum();
+  if (!current) {
+    toast('Selecione um candidato antes de abrir o CV original.');
+    return;
+  }
+  if (!hasOriginalCurriculumFile(current)) {
+    toast('CV original ainda não armazenado para este candidato.');
+    return;
+  }
+
+  const originalText = button?.textContent || 'CV Original';
+  try {
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Baixando...';
+    }
+    await apiDownload(`/api/curriculums/${encodeURIComponent(curriculumIdentifier(current))}/original-file`, {
+      method: 'GET'
+    });
+    toast('CV original baixado com sucesso.');
+  } catch (error) {
+    toast(error.message || 'Não foi possível baixar o CV original.');
+  } finally {
+    if (button) {
+      button.disabled = !hasOriginalCurriculumFile(selectedCurriculum());
+      button.textContent = originalText;
+    }
   }
 }
 
@@ -3756,10 +3804,16 @@ function ensureCurriculumBlacklistModal() {
         <button class="ghost-action" type="button" data-close-curriculum-blacklist aria-label="Fechar">×</button>
       </div>
       <form id="curriculumBlacklistForm" class="form-grid">
-        <label class="full">Observação obrigatória
-          <textarea name="blackflagObservation" rows="4" required></textarea>
+        <label>Status Black Flag
+          <select name="blackflag" required>
+            <option value="0">Não</option>
+            <option value="1">Sim</option>
+          </select>
         </label>
-        <button class="danger-action" type="submit">Salvar Black Flag</button>
+        <label class="full">Observação
+          <textarea name="blackflagObservation" rows="4" placeholder="Registre o motivo ou a última alteração"></textarea>
+        </label>
+        <button class="primary-action" type="submit">Salvar Black Flag</button>
       </form>
     </div>
   `;
@@ -3782,21 +3836,18 @@ function openCurriculumBlacklistModal() {
 
   const modal = ensureCurriculumBlacklistModal();
   const blacklisted = isCurriculumBlacklisted(current);
-  const nextBlacklisted = !blacklisted;
-  modal.dataset.nextBlacklist = nextBlacklisted ? 'true' : 'false';
-  $('#curriculumBlacklistTitle', modal).textContent = blacklisted ? 'Remover Black Flag' : 'Black Flag';
-  $('#curriculumBlacklistSummary', modal).textContent = blacklisted
-    ? `${current.nome || 'Candidato selecionado'} está com Black Flag. Salve para remover a flag.`
-    : `${current.nome || 'Candidato selecionado'} será marcado com Black Flag.`;
+  $('#curriculumBlacklistTitle', modal).textContent = 'Black Flag';
+  $('#curriculumBlacklistSummary', modal).textContent = `${current.nome || 'Candidato selecionado'} - atualize o status e a observação.`;
+  $('#curriculumBlacklistForm select[name="blackflag"]', modal).value = blacklisted ? '1' : '0';
   $('#curriculumBlacklistForm textarea[name="blackflagObservation"]', modal).value = curriculumBlacklistObservation(current);
   const submitButton = $('#curriculumBlacklistForm button[type="submit"]', modal);
   if (submitButton) {
     submitButton.classList.remove('primary-action', 'danger-action', 'secondary-action');
-    submitButton.classList.add(nextBlacklisted ? 'danger-action' : 'primary-action');
-    submitButton.textContent = nextBlacklisted ? 'Salvar Black Flag' : 'Salvar e remover Black Flag';
+    submitButton.classList.add(blacklisted ? 'danger-action' : 'primary-action');
+    submitButton.textContent = 'Salvar Black Flag';
   }
   openSurfaceDialog(modal);
-  $('#curriculumBlacklistForm textarea[name="blackflagObservation"]', modal).focus();
+  $('#curriculumBlacklistForm select[name="blackflag"]', modal).focus();
 }
 
 async function saveCurriculumBlacklist(event) {
@@ -3808,23 +3859,22 @@ async function saveCurriculumBlacklist(event) {
   }
 
   const form = event.currentTarget;
+  const nextBlacklisted = String(form.elements.blackflag?.value || '') === '1';
   const observation = String(form.elements.blackflagObservation?.value || '').trim();
-  if (!observation) {
-    toast('A observação é obrigatória para Black Flag.');
+  if (nextBlacklisted && !observation) {
+    toast('A observação é obrigatória para marcar Black Flag.');
     return;
   }
 
   const existingObservation = String(current.observacoes_entrevista || '').trim();
-  const nextBlacklisted = $('#curriculumBlacklistModal')?.dataset.nextBlacklist === 'true';
-  const blacklistLine = `Black Flag: ${observation}`;
-  const removalLine = `Black Flag removida: ${observation}`;
-  const auditLine = nextBlacklisted ? blacklistLine : removalLine;
+  const actionText = nextBlacklisted ? 'Black Flag' : 'Black Flag removida';
+  const auditLine = observation ? `${actionText}: ${observation}` : `${actionText}: sem observação adicional`;
   const nextObservation = existingObservation.includes(auditLine)
     ? existingObservation
     : [existingObservation, auditLine].filter(Boolean).join('\n');
 
   const button = $('button[type="submit"]', form);
-  const originalText = button?.textContent || (nextBlacklisted ? 'Salvar Black Flag' : 'Salvar e remover Black Flag');
+  const originalText = button?.textContent || 'Salvar Black Flag';
   try {
     if (button) {
       button.disabled = true;
@@ -10442,6 +10492,9 @@ function bindCurriculumSelection() {
   $('#saveCurriculumButton')?.addEventListener('click', saveCurriculumDetail);
   $('#selectCurriculumCandidateButton')?.addEventListener('click', openCurriculumOpportunityModal);
   $('#blacklistCurriculumButton')?.addEventListener('click', openCurriculumBlacklistModal);
+  $('#openOriginalCurriculumButton')?.addEventListener('click', (event) => {
+    openOriginalCurriculumFile(event.currentTarget);
+  });
   $('#exportAlcateiaButton')?.addEventListener('click', (event) => {
     exportSelectedCurriculumTemplate('alcateia', event.currentTarget);
   });
