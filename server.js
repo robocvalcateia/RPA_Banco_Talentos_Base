@@ -1577,6 +1577,146 @@ function isTerminalEmailProcessingState() {
     && Boolean(emailProcessing.finishedAt || emailProcessing.resultado || emailProcessing.erro);
 }
 
+async function getGraphAccessTokenForDiagnostics() {
+  const tenantId = String(process.env.GRAPH_TENANT_ID || '').trim();
+  const clientId = String(process.env.GRAPH_CLIENT_ID || '').trim();
+  const clientSecret = String(process.env.GRAPH_CLIENT_SECRET || '').trim();
+
+  if (!tenantId || !clientId || !clientSecret) {
+    throw new Error('Credenciais Microsoft Graph nao configuradas.');
+  }
+
+  const body = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    scope: 'https://graph.microsoft.com/.default',
+    grant_type: 'client_credentials'
+  });
+
+  const response = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`Falha ao obter token Graph (${response.status}): ${text.slice(0, 300)}`);
+  }
+
+  const payload = await response.json();
+  return payload.access_token;
+}
+
+async function fetchGraphPages(url, accessToken) {
+  const items = [];
+  let nextUrl = url;
+
+  while (nextUrl) {
+    const response = await fetch(nextUrl, {
+      headers: { authorization: `Bearer ${accessToken}` }
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new Error(`Falha Microsoft Graph (${response.status}): ${text.slice(0, 300)}`);
+    }
+
+    const payload = await response.json();
+    items.push(...(Array.isArray(payload.value) ? payload.value : []));
+    nextUrl = payload['@odata.nextLink'] || '';
+  }
+
+  return items;
+}
+
+async function getMailFolderDiagnostics() {
+  const accessToken = await getGraphAccessTokenForDiagnostics();
+  const mailbox = String(process.env.GRAPH_EMAIL || 'robocv@alcateiaconsulting.com.br').trim();
+  const graphBase = 'https://graph.microsoft.com/v1.0';
+  const rootFolders = await fetchGraphPages(
+    `${graphBase}/users/${encodeURIComponent(mailbox)}/mailFolders?$top=999&$select=id,displayName,totalItemCount,unreadItemCount`,
+    accessToken
+  );
+
+  const queue = rootFolders.map((folder) => ({
+    folder,
+    path: String(folder.displayName || '').trim()
+  }));
+  const visited = new Set();
+  const folders = [];
+
+  while (queue.length) {
+    const current = queue.shift();
+    const folder = current.folder || {};
+    const folderId = folder.id;
+    if (!folderId || visited.has(folderId)) continue;
+    visited.add(folderId);
+
+    const folderPath = current.path || String(folder.displayName || '').trim();
+    folders.push({
+      id: folderId,
+      name: folder.displayName || '',
+      path: folderPath,
+      total: Number(folder.totalItemCount || 0),
+      unread: Number(folder.unreadItemCount || 0)
+    });
+
+    const children = await fetchGraphPages(
+      `${graphBase}/users/${encodeURIComponent(mailbox)}/mailFolders/${encodeURIComponent(folderId)}/childFolders?$top=999&$select=id,displayName,totalItemCount,unreadItemCount`,
+      accessToken
+    );
+
+    for (const child of children) {
+      queue.push({
+        folder: child,
+        path: `${folderPath}/${String(child.displayName || '').trim()}`
+      });
+    }
+  }
+
+  const targetNames = new Set(['reprocessados', 'cvs_processados', 'cvs_processados_erro']);
+  const targets = folders
+    .filter((folder) => targetNames.has(String(folder.name || '').trim().toLowerCase()))
+    .sort((a, b) => a.path.localeCompare(b.path));
+
+  const diagnostics = [];
+  for (const folder of targets) {
+    const messages = await fetchGraphPages(
+      `${graphBase}/users/${encodeURIComponent(mailbox)}/mailFolders/${encodeURIComponent(folder.id)}/messages?$top=15&$orderby=lastModifiedDateTime desc&$select=id,subject,from,receivedDateTime,lastModifiedDateTime,hasAttachments,parentFolderId`,
+      accessToken
+    );
+
+    diagnostics.push({
+      path: folder.path,
+      name: folder.name,
+      total: folder.total,
+      unread: folder.unread,
+      samples: messages.slice(0, 15).map((message) => ({
+        subject: message.subject || '',
+        from: message.from?.emailAddress?.address || '',
+        receivedDateTime: message.receivedDateTime || '',
+        lastModifiedDateTime: message.lastModifiedDateTime || '',
+        hasAttachments: Boolean(message.hasAttachments)
+      }))
+    });
+  }
+
+  return {
+    mailbox,
+    checkedAt: new Date().toISOString(),
+    foldersMatched: diagnostics,
+    relevantFolderPaths: folders
+      .filter((folder) => /reprocess|cvs_processados/i.test(folder.path))
+      .map((folder) => ({
+        path: folder.path,
+        total: folder.total,
+        unread: folder.unread
+      }))
+      .sort((a, b) => a.path.localeCompare(b.path))
+  };
+}
+
 function startLegacyEmailProcessing(options = {}) {
   const jobId = randomBytes(12).toString('hex');
   const subjectFilter = String(options.subjectFilter || options.query || '').trim();
@@ -2586,6 +2726,25 @@ async function handleApi(request, response) {
     const canAccessBeforePasswordChange = pathname === '/api/change-password' || pathname === '/api/logout';
     if (auth.user.mustChangePassword && !canAccessBeforePasswordChange) {
       sendError(response, 403, 'Troque sua senha para continuar.');
+      return;
+    }
+
+    if (request.method === 'GET' && pathname === '/api/admin/mail-folder-diagnostics') {
+      if (String(auth.user.role || '').toLowerCase() !== 'admin') {
+        sendError(response, 403, 'Apenas administradores podem consultar diagnostico de e-mails.');
+        return;
+      }
+
+      const diagnostics = await withTimeout(
+        getMailFolderDiagnostics(),
+        120000,
+        'Tempo esgotado ao consultar pastas do Outlook.'
+      );
+
+      sendJson(response, 200, {
+        ok: true,
+        diagnostics
+      });
       return;
     }
 
