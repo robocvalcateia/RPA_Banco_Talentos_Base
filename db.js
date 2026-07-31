@@ -587,8 +587,8 @@ export async function readMongoAppDatabase() {
     data[collection] = await mongoDb
       .collection(mongoAppCollectionName(collection, config))
       .find({})
-      .allowDiskUse(true)
       .sort({ createdAt: 1, id: 1, _id: 1 })
+      .allowDiskUse(true)
       .toArray()
       .then((docs) => docs.map(stripMongoInternalFields));
   }));
@@ -608,8 +608,8 @@ export async function readMongoAppCollections(collections = MONGO_APP_COLLECTION
     data[collection] = await mongoDb
       .collection(mongoAppCollectionName(collection, config))
       .find({})
-      .allowDiskUse(true)
       .sort({ createdAt: 1, id: 1, _id: 1 })
+      .allowDiskUse(true)
       .toArray()
       .then((docs) => docs.map(stripMongoInternalFields));
   }));

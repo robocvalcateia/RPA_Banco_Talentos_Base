@@ -164,8 +164,8 @@ export async function getCurriculumsFromMongo() {
 
   const docs = await collection
     .find({})
-    .allowDiskUse(true)
     .sort({ data_atualizacao: -1, data_criacao: -1, _id: -1 })
+    .allowDiskUse(true)
     .limit(config.limit)
     .toArray();
 
