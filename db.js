@@ -227,10 +227,20 @@ async function loadMongoDriver() {
   }
 }
 
+function isProductionRuntime(env = process.env) {
+  return [
+    env.RENDER_SERVICE_NAME,
+    env.RENDER_EXTERNAL_HOSTNAME,
+    env.RENDER_EXTERNAL_URL,
+    env.APP_BASE_URL,
+    env.NODE_ENV
+  ].some((value) => /rpa-banco-talentos-5v5r|onrender\.com|production/i.test(String(value || '')));
+}
+
 function readMongoAppConfig(env = process.env) {
   return {
     enabled: env.MONGODB_APP_COLLECTIONS !== 'false',
-    required: env.MONGODB_APP_REQUIRED === 'true',
+    required: env.MONGODB_APP_REQUIRED === 'true' || isProductionRuntime(env),
     url: env.MONGODB_URL || env.MONGODB_URI || '',
     dbName: env.MONGODB_DB || 'Banco_de_Talentos',
     prefix: env.MONGODB_APP_COLLECTION_PREFIX || ''
