@@ -1729,7 +1729,7 @@ function openDashboardAnalytics(metricId) {
   $('#dashboardAnalyticsContent').innerHTML = renderAnalyticsTable(analytics.rows);
   const exportButton = $('#dashboardAnalyticsExportButton');
   prepareDashboardAnalyticsCsvLink(analytics);
-  modal.classList.remove('hidden');
+  openSurfaceDialog(modal);
   applyDashboardAnalyticsFilters();
   exportButton?.focus();
 }
@@ -2424,12 +2424,12 @@ function openContactClientModal(contact = null) {
   }
 
   if (context) context.textContent = `Cliente: ${client.customerName}`;
-  modal.classList.remove('hidden');
+  openSurfaceDialog(modal);
   form.elements.name?.focus();
 }
 
 function closeContactClientModal() {
-  $('#contactClientModal')?.classList.add('hidden');
+  closeSurfaceDialog('#contactClientModal');
 }
 
 function renderContactClientListModal() {
@@ -2479,11 +2479,11 @@ function openContactClientListModal(client) {
   closeContactClientModal();
   renderContactClients();
   renderContactClientListModal();
-  $('#contactClientListModal')?.classList.remove('hidden');
+  openSurfaceDialog('#contactClientListModal');
 }
 
 function closeContactClientListModal() {
-  $('#contactClientListModal')?.classList.add('hidden');
+  closeSurfaceDialog('#contactClientListModal');
 }
 
 function renderContactClients() {
@@ -2828,7 +2828,7 @@ function openWonApprovalModal(opportunityId, payload, editingId) {
       : '<tr><td colspan="3">Nenhum consultor disponível para aprovação.</td></tr>';
   }
 
-  modal.classList.remove('hidden');
+  openSurfaceDialog(modal);
 }
 
 async function approveWonConsultantAndSave(button) {
@@ -3671,7 +3671,7 @@ function openCurriculumOpportunityModal() {
     ...opportunities.map((opportunity) => `<option value="${escapeHtml(opportunity.id)}">${escapeHtml(opportunityLabel(opportunity))}</option>`)
   ].join('');
   $('#curriculumOpportunityForm textarea[name="observation"]', modal).value = '';
-  modal.classList.remove('hidden');
+  openSurfaceDialog(modal);
   select.focus();
 }
 
@@ -3795,7 +3795,7 @@ function openCurriculumBlacklistModal() {
     submitButton.classList.add(nextBlacklisted ? 'danger-action' : 'primary-action');
     submitButton.textContent = nextBlacklisted ? 'Salvar Black Flag' : 'Salvar e remover Black Flag';
   }
-  modal.classList.remove('hidden');
+  openSurfaceDialog(modal);
   $('#curriculumBlacklistForm textarea[name="blackflagObservation"]', modal).focus();
 }
 
@@ -3920,7 +3920,7 @@ async function openCurriculumObservationsModal(curriculumId) {
     ? `${curriculum.nome || 'Candidato'} · ${candidateCurriculumDisplay(curriculum)}`
     : `Currículo ${id}`;
   renderCurriculumObservationsTable(observationsForCurriculum(id));
-  modal?.classList.remove('hidden');
+  openSurfaceDialog(modal);
 
   try {
     const observations = await api(`/api/curriculums/${encodeURIComponent(id)}/observations`);
@@ -7516,7 +7516,7 @@ function openCandidateSelectModal(candidate) {
     managerEmail: '',
     managerPhone: ''
   }, 'Criar alocado');
-  modal.classList.remove('hidden');
+  openSurfaceDialog(modal);
 }
 
 function candidateStageMoveOptions(candidate) {
@@ -7587,7 +7587,7 @@ function openCandidateStageMoveModal(candidate) {
     nextButton.dataset.stage = next;
   }
 
-  modal.classList.remove('hidden');
+  openSurfaceDialog(modal);
 }
 
 async function moveCandidateToStage(candidateId, stage) {
@@ -7659,6 +7659,16 @@ function setSurfaceMaximized(surface, isMaximized) {
   }
   surface.classList.toggle('panel-maximized', isMaximized);
   updateSurfaceMaximizeButton(surface, isMaximized);
+  document.body.classList.toggle('panel-is-maximized', Boolean($('.panel-maximized')));
+}
+
+function openSurfaceDialog(dialogOrSelector) {
+  const dialog = typeof dialogOrSelector === 'string' ? $(dialogOrSelector) : dialogOrSelector;
+  if (!dialog) return;
+
+  dialog.classList.remove('hidden');
+  initPanelMaximizeControls();
+  $$('.modal-panel, .modal-card', dialog).forEach((surface) => setSurfaceMaximized(surface, true));
   document.body.classList.toggle('panel-is-maximized', Boolean($('.panel-maximized')));
 }
 
