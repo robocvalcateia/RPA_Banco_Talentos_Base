@@ -1328,12 +1328,22 @@ function buildWhatsappLink(phone, message) {
 }
 
 
+async function loadLocalCurriculumFallback(localDb) {
+  if (Array.isArray(localDb?.curriculums) && localDb.curriculums.length) {
+    return localDb.curriculums;
+  }
+
+  const fileDb = await readLocalDatabase().catch(() => ({ curriculums: [] }));
+  return Array.isArray(fileDb.curriculums) ? fileDb.curriculums : [];
+}
+
 async function loadCurriculumsForBootstrap(localDb) {
   if (!isMongoTalentosConfigured()) {
+    const fallbackCurriculums = await loadLocalCurriculumFallback(localDb);
     return {
-      curriculums: localDb.curriculums,
+      curriculums: fallbackCurriculums,
       source: 'local_json',
-      stats: { total_candidatos: localDb.curriculums.length },
+      stats: { total_candidatos: fallbackCurriculums.length },
       error: ''
     };
   }
@@ -1341,6 +1351,23 @@ async function loadCurriculumsForBootstrap(localDb) {
   try {
     const mongoResponse = await getCurriculumsFromMongo();
     const stats = await getMongoTalentStats().catch(() => ({ total_candidatos: mongoResponse.total }));
+    const fallbackCurriculums = mongoResponse.curriculums.length
+      ? []
+      : await loadLocalCurriculumFallback(localDb);
+
+    if (!mongoResponse.curriculums.length && fallbackCurriculums.length) {
+      return {
+        curriculums: fallbackCurriculums,
+        source: 'local_json_fallback',
+        stats: {
+          ...stats,
+          total_lido_na_tela: fallbackCurriculums.length,
+          limite_leitura: mongoResponse.limit
+        },
+        error: 'MongoDB de talentos retornou 0 curriculo(s). Usando data/database.json para evitar consulta em base vazia. Verifique MONGODB_DB e MONGODB_CURRICULUM_COLLECTION.'
+      };
+    }
+
     return {
       curriculums: mongoResponse.curriculums,
       source: 'mongodb',
@@ -1352,10 +1379,11 @@ async function loadCurriculumsForBootstrap(localDb) {
       error: ''
     };
   } catch (error) {
+    const fallbackCurriculums = await loadLocalCurriculumFallback(localDb);
     return {
-      curriculums: localDb.curriculums,
+      curriculums: fallbackCurriculums,
       source: 'local_json_fallback',
-      stats: { total_candidatos: localDb.curriculums.length },
+      stats: { total_candidatos: fallbackCurriculums.length },
       error: `Falha ao conectar no MongoDB. Usando data/database.json. Detalhe: ${error.message}`
     };
   }

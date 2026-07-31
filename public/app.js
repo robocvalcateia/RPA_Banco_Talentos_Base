@@ -4070,9 +4070,15 @@ function renderCurriculums() {
 
   if (searchStatus) {
     if (state.curriculumSearch.hasSearched) {
-      searchStatus.textContent = curriculums.length
-        ? `${curriculums.length} talento(s) encontrado(s).`
-        : `Nenhum talento encontrado para os filtros informados. A base atual possui ${state.curriculums.length} talento(s).`;
+      if (curriculums.length) {
+        searchStatus.textContent = `${curriculums.length} talento(s) encontrado(s).`;
+      } else if (!state.curriculums.length) {
+        searchStatus.textContent = state.talentError
+          ? `Base de talentos nao carregada. ${state.talentError}`
+          : 'Base de talentos nao carregada. Verifique a conexao com o MongoDB de talentos.';
+      } else {
+        searchStatus.textContent = `Nenhum talento encontrado para os filtros informados. A base atual possui ${state.curriculums.length} talento(s).`;
+      }
     } else {
       searchStatus.textContent = `${state.curriculums.length} talento(s) disponível(is) para pesquisa.`;
     }
