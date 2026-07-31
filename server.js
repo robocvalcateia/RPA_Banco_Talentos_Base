@@ -100,7 +100,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260731-email-auto-reprocess';
+const APP_VERSION = '20260731-email-reprocess-sync-timeout';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -1851,7 +1851,11 @@ function startLegacyEmailProcessing(options = {}) {
 
       if (shouldSyncLegacyAfterProcessing(result) && isMongoTalentosConfigured()) {
         try {
-          const sync = await syncLegacyCandidatesIntoCurriculums();
+          const sync = await withTimeout(
+            syncLegacyCandidatesIntoCurriculums(),
+            Number(process.env.EMAIL_PROCESSING_SYNC_TIMEOUT_MS || 120000),
+            'Tempo esgotado ao sincronizar curriculos apos processamento de e-mails.'
+          );
           if (emailProcessing.jobId !== jobId) return;
 
           emailProcessing.resultado = {
@@ -1862,12 +1866,12 @@ function startLegacyEmailProcessing(options = {}) {
         } catch (error) {
           if (emailProcessing.jobId !== jobId) return;
 
-          emailProcessing.status = 'erro';
-          emailProcessing.erro = `Processamento concluiu, mas a sincronizacao com curriculums falhou: ${error.message}`;
+          emailProcessing.status = 'finalizado';
+          emailProcessing.erro = `Processamento concluiu; sincronizacao complementar com curriculums falhou: ${error.message}`;
           emailProcessing.resultado = {
             ...result,
-            success: false,
-            message: emailProcessing.erro,
+            success: true,
+            message: `${result.message || 'Processamento finalizado.'} ${emailProcessing.erro}`,
             sync_error: error.message
           };
         }
