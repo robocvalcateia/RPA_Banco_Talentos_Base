@@ -1828,7 +1828,7 @@ export function calculateIndicators(db, now = new Date()) {
 export function syncCandidatesWithOpportunityClosures(db, now = new Date()) {
   const closedRejectedOpportunities = new Set(
     db.opportunities
-      .filter((opportunity) => opportunity.status !== 'WON' && String(opportunity.closingDate ?? '').trim())
+      .filter((opportunity) => ['Closed', 'LOST'].includes(opportunity.status) && String(opportunity.closingDate ?? '').trim())
       .map((opportunity) => opportunity.id)
   );
 

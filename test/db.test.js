@@ -333,6 +333,21 @@ test('oportunidade fechada sem WON reprova candidatos vinculados', () => {
   assert.equal(db.candidates[0].stageHistory.at(-1).stage, 'Reprovado');
 });
 
+test('oportunidade aberta com data de fechamento nao reprova candidato aprovado', () => {
+  const db = sampleDb();
+  db.opportunities[0].status = 'Open';
+  db.opportunities[0].closingDate = '2026-07-30';
+  db.candidates[0].stage = 'Aprovado';
+  db.candidates[0].status = 'Aprovado';
+  db.candidates[0].approved = true;
+
+  syncCandidatesWithOpportunityClosures(db, new Date('2026-07-31T00:00:00.000Z'));
+
+  assert.equal(db.candidates[0].stage, 'Aprovado');
+  assert.equal(db.candidates[0].status, 'Aprovado');
+  assert.equal(db.candidates[0].approved, true);
+});
+
 test('status de oportunidade usa apenas valores permitidos', () => {
   assert.deepEqual(OPPORTUNITY_STATUSES, ['WON', 'LOST', 'Freezing', 'Closed', 'Open']);
 });
