@@ -116,6 +116,28 @@ test('leitura de curriculos no Mongo evita sort bloqueante e mantem indice de or
   assert.match(indexSource, /idx_curriculum_load_order/);
 });
 
+test('busca do CV original tolera acentos e arquivo sem vinculo direto', () => {
+  const query = __mongoTalentosTest.originalFileNameFallbackQuery('Rogério Batista Da Cruz');
+  const matchingFile = {
+    filename: 'Rogerio-Batista-Da-Cruz-CV.pdf',
+    metadata: {
+      candidate_name: 'Rogerio Batista Da Cruz',
+      original_filename: 'Rogerio-Batista-Da-Cruz-CV.pdf'
+    }
+  };
+  const otherFile = {
+    filename: 'Rogerio-Outra-Pessoa-CV.pdf',
+    metadata: {
+      candidate_name: 'Rogerio Outra Pessoa'
+    }
+  };
+
+  assert.ok(query);
+  assert.equal(__mongoTalentosTest.normalizeOriginalFileLookupText('Rogério Batista Da Cruz'), 'rogerio batista da cruz');
+  assert.equal(__mongoTalentosTest.originalFileMatchesCandidate(matchingFile, 'Rogério Batista Da Cruz'), true);
+  assert.equal(__mongoTalentosTest.originalFileMatchesCandidate(otherFile, 'Rogério Batista Da Cruz'), false);
+});
+
 test('candidato selecionado nao usa observacao como experiencia ou conhecimento tecnico', () => {
   const payload = __mongoTalentosTest.selectedCandidateToMongoPayload(
     {

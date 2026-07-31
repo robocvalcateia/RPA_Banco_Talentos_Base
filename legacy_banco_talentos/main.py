@@ -303,14 +303,27 @@ class BancoTalentosOrchestrator:
                                 self.stats['arquivos_originais_gravados'] += 1
                             elif original_file_result.get('existing'):
                                 self.stats['arquivos_originais_ja_existentes'] += 1
+                            else:
+                                motivo_original = original_file_result.get('reason', 'motivo_nao_informado')
+                                self._registrar_erro(
+                                    tipo="falha_gravar_arquivo_original",
+                                    mensagem=(
+                                        f"CV processado, mas o arquivo original nao foi armazenado/vinculado: "
+                                        f"{filename}. Motivo: {motivo_original}"
+                                    ),
+                                    file_info=file_info,
+                                    acao=f"E-mail movido para {Folder_Mail_Erro} para novo reprocessamento."
+                                )
+                                Move_Folder = Folder_Mail_Erro
                         except Exception as e:
                             self._registrar_erro(
                                 tipo="falha_gravar_arquivo_original",
                                 mensagem=f"CV processado, mas nao foi possivel gravar o arquivo original: {filename}",
                                 file_info=file_info,
                                 exception=e,
-                                acao="Processamento do candidato preservado; arquivo original devera ser reprocessado se necessario."
+                                acao=f"E-mail movido para {Folder_Mail_Erro} para novo reprocessamento."
                             )
+                            Move_Folder = Folder_Mail_Erro
 
                     # Move Mail Folder
                     mover_email_uma_vez(file_info, Move_Folder)

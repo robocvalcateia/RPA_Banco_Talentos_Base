@@ -519,7 +519,10 @@ export const __mongoTalentosTest = {
   writeLegacySyncUpdate,
   curriculumPayloadToMongoUpdate,
   duplicateKeyQueryFromError,
-  selectedCandidateToMongoPayload
+  selectedCandidateToMongoPayload,
+  normalizeOriginalFileLookupText,
+  originalFileNameFallbackQuery,
+  originalFileMatchesCandidate
 };
 
 function buildCandidateIdentifierQuery(identifier) {
@@ -576,6 +579,60 @@ function escapedExactRegex(value) {
   return new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
 }
 
+function normalizeOriginalFileLookupText(value) {
+  return sanitizeUnicodeValue(String(value || ''))
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function accentInsensitiveTokenRegex(token) {
+  const characterMap = {
+    a: '[aàáâãäå]',
+    c: '[cç]',
+    e: '[eèéêë]',
+    i: '[iìíîï]',
+    n: '[nñ]',
+    o: '[oòóôõö]',
+    u: '[uùúûü]',
+    y: '[yýÿ]'
+  };
+  const escaped = String(token || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(escaped.replace(/[aceinouy]/gi, (char) => characterMap[char.toLowerCase()] || char), 'i');
+}
+
+function originalFileNameFallbackQuery(name) {
+  const tokens = normalizeOriginalFileLookupText(name)
+    .split(' ')
+    .filter((token) => token.length >= 3);
+  if (!tokens.length) return null;
+
+  const selectedTokens = [...new Set(tokens.length > 2 ? [tokens[0], tokens[tokens.length - 1]] : tokens)];
+  const fields = ['metadata.candidate_name', 'metadata.original_filename', 'filename'];
+  return {
+    $or: fields.map((field) => ({
+      $and: selectedTokens.map((token) => ({ [field]: accentInsensitiveTokenRegex(token) }))
+    }))
+  };
+}
+
+function originalFileMatchesCandidate(fileDoc, candidateName) {
+  const targetTokens = normalizeOriginalFileLookupText(candidateName)
+    .split(' ')
+    .filter((token) => token.length >= 3);
+  if (!targetTokens.length) return false;
+
+  const haystack = normalizeOriginalFileLookupText([
+    fileDoc?.metadata?.candidate_name,
+    fileDoc?.metadata?.original_filename,
+    fileDoc?.filename
+  ].filter(Boolean).join(' '));
+  return targetTokens.every((token) => haystack.includes(token));
+}
+
 export async function getOriginalCurriculumFileFromMongo(identifier) {
   const { GridFSBucket } = await loadMongoDriver();
   const config = readMongoConfig();
@@ -627,6 +684,18 @@ export async function getOriginalCurriculumFileFromMongo(identifier) {
         .sort({ uploadDate: -1 })
         .limit(1)
         .next();
+    }
+  }
+
+  if (!fileDoc && doc.nome) {
+    const fallbackQuery = originalFileNameFallbackQuery(doc.nome);
+    if (fallbackQuery) {
+      const candidates = await filesCollection
+        .find(fallbackQuery)
+        .sort({ uploadDate: -1 })
+        .limit(25)
+        .toArray();
+      fileDoc = candidates.find((candidateFile) => originalFileMatchesCandidate(candidateFile, doc.nome)) || null;
     }
   }
 

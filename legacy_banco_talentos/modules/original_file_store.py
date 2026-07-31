@@ -46,10 +46,10 @@ class OriginalFileStore:
         object_id = self._to_object_id(candidate_id)
         if not object_id:
             logger.warning(f" ID de candidato invalido para vinculo de arquivo original: {candidate_id}")
-            return
+            return False
 
         now = datetime.now().isoformat()
-        self.candidate_collection.update_one(
+        result = self.candidate_collection.update_one(
             {'_id': object_id},
             {
                 '$set': {
@@ -65,6 +65,10 @@ class OriginalFileStore:
                 }
             }
         )
+        if not result.matched_count:
+            logger.warning(f" Candidato nao encontrado para vinculo de arquivo original: {candidate_id}")
+            return False
+        return True
 
     def save(self, file_path, file_info, candidate_result, document_hash, candidate_data):
         if not file_path or not os.path.exists(file_path):
@@ -107,7 +111,9 @@ class OriginalFileStore:
                     }
                 }
             )
-            self._link_candidate(candidate_id, file_id, document_hash, filename)
+            linked = self._link_candidate(candidate_id, file_id, document_hash, filename)
+            if not linked:
+                return {'saved': False, 'reason': 'falha_vincular_candidato', 'file_id': str(file_id)}
             logger.info(f" Arquivo original ja armazenado e vinculado: {filename}")
             return {'saved': False, 'existing': True, 'file_id': str(file_id)}
 
@@ -123,7 +129,9 @@ class OriginalFileStore:
                 }
             )
 
-        self._link_candidate(candidate_id, file_id, document_hash, filename)
+        linked = self._link_candidate(candidate_id, file_id, document_hash, filename)
+        if not linked:
+            return {'saved': False, 'reason': 'falha_vincular_candidato', 'file_id': str(file_id)}
         logger.info(f" Arquivo original armazenado: {filename} ({file_id})")
         return {'saved': True, 'file_id': str(file_id)}
 

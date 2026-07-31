@@ -45,6 +45,18 @@ test('reprocessing stores original CV files with candidate links', () => {
   assert.match(storeSource, /tem_arquivo_original/);
 });
 
+test('reprocessing does not mark email as success when original CV storage fails', () => {
+  const mainSource = readRepoFile('legacy_banco_talentos/main.py');
+  const storeSource = readRepoFile('legacy_banco_talentos/modules/original_file_store.py');
+
+  assert.match(mainSource, /motivo_original = original_file_result\.get\('reason'/);
+  assert.match(mainSource, /Move_Folder = Folder_Mail_Erro/);
+  assert.match(mainSource, /E-mail movido para \{Folder_Mail_Erro\} para novo reprocessamento/);
+  assert.match(storeSource, /return False/);
+  assert.match(storeSource, /falha_vincular_candidato/);
+  assert.match(storeSource, /result\.matched_count/);
+});
+
 test('curriculum detail exposes original CV download from GridFS without bootstrapping blobs', () => {
   const serverSource = readRepoFile('server.js');
   const mongoSource = readRepoFile('mongo_talentos.js');
@@ -61,6 +73,8 @@ test('curriculum detail exposes original CV download from GridFS without bootstr
   assert.match(mongoSource, /GridFSBucket/);
   assert.match(mongoSource, /getOriginalCurriculumFileFromMongo/);
   assert.match(mongoSource, /metadata\.candidate_name/);
+  assert.match(mongoSource, /originalFileNameFallbackQuery/);
+  assert.match(mongoSource, /originalFileMatchesCandidate/);
   assert.match(mongoSource, /candidate_original_files/);
   assert.doesNotMatch(mongoSource, /data: 1/);
 });
