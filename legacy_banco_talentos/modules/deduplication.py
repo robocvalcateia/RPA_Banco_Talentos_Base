@@ -333,6 +333,8 @@ class DeduplicationHandler:
             dict: Resultado do processamento
         """
         try:
+            candidate_data = Validators.sanitize_for_storage(candidate_data)
+
             # Validar dados
             errors = Validators.validate_candidate_data(candidate_data)
             if errors:

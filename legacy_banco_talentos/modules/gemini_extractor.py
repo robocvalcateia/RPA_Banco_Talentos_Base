@@ -512,6 +512,7 @@ FORMATO FINAL OBRIGATÓRIO:
         }
         for source, target in replacements.items():
             text = text.replace(source, target)
+        text = re.sub(r"[\ud800-\udfff]", "", text)
         text = re.sub(r"[\u2022\u2023\u2043\u2219\u25AA\u25CF\u25E6\u00B7]", "•", text)
         text = re.sub(r"[\u200B-\u200D\u2060\uFEFF\u00AD]", "", text)
         text = re.sub(r"[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000]", " ", text)

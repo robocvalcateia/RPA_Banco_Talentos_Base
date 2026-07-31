@@ -9,6 +9,21 @@ logger = logging.getLogger(__name__)
 
 class Validators:
     """Validadores de dados"""
+
+    @staticmethod
+    def sanitize_for_storage(value):
+        """Remove caracteres Unicode invalidos sem perder acentuacao valida."""
+        if isinstance(value, str):
+            cleaned = re.sub(r"[\ud800-\udfff]", "", value)
+            return cleaned.encode("utf-8", "ignore").decode("utf-8", "ignore")
+        if isinstance(value, list):
+            return [Validators.sanitize_for_storage(item) for item in value]
+        if isinstance(value, dict):
+            return {
+                Validators.sanitize_for_storage(key): Validators.sanitize_for_storage(item)
+                for key, item in value.items()
+            }
+        return value
     
     @staticmethod
     def is_valid_email(email):

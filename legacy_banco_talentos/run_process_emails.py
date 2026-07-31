@@ -13,6 +13,18 @@ os.chdir(ROOT)
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+def make_json_safe(value):
+    if isinstance(value, str):
+        return value.encode("utf-8", "ignore").decode("utf-8", "ignore")
+    if isinstance(value, list):
+        return [make_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            make_json_safe(key): make_json_safe(item)
+            for key, item in value.items()
+        }
+    return value
+
 try:
     from main import BancoTalentosOrchestrator
 
@@ -41,5 +53,6 @@ except Exception as exc:
         "total_candidatos": 0,
     }
 
+resultado = make_json_safe(resultado)
 print("__RESULT_JSON__=" + json.dumps(resultado, ensure_ascii=False, default=str))
 sys.exit(0 if resultado.get("success") else 1)
