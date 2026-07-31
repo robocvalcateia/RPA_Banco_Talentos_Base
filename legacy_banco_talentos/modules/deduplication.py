@@ -56,19 +56,19 @@ class DeduplicationHandler:
             dict: Registro encontrado ou None
         """
         try:
-            # Estratgia 1: Buscar por hash do documento (mais confivel)
-            if document_hash:
-                existing = self.collection.find_one({'hash_documento': document_hash})
-                if existing:
-                    logger.info(f" Duplicata encontrada por hash: {document_hash}")
-                    return existing
-            
-            # Estratgia 2: Buscar por email (nico)
+            # Estrategia 1: Buscar por email valido para respeitar o indice unico
             email = Validators.normalize_email(candidate_data.get('Email', ''))
             if email:
                 existing = self.collection.find_one({'email': email})
                 if existing:
                     logger.info(f" Duplicata encontrada por email: {email}")
+                    return existing
+
+            # Estrategia 2: Buscar por hash do documento
+            if document_hash:
+                existing = self.collection.find_one({'hash_documento': document_hash})
+                if existing:
+                    logger.info(f" Duplicata encontrada por hash: {document_hash}")
                     return existing
             
             # Estratgia 3: Buscar por telefone
@@ -276,7 +276,17 @@ class DeduplicationHandler:
                 self._set_if_filled(update_data, field_name, value)
 
             if email_normalizado:
-                update_data['email'] = email_normalizado
+                owner = self.collection.find_one({
+                    'email': email_normalizado,
+                    '_id': {'$ne': existing_id}
+                })
+                if owner:
+                    logger.warning(
+                        f" Email {email_normalizado} ja pertence a outro candidato; "
+                        "campo preservado para evitar duplicidade."
+                    )
+                else:
+                    update_data['email'] = email_normalizado
 
             # Adicionar hash se for novo documento
             if document_hash:

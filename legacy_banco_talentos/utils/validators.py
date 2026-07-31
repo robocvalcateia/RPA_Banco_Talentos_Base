@@ -153,7 +153,10 @@ class Validators:
         """Normaliza email"""
         if not email:
             return ""
-        return email.lower().strip()
+        valid_emails = Validators.is_valid_email(email)
+        if valid_emails:
+            return valid_emails[0]
+        return ""
     
     @staticmethod
     def normalize_name(name):
