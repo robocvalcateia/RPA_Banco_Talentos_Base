@@ -3527,10 +3527,10 @@ panel.classList.remove('hidden');
   const originalButton = $('#openOriginalCurriculumButton');
   if (originalButton) {
     const hasOriginalFile = hasOriginalCurriculumFile(curriculum);
-    originalButton.disabled = !hasOriginalFile;
+    originalButton.disabled = false;
     originalButton.title = hasOriginalFile
       ? 'Abrir ou baixar o CV original processado no e-mail'
-      : 'CV original ainda nao armazenado para este candidato';
+      : 'Tentar localizar o CV original processado no e-mail';
   }
   const observationsButton = $('#curriculumObservationsButton');
   if (observationsButton) {
@@ -3627,10 +3627,6 @@ async function openOriginalCurriculumFile(button) {
     toast('Selecione um candidato antes de abrir o CV original.');
     return;
   }
-  if (!hasOriginalCurriculumFile(current)) {
-    toast('CV original ainda não armazenado para este candidato.');
-    return;
-  }
 
   const originalText = button?.textContent || 'CV Original';
   try {
@@ -3646,7 +3642,7 @@ async function openOriginalCurriculumFile(button) {
     toast(error.message || 'Não foi possível baixar o CV original.');
   } finally {
     if (button) {
-      button.disabled = !hasOriginalCurriculumFile(selectedCurriculum());
+      button.disabled = false;
       button.textContent = originalText;
     }
   }

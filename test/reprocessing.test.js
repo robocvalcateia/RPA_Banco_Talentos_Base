@@ -54,11 +54,13 @@ test('curriculum detail exposes original CV download from GridFS without bootstr
   assert.match(indexSource, /openOriginalCurriculumButton/);
   assert.match(indexSource, /CV Original/);
   assert.match(appSource, /hasOriginalCurriculumFile/);
+  assert.match(appSource, /originalButton\.disabled = false/);
   assert.match(appSource, /apiDownload\(`\/api\/curriculums\/\$\{encodeURIComponent\(curriculumIdentifier\(current\)\)\}\/original-file`/);
   assert.match(serverSource, /original-file\$\//);
   assert.match(serverSource, /sendStreamDownload/);
   assert.match(mongoSource, /GridFSBucket/);
   assert.match(mongoSource, /getOriginalCurriculumFileFromMongo/);
+  assert.match(mongoSource, /metadata\.candidate_name/);
   assert.match(mongoSource, /candidate_original_files/);
   assert.doesNotMatch(mongoSource, /data: 1/);
 });

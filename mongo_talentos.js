@@ -570,6 +570,12 @@ function originalFileIdsFromCurriculum(doc = {}) {
     .filter(Boolean);
 }
 
+function escapedExactRegex(value) {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  return new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+}
+
 export async function getOriginalCurriculumFileFromMongo(identifier) {
   const { GridFSBucket } = await loadMongoDriver();
   const config = readMongoConfig();
@@ -613,6 +619,8 @@ export async function getOriginalCurriculumFileFromMongo(identifier) {
     const or = [];
     if (candidateIds.length) or.push({ 'metadata.candidate_id': { $in: candidateIds } });
     if (doc.hash_documento) or.push({ 'metadata.document_hash': String(doc.hash_documento).trim() });
+    const exactNameRegex = escapedExactRegex(doc.nome);
+    if (exactNameRegex) or.push({ 'metadata.candidate_name': exactNameRegex });
     if (or.length) {
       fileDoc = await filesCollection
         .find({ $or: or })
