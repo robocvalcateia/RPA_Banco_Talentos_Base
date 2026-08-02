@@ -10,3 +10,9 @@ test('dialogos abrem pelo fluxo maximizado padronizado', () => {
   assert.doesNotMatch(appSource, /modal\??\.classList\.remove\('hidden'\);/);
   assert.doesNotMatch(appSource, /contactClientListModal'\)\?\.classList\.remove\('hidden'\);/);
 });
+
+test('cards de Deals mantem Filtro de CVs antes de Candidatos', () => {
+  const appSource = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+
+  assert.match(appSource, /children:\s*\['opportunities',\s*'cvFilters',\s*'dealCandidates'\]/);
+});

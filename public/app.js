@@ -208,7 +208,7 @@ const launcherNodes = {
     label: 'Deals',
     eyebrow: 'Seção',
     description: 'Oportunidades, candidatos e filtros de CV',
-    children: ['opportunities', 'dealCandidates', 'cvFilters']
+    children: ['opportunities', 'cvFilters', 'dealCandidates']
   },
   dealCandidates: {
     label: 'Candidatos',
