@@ -7764,18 +7764,8 @@ function maximizeActiveViewPrimaryPanel(viewId) {
   if (viewId === 'dashboard') return;
   const view = $(`.view#${CSS.escape(viewId)}`);
   if (!view) return;
-  if (view.hasAttribute('data-no-auto-maximize')) {
-    $$('.panel-maximized').forEach((panel) => setSurfaceMaximized(panel, false));
-    return;
-  }
-  const panels = $$('.panel', view).filter((panel) => !panel.hidden);
-  const explicitPanel = panels.find((panel) => panel.hasAttribute('data-auto-maximize-primary'));
-  const targetPanel = explicitPanel || panels[0];
-  if (!targetPanel || targetPanel.classList.contains('panel-maximized')) return;
-  $$('.panel-maximized')
-    .filter((panel) => panel !== targetPanel)
-    .forEach((panel) => setSurfaceMaximized(panel, false));
-  setSurfaceMaximized(targetPanel, true);
+  $$('.panel.panel-maximized', view).forEach((panel) => setSurfaceMaximized(panel, false));
+  document.body.classList.toggle('panel-is-maximized', Boolean($('.modal-panel.panel-maximized, .modal-card.panel-maximized')));
 }
 
 function closeSurfaceDialog(dialogOrSelector) {
