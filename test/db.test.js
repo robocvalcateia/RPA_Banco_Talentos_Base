@@ -728,6 +728,28 @@ test('filtro de CV normaliza campos e valida UF e percentual', () => {
   assert.throws(() => normalizeCvFilter({ estado: 'SP', percentual_acerto: 101 }), /Percentual de acerto invalido/);
 });
 
+test('oportunidade normaliza campos comerciais e mantem Id_Oportunidade como referencia', () => {
+  const db = normalizeDatabase({
+    clients: [{ id: 'client_1', customerName: 'Cliente Teste' }],
+    opportunities: [{
+      id: 'opp_1',
+      clientId: 'client_1',
+      opportunity: 'Gerente de Projetos',
+      idOportunidade: '1896',
+      codigoOportunidadeCliente: 'TOTVS-2026-001',
+      tipoContratacao: 'PJ',
+      modeloTrabalho: 'Hibrido',
+      job_description: 'Atuar como PMO senior'
+    }]
+  });
+
+  assert.equal(db.opportunities[0].opportunityCode, '1896');
+  assert.equal(db.opportunities[0].clientOpportunityCode, 'TOTVS-2026-001');
+  assert.equal(db.opportunities[0].contractType, 'PJ');
+  assert.equal(db.opportunities[0].workModel, 'Hibrido');
+  assert.equal(db.opportunities[0].jobDescription, 'Atuar como PMO senior');
+});
+
 test('filtro de CV aceita estado cidade e ingles em branco para buscar todos', () => {
   const normalized = normalizeCvFilter({
     opportunityId: 'opp_1',

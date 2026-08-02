@@ -29,6 +29,8 @@
   aderenciaOptions: [0, 25, 50, 75, 100],
   opportunityModels: ['Alocação', 'Hunting', 'Projeto', 'Consultoria'],
   opportunityStatuses: [],
+  opportunityContractTypes: ['PJ', 'CLT'],
+  opportunityWorkModels: ['Presencial', 'Híbrido', 'Remoto'],
   brazilUfs: [],
   opportunityFilter: { type: '', value: '', status: '', closingMonth: '' },
   faturamentoFilter: { monthYear: '' },
@@ -988,6 +990,8 @@ function renderOptions() {
     .join('');
   const statusOptions = emptyOption + state.opportunityStatuses.map((status) => `<option>${status}</option>`).join('');
   const modelOptions = emptyOption + state.opportunityModels.map((model) => `<option>${model}</option>`).join('');
+  const contractTypeOptions = emptyOption + state.opportunityContractTypes.map((type) => `<option>${type}</option>`).join('');
+  const workModelOptions = emptyOption + state.opportunityWorkModels.map((model) => `<option>${model}</option>`).join('');
   const candidatePoolStatusOptions = (state.candidatePoolStatuses?.length ? state.candidatePoolStatuses : ['Ativo', 'Inativo', 'Alocado'])
     .map((status) => `<option value="${escapeHtml(status)}">${escapeHtml(status)}</option>`)
     .join('');
@@ -1036,6 +1040,12 @@ function renderOptions() {
   });
   $$('select[name="model"]').forEach((select) => {
     select.innerHTML = modelOptions;
+  });
+  $$('select[name="contractType"]').forEach((select) => {
+    select.innerHTML = contractTypeOptions;
+  });
+  $$('select[name="workModel"]').forEach((select) => {
+    select.innerHTML = workModelOptions;
   });
   $$('select[name="owner"]').forEach((select) => {
     const currentValue = select.value;
@@ -2674,16 +2684,20 @@ function renderOpportunities() {
         <tr class="clickable-row" data-edit-opportunity="${opportunity.id}">
           <td><strong>${opportunity.opportunity}</strong></td>
           <td>${opportunity.opportunityCode || '-'}</td>
+          <td>${escapeHtml(opportunity.clientOpportunityCode || '-')}</td>
           <td>${client?.customerName || 'Cliente nao encontrado'}</td>
           <td>${contact ? escapeHtml(contactClientLabel(contact)) : '-'}</td>
           <td>${opportunity.status}</td>
           <td>${opportunity.openingDate || '-'}</td>
           <td>${opportunity.closingDate || '-'}</td>
           <td>${opportunity.model || '-'}</td>
+          <td>${escapeHtml(opportunity.contractType || '-')}</td>
+          <td>${escapeHtml(opportunity.workModel || '-')}</td>
           <td>${opportunity.owner || '-'}</td>
           <td>${opportunity.quantity ?? 0}</td>
           <td>${opportunity.closedQuantity ?? 0}</td>
           <td>${formatCurrency(opportunity.contractValue)}</td>
+          <td>${escapeHtml(opportunity.jobDescription || '-')}</td>
           <td>${opportunity.observation || '-'}</td>
         </tr>
       `;
@@ -7245,6 +7259,26 @@ function render() {
   renderFormsPanel();
   bindCurrencyInputs();
   initResizableTables();
+  compactTableCells();
+}
+
+function compactTableCells(root = document) {
+  $$('.table-wrap tbody td', root).forEach((cell) => {
+    if (cell.dataset.cellCompact === 'true') return;
+    if ($('button, input, select, textarea, a.link-action', cell)) {
+      cell.classList.add('table-cell-actions');
+      cell.dataset.cellCompact = 'true';
+      return;
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'table-cell-clamp';
+    while (cell.firstChild) {
+      wrapper.appendChild(cell.firstChild);
+    }
+    cell.appendChild(wrapper);
+    cell.dataset.cellCompact = 'true';
+  });
 }
 
 function setNavGroupOpen(groupId, open) {
@@ -7348,6 +7382,9 @@ function clearEditing(form, key, submitLabel) {
 
   if (form) {
     form.reset();
+    if (form.id === 'opportunityForm' && form.elements.opportunityCode) {
+      form.elements.opportunityCode.readOnly = false;
+    }
     setSubmitLabel(form, submitLabel);
   }
 }
@@ -7397,18 +7434,23 @@ function loadOpportunityForEdit(opportunity) {
   fillForm('#opportunityForm', {
     opportunity: opportunity.opportunity,
     opportunityCode: opportunity.opportunityCode,
+    clientOpportunityCode: opportunity.clientOpportunityCode || '',
     clientId: opportunity.clientId,
     contactClientId: opportunity.contactClientId || '',
     status: opportunity.status,
     openingDate: opportunity.openingDate,
     closingDate: opportunity.closingDate,
     model: opportunity.model,
+    contractType: opportunity.contractType || '',
+    workModel: opportunity.workModel || '',
     owner: opportunity.owner,
     quantity: opportunity.quantity,
     closedQuantity: opportunity.closedQuantity,
     contractValue: opportunity.contractValue,
+    jobDescription: opportunity.jobDescription || '',
     observation: opportunity.observation
   }, 'Atualizar oportunidade');
+  $('#opportunityForm input[name="opportunityCode"]').readOnly = true;
   updateOpportunityContactOptions(opportunity.contactClientId || '');
   toast('Oportunidade carregada para atualização.');
 }
@@ -7727,10 +7769,6 @@ function maximizeActiveViewPrimaryPanel(viewId) {
     return;
   }
   const panels = $$('.panel', view).filter((panel) => !panel.hidden);
-  if (panels.length !== 1) {
-    $$('.panel-maximized').forEach((panel) => setSurfaceMaximized(panel, false));
-    return;
-  }
   const explicitPanel = panels.find((panel) => panel.hasAttribute('data-auto-maximize-primary'));
   const targetPanel = explicitPanel || panels[0];
   if (!targetPanel || targetPanel.classList.contains('panel-maximized')) return;
@@ -8329,6 +8367,14 @@ function bindForms() {
     const editingId = state.editing.opportunityId;
     const payload = formPayload(form);
     payload.contractValue = parseCurrencyInput(payload.contractValue);
+    if (editingId) {
+      const original = state.opportunities.find((opportunity) => opportunity.id === editingId);
+      payload.opportunityCode = original?.opportunityCode || payload.opportunityCode;
+    }
+    if (payload.model === 'Hunting' && !payload.contractType) {
+      toast('Tipo de Contratação é obrigatório para oportunidade Hunting.');
+      return;
+    }
 
     try {
       if (submitButton) submitButton.disabled = true;
@@ -9764,6 +9810,13 @@ function bindCvFilterLocation() {
   $('#cvFilterForm select[name="state"]')?.addEventListener('change', (event) => {
     populateCityOptions(event.currentTarget.value);
   });
+  $('#cvFilterForm select[name="opportunityId"]')?.addEventListener('change', (event) => {
+    const opportunity = state.opportunities.find((item) => item.id === event.currentTarget.value);
+    const field = $('#cvFilterForm textarea[name="jobDescription"]');
+    if (field && opportunity?.jobDescription && !field.value.trim()) {
+      field.value = opportunity.jobDescription;
+    }
+  });
 }
 
 function selectedCvSearchRows() {
@@ -9840,7 +9893,9 @@ function bindCvSearch() {
       Object.assign(filter, updatedFilter);
       state.editing.cvFilterId = filter.id;
       renderCvSearchResults();
-      toast(updatedFilter.searchMessage || 'Busca concluída.');
+      const completionMessage = updatedFilter.searchMessage || 'Busca concluída.';
+      window.alert(completionMessage);
+      toast('Busca concluída.');
     } catch (error) {
       filter.searchStatus = 'error';
       filter.searchMessage = error.message || 'Não foi possível concluir a busca.';

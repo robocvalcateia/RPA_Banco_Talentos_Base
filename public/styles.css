@@ -1449,6 +1449,23 @@ td {
   vertical-align: top;
 }
 
+tbody tr {
+  height: 58px;
+}
+
+.table-cell-clamp {
+  display: -webkit-box;
+  line-height: 1.32;
+  max-height: 2.64em;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.table-cell-actions {
+  white-space: normal;
+}
+
 th {
   color: var(--muted);
   font-size: 0.82rem;

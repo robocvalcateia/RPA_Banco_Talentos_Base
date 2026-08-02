@@ -197,6 +197,25 @@ test('filtro de CV exige listas preenchidas, skills obrigatorias e percentual mi
   assert.match(evaluateCandidateTextForFilter(missingListText, filter).reason, /filtro obrigatorio/i);
 });
 
+test('filtro de CV aceita listas em branco e cidades dentro do raio parametrizado', () => {
+  const filter = {
+    state: '',
+    city: 'Sao Paulo',
+    cityRadiusCities: ['sao paulo', 'osasco', 'barueri'],
+    englishLevel: '',
+    mandatorySkills: 'SAP, PMP',
+    jobDescription: 'Gerente de projetos Activate',
+    matchPercent: 60
+  };
+  const text = [
+    'Consultor em Barueri',
+    'SAP PMP',
+    'Gerente de projetos Activate'
+  ].join('\n');
+
+  assert.equal(evaluateCandidateTextForFilter(text, filter).accepted, true);
+});
+
 test('candidato selecionado preserva campos estruturados quando vierem explicitamente do curriculo', () => {
   const payload = __mongoTalentosTest.selectedCandidateToMongoPayload({
     name: 'Pessoa Técnica',

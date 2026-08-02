@@ -163,15 +163,21 @@ function textContainsValue(normalizedText, value) {
 
 function evaluateRequiredListFilters(text, filter) {
   const normalizedText = normalizeText(text);
+  const cityValues = Array.isArray(filter.cityRadiusCities) && filter.cityRadiusCities.length
+    ? filter.cityRadiusCities
+    : [filter.city].filter(Boolean);
   const checks = [
     ['estado', filter.state],
-    ['cidade', filter.city],
     ['nivel de ingles', filter.englishLevel]
   ].filter(([, value]) => String(value || '').trim());
 
   const missing = checks
     .filter(([, value]) => !textContainsValue(normalizedText, value))
     .map(([label, value]) => `${label}: ${value}`);
+
+  if (String(filter.city || '').trim() && !cityValues.some((city) => textContainsValue(normalizedText, city))) {
+    missing.push(`cidade: ${cityValues.join(' ou ')}`);
+  }
 
   return {
     accepted: missing.length === 0,
@@ -614,7 +620,10 @@ export async function searchApinfoCandidates(filter, credentials, limit = 10) {
 
   const firstSearch = await session.search(filter, extraFields);
   let firstHtml = firstSearch.html;
-  const cityCodes = extractCityCodes(firstHtml, filter.city);
+  const cityCodes = Array.from(new Set((Array.isArray(filter.cityRadiusCities) && filter.cityRadiusCities.length
+    ? filter.cityRadiusCities
+    : [filter.city]
+  ).flatMap((city) => extractCityCodes(firstHtml, city))));
 
   if (cityCodes.length) {
     extraFields['cod_cidade[]'] = cityCodes;

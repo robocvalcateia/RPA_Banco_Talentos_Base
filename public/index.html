@@ -311,7 +311,7 @@
         </section>
       </section>
 
-      <section class="view" id="taxReformSimulator" data-no-auto-maximize>
+      <section class="view" id="taxReformSimulator">
         <section class="panel">
           <div class="panel-heading">
             <div>
@@ -445,7 +445,7 @@
         </section>
       </section>
 
-      <section class="view" id="allocationPrices" data-no-auto-maximize>
+      <section class="view" id="allocationPrices">
         <section class="panel">
           <div class="panel-heading">
             <div>
@@ -738,7 +738,8 @@
           </div>
           <form id="opportunityForm" class="form-grid" novalidate>
             <label class="opportunity-main-field">Oportunidade<input name="opportunity" required /></label>
-            <label class="opportunity-code-field">Id_Oportunidade<input name="opportunityCode" /></label>
+            <label class="opportunity-code-field">Id_Oportunidade<input name="opportunityCode" required /></label>
+            <label>Cod Oportunidade Cliente<input name="clientOpportunityCode" /></label>
             <label>Cliente<select name="clientId" required></select></label>
             <label>Contato cliente<select name="contactClientId" disabled>
               <option value="">Selecione um cliente</option>
@@ -747,10 +748,13 @@
             <label>Abertura<input name="openingDate" type="date" /></label>
             <label>Fechamento<input name="closingDate" type="date" /></label>
             <label>Modelo<select name="model"></select></label>
+            <label>Tipo de Contratação<select name="contractType"></select></label>
+            <label>Modelo de Trabalho<select name="workModel"></select></label>
             <label>Nome Responsável<select name="owner"></select></label>
             <label>Quantidade<input name="quantity" type="number" min="0" /></label>
             <label>Qtde Fechada<input name="closedQuantity" type="number" min="0" /></label>
             <label>Valor Contrato<input name="contractValue" class="currency-input" inputmode="decimal" placeholder="R$ 0,00" /></label>
+            <label class="full">Job Description<textarea name="jobDescription" rows="4"></textarea></label>
             <label class="full">Observação<textarea name="observation" rows="3"></textarea></label>
             <button class="primary-action" type="submit">Salvar oportunidade</button>
           </form>
@@ -790,16 +794,20 @@
                 <tr>
                   <th>Oportunidade</th>
                   <th>Id_Oportunidade</th>
+                  <th>Cod Cliente</th>
                   <th>Cliente</th>
                   <th>Contato cliente</th>
                   <th>Status</th>
                   <th>Abertura</th>
                   <th>Fechamento</th>
                   <th>Modelo</th>
+                  <th>Tipo Contratação</th>
+                  <th>Modelo Trabalho</th>
                   <th>Nome Responsável</th>
                   <th>Quantidade</th>
                   <th>Qtde Fechada</th>
                   <th>Valor Contrato</th>
+                  <th>Job Description</th>
                   <th>Observação</th>
                 </tr>
               </thead>

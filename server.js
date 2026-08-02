@@ -44,8 +44,10 @@ import {
   CANDIDATE_POOL_PROFILES,
   CANDIDATE_POOL_STATUSES,
   CANDIDATE_POOL_SKILL_FIELDS,
+  OPPORTUNITY_CONTRACT_TYPES,
   OPPORTUNITY_MODELS,
   OPPORTUNITY_STATUSES,
+  OPPORTUNITY_WORK_MODELS,
   MONGO_APP_COLLECTIONS,
   readDatabase,
   readDatabaseCollections,
@@ -1404,6 +1406,96 @@ function normalizeSearchText(value = '') {
     .trim();
 }
 
+const CITY_COORDINATES_BR = Object.freeze({
+  'sp|sao paulo': [-23.5505, -46.6333],
+  'sp|guarulhos': [-23.4543, -46.5337],
+  'sp|osasco': [-23.5329, -46.7918],
+  'sp|barueri': [-23.5106, -46.8761],
+  'sp|santana de parnaiba': [-23.4439, -46.9178],
+  'sp|taboao da serra': [-23.6019, -46.7526],
+  'sp|santo andre': [-23.6639, -46.5383],
+  'sp|sao bernardo do campo': [-23.6914, -46.5646],
+  'sp|sao caetano do sul': [-23.6229, -46.5548],
+  'sp|maua': [-23.6678, -46.4613],
+  'sp|diadema': [-23.6813, -46.6205],
+  'sp|cotia': [-23.6022, -46.9190],
+  'sp|jandira': [-23.5275, -46.9023],
+  'sp|itapevi': [-23.5488, -46.9347],
+  'sp|carapicuiba': [-23.5227, -46.8350],
+  'sp|mogi das cruzes': [-23.5208, -46.1854],
+  'sp|suzano': [-23.5425, -46.3108],
+  'sp|poa': [-23.5286, -46.3447],
+  'sp|itaquaquecetuba': [-23.4864, -46.3483],
+  'sp|jundiai': [-23.1857, -46.8978],
+  'sp|campinas': [-22.9056, -47.0608],
+  'sp|sorocaba': [-23.5015, -47.4526],
+  'sp|santos': [-23.9608, -46.3336],
+  'sp|sao jose dos campos': [-23.2237, -45.9009],
+  'sp|taubate': [-23.0264, -45.5553],
+  'rj|rio de janeiro': [-22.9068, -43.1729],
+  'mg|belo horizonte': [-19.9167, -43.9345],
+  'pr|curitiba': [-25.4284, -49.2733],
+  'sc|florianopolis': [-27.5949, -48.5482],
+  'rs|porto alegre': [-30.0346, -51.2177],
+  'df|brasilia': [-15.7939, -47.8828],
+  'go|goiania': [-16.6869, -49.2648],
+  'ba|salvador': [-12.9777, -38.5016],
+  'pe|recife': [-8.0476, -34.8770],
+  'ce|fortaleza': [-3.7319, -38.5267]
+});
+
+function cityCoordinateKey(uf, city) {
+  return `${normalizeSearchText(uf)}|${normalizeSearchText(city)}`;
+}
+
+function haversineKm([lat1, lon1], [lat2, lon2]) {
+  const radius = 6371;
+  const toRadians = (value) => (Number(value) * Math.PI) / 180;
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * radius * Math.asin(Math.sqrt(a));
+}
+
+function expandCityRadiusFilter(filter, radiusKm = 100) {
+  const city = String(filter.city || '').trim();
+  const uf = String(filter.state || '').trim().toUpperCase();
+  if (!city) {
+    return {
+      ...filter,
+      cityRadiusCities: [],
+      cityRadiusKm: 0,
+      cityRadiusMessage: 'Cidade nao selecionada: filtro por cidade nao aplicado.'
+    };
+  }
+
+  const center = CITY_COORDINATES_BR[cityCoordinateKey(uf, city)];
+  if (!center) {
+    return {
+      ...filter,
+      cityRadiusCities: [city],
+      cityRadiusKm: radiusKm,
+      cityRadiusMessage: `Cidade ${city}/${uf || '-'} sem coordenada parametrizada; aplicada busca pela cidade selecionada.`
+    };
+  }
+
+  const cityRadiusCities = Object.entries(CITY_COORDINATES_BR)
+    .filter(([key, coordinates]) => {
+      const [candidateUf] = key.split('|');
+      return (!uf || candidateUf === normalizeSearchText(uf)) && haversineKm(center, coordinates) <= radiusKm;
+    })
+    .map(([key]) => key.split('|')[1])
+    .sort((first, second) => first.localeCompare(second, 'pt-BR', { sensitivity: 'base' }));
+
+  return {
+    ...filter,
+    cityRadiusCities: cityRadiusCities.length ? cityRadiusCities : [city],
+    cityRadiusKm: radiusKm,
+    cityRadiusMessage: `Cidade ${city}/${uf || '-'} expandida para ${cityRadiusCities.length || 1} cidade(s) em ate ${radiusKm} km.`
+  };
+}
+
 function splitSearchTermsForCv(value = '') {
   return Array.from(new Set(
     normalizeSearchText(value)
@@ -2408,6 +2500,56 @@ export function findUserByName(db, name) {
   return db.users.find((user) => String(user.name ?? '').trim().toLowerCase() === normalized) ?? null;
 }
 
+function normalizeOptionalListValue(value, allowedValues, fieldLabel) {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) return '';
+  if (!allowedValues.includes(normalized)) {
+    const error = new Error(`${fieldLabel} invalido: ${normalized}`);
+    error.statusCode = 422;
+    throw error;
+  }
+  return normalized;
+}
+
+function validateOpportunityBusinessRules(response, opportunity, db, existingId = '') {
+  if (!opportunity.clientId || !db.clients.some((client) => client.id === opportunity.clientId)) {
+    sendError(response, 422, 'Selecione um cliente valido.');
+    return true;
+  }
+  if (
+    opportunity.contactClientId
+    && !db.contactClients.some((contact) => contact.id === opportunity.contactClientId && contact.clientId === opportunity.clientId)
+  ) {
+    sendError(response, 422, 'Selecione um contato valido para o cliente da oportunidade.');
+    return true;
+  }
+  if (!opportunity.opportunity) {
+    sendError(response, 422, 'Informe a oportunidade.');
+    return true;
+  }
+  if (!opportunity.opportunityCode) {
+    sendError(response, 422, 'Informe o Id_Oportunidade.');
+    return true;
+  }
+  if (db.opportunities.some((item) => item.id !== existingId && item.opportunityCode === opportunity.opportunityCode)) {
+    sendError(response, 409, 'Ja existe oportunidade cadastrada com esse Id_Oportunidade.');
+    return true;
+  }
+  if (opportunity.owner && !findUserByName(db, opportunity.owner)) {
+    sendError(response, 422, 'Selecione um responsavel cadastrado em usuarios.');
+    return true;
+  }
+  if (opportunity.model === 'Hunting' && !opportunity.contractType) {
+    sendError(response, 422, 'Tipo de Contratacao e obrigatorio para oportunidade Hunting.');
+    return true;
+  }
+  if (opportunity.status === 'WON' && !approvedCandidatesForOpportunity(db, existingId || opportunity.id).length) {
+    sendWonRequiresApprovedCandidate(response, existingId || opportunity.id);
+    return true;
+  }
+  return false;
+}
+
 function comparableText(value) {
   return String(value ?? '')
     .normalize('NFD')
@@ -3397,6 +3539,8 @@ async function handleApi(request, response) {
         candidatePoolSkillFields: CANDIDATE_POOL_SKILL_FIELDS,
         opportunityModels: OPPORTUNITY_MODELS,
         opportunityStatuses: OPPORTUNITY_STATUSES,
+        opportunityContractTypes: OPPORTUNITY_CONTRACT_TYPES,
+        opportunityWorkModels: OPPORTUNITY_WORK_MODELS,
         brazilUfs: BRAZIL_UFS,
         indicators: calculateIndicators(responseDb)
       });
@@ -4294,42 +4438,24 @@ async function handleApi(request, response) {
         contactClientId: String(payload.contactClientId ?? '').trim(),
         opportunity: String(payload.opportunity ?? '').trim(),
         opportunityCode: String(payload.opportunityCode ?? '').trim(),
+        clientOpportunityCode: String(payload.clientOpportunityCode ?? '').trim(),
         status: normalizeOpportunityStatus(payload.status || 'Open'),
         openingDate,
         closingDate: String(payload.closingDate ?? '').trim(),
         monthYear: String(payload.monthYear ?? monthYearFromDate(openingDate)).trim(),
-        model: normalizeOpportunityModel(payload.model || 'Alocação'),
+        model: normalizeOpportunityModel(payload.model || OPPORTUNITY_MODELS[0]),
+        contractType: normalizeOptionalListValue(payload.contractType, OPPORTUNITY_CONTRACT_TYPES, 'Tipo de Contratacao'),
+        workModel: normalizeOptionalListValue(payload.workModel, OPPORTUNITY_WORK_MODELS, 'Modelo de Trabalho'),
         owner: String(payload.owner ?? '').trim(),
         quantity: Number(payload.quantity ?? 1),
         closedQuantity: Number(payload.closedQuantity ?? 0),
         contractValue: Number(payload.contractValue ?? 0),
+        jobDescription: String(payload.jobDescription ?? '').trim(),
         observation: String(payload.observation ?? '').trim(),
         createdAt: toISODate()
       };
 
-      if (!opportunity.clientId || !db.clients.some((client) => client.id === opportunity.clientId)) {
-        sendError(response, 422, 'Selecione um cliente valido.');
-        return;
-      }
-      if (
-        opportunity.contactClientId
-        && !db.contactClients.some((contact) => contact.id === opportunity.contactClientId && contact.clientId === opportunity.clientId)
-      ) {
-        sendError(response, 422, 'Selecione um contato valido para o cliente da oportunidade.');
-        return;
-      }
-      if (!opportunity.opportunity) {
-        sendError(response, 422, 'Informe a oportunidade.');
-        return;
-      }
-      if (opportunity.owner && !findUserByName(db, opportunity.owner)) {
-        sendError(response, 422, 'Selecione um responsavel cadastrado em usuarios.');
-        return;
-      }
-      if (opportunity.status === 'WON' && !approvedCandidatesForOpportunity(db, opportunity.id).length) {
-        sendWonRequiresApprovedCandidate(response, opportunity.id);
-        return;
-      }
+      if (validateOpportunityBusinessRules(response, opportunity, db, opportunity.id)) return;
 
       db.opportunities.push(opportunity);
       syncCandidatesWithOpportunityClosures(db);
@@ -4349,47 +4475,56 @@ async function handleApi(request, response) {
         sendError(response, 404, 'Oportunidade nao encontrada.');
         return;
       }
-      if (!String(payload.clientId ?? '') || !db.clients.some((client) => client.id === String(payload.clientId ?? ''))) {
-        sendError(response, 422, 'Selecione um cliente valido.');
-        return;
-      }
-      if (!String(payload.opportunity ?? '').trim()) {
-        sendError(response, 422, 'Informe a oportunidade.');
-        return;
-      }
-      if (String(payload.owner ?? '').trim() && !findUserByName(db, payload.owner)) {
-        sendError(response, 422, 'Selecione um responsavel cadastrado em usuarios.');
-        return;
-      }
       const nextStatus = normalizeOpportunityStatus(payload.status || 'Open');
-      if (nextStatus === 'WON' && !approvedCandidatesForOpportunity(db, opportunity.id).length) {
-        sendWonRequiresApprovedCandidate(response, opportunity.id);
+      const payloadOpportunityCode = String(payload.opportunityCode ?? '').trim();
+      if (payloadOpportunityCode && payloadOpportunityCode !== opportunity.opportunityCode) {
+        sendError(response, 409, 'Id_Oportunidade nao pode ser alterado depois da criacao.');
         return;
       }
+
+      const nextOpportunity = {
+        ...opportunity,
+        clientId: String(payload.clientId ?? ''),
+        contactClientId: String(payload.contactClientId ?? '').trim(),
+        opportunity: String(payload.opportunity ?? '').trim(),
+        opportunityCode: opportunity.opportunityCode,
+        clientOpportunityCode: String(payload.clientOpportunityCode ?? '').trim(),
+        status: nextStatus,
+        openingDate,
+        closingDate: String(payload.closingDate ?? '').trim(),
+        monthYear: String(payload.monthYear ?? monthYearFromDate(openingDate)).trim(),
+        model: normalizeOpportunityModel(payload.model || OPPORTUNITY_MODELS[0]),
+        contractType: normalizeOptionalListValue(payload.contractType, OPPORTUNITY_CONTRACT_TYPES, 'Tipo de Contratacao'),
+        workModel: normalizeOptionalListValue(payload.workModel, OPPORTUNITY_WORK_MODELS, 'Modelo de Trabalho'),
+        owner: String(payload.owner ?? '').trim(),
+        quantity: Number(payload.quantity ?? 1),
+        closedQuantity: Number(payload.closedQuantity ?? 0),
+        contractValue: Number(payload.contractValue ?? 0),
+        jobDescription: String(payload.jobDescription ?? '').trim(),
+        observation: String(payload.observation ?? '').trim(),
+        updatedAt: toISODate()
+      };
+      if (validateOpportunityBusinessRules(response, nextOpportunity, db, opportunity.id)) return;
 
       opportunity.clientId = String(payload.clientId ?? '');
       opportunity.contactClientId = String(payload.contactClientId ?? '').trim();
       opportunity.opportunity = String(payload.opportunity ?? '').trim();
-      opportunity.opportunityCode = String(payload.opportunityCode ?? '').trim();
+      opportunity.opportunityCode = opportunity.opportunityCode;
+      opportunity.clientOpportunityCode = nextOpportunity.clientOpportunityCode;
       opportunity.status = nextStatus;
       opportunity.openingDate = openingDate;
       opportunity.closingDate = String(payload.closingDate ?? '').trim();
       opportunity.monthYear = String(payload.monthYear ?? monthYearFromDate(openingDate)).trim();
-      opportunity.model = normalizeOpportunityModel(payload.model || 'Alocação');
+      opportunity.model = nextOpportunity.model;
+      opportunity.contractType = nextOpportunity.contractType;
+      opportunity.workModel = nextOpportunity.workModel;
       opportunity.owner = String(payload.owner ?? '').trim();
       opportunity.quantity = Number(payload.quantity ?? 1);
       opportunity.closedQuantity = Number(payload.closedQuantity ?? 0);
       opportunity.contractValue = Number(payload.contractValue ?? 0);
+      opportunity.jobDescription = nextOpportunity.jobDescription;
       opportunity.observation = String(payload.observation ?? '').trim();
       opportunity.updatedAt = toISODate();
-
-      if (
-        opportunity.contactClientId
-        && !db.contactClients.some((contact) => contact.id === opportunity.contactClientId && contact.clientId === opportunity.clientId)
-      ) {
-        sendError(response, 422, 'Selecione um contato valido para o cliente da oportunidade.');
-        return;
-      }
 
       syncCandidatesWithOpportunityClosures(db);
       const placements = opportunity.status === 'WON'
@@ -4575,18 +4710,21 @@ async function handleApi(request, response) {
         id: filter.id,
         createdAt: filter.createdAt
       });
+      const expandedRuntimeFilter = expandCityRadiusFilter(runtimeFilter);
 
       const credentials = getApinfoCredentials();
       const ruleSummary = [
-        `palavras-chave APINFO: ${runtimeFilter.mandatorySkills || 'nao informadas'}`,
-        `estado: ${runtimeFilter.state || 'nao informado'}`,
-        `cidade: ${runtimeFilter.city || 'nao informada'}`,
-        `nivel de ingles: ${runtimeFilter.englishLevel || 'nao informado'}`,
-        `Job Description com aderencia minima de ${runtimeFilter.matchPercent || 0}%`,
-        `fontes: ${enabledSearchSources(runtimeFilter).join(', ') || 'nenhuma'}`
-      ].join('; ');
+        `palavras-chave APINFO: ${expandedRuntimeFilter.mandatorySkills || 'nao informadas'}`,
+        `estado: ${expandedRuntimeFilter.state || 'nao informado'}`,
+        `cidade: ${expandedRuntimeFilter.city || 'nao informada'}`,
+        expandedRuntimeFilter.cityRadiusCities?.length ? `cidades no raio: ${expandedRuntimeFilter.cityRadiusCities.join(', ')}` : '',
+        `nivel de ingles: ${expandedRuntimeFilter.englishLevel || 'nao informado'}`,
+        `Job Description com aderencia minima de ${expandedRuntimeFilter.matchPercent || 0}%`,
+        `habilidades obrigatorias: ${expandedRuntimeFilter.mandatorySkills || 'nao informadas'} precisam constar no CV`,
+        `fontes: ${enabledSearchSources(expandedRuntimeFilter).join(', ') || 'nenhuma'}`
+      ].filter(Boolean).join('; ');
       const searchResponse = {
-        ...enrichCvFilter(runtimeFilter, db),
+        ...enrichCvFilter(expandedRuntimeFilter, db),
         searchSource: 'APINFO',
         searchExecutedAt: toISODate(),
         searchStatus: 'running',
@@ -4595,22 +4733,22 @@ async function handleApi(request, response) {
         searchRejectedResults: []
       };
 
-      if (!enabledSearchSources(runtimeFilter).length) {
+      if (!enabledSearchSources(expandedRuntimeFilter).length) {
         searchResponse.searchStatus = 'no_sources';
         searchResponse.searchMessage = `Nenhuma fonte de busca selecionada. Regra: ${ruleSummary}.`;
-      } else if (runtimeFilter.searchApinfo && !credentials.configured) {
+      } else if (expandedRuntimeFilter.searchApinfo && !credentials.configured) {
         searchResponse.searchStatus = 'pending_credentials';
         searchResponse.searchMessage = `Busca real no APINFO pendente de usuario e senha. Regra: ${ruleSummary}.`;
       } else {
-        const requestedLimit = runtimeFilter.resultLimit || 10;
+        const requestedLimit = expandedRuntimeFilter.resultLimit || 10;
 
-        const shouldSearchApinfo = runtimeFilter.searchApinfo && credentials.configured;
-        const apinfoBlocked = runtimeFilter.searchApinfo && !credentials.configured;
+        const shouldSearchApinfo = expandedRuntimeFilter.searchApinfo && credentials.configured;
+        const apinfoBlocked = expandedRuntimeFilter.searchApinfo && !credentials.configured;
 
-        const shouldSearchApinfoLinkedin = shouldSearchApinfo || runtimeFilter.searchLinkedin;
+        const shouldSearchApinfoLinkedin = shouldSearchApinfo || expandedRuntimeFilter.searchLinkedin;
 
         let search = {
-          keyword: runtimeFilter.mandatorySkills || '',
+          keyword: expandedRuntimeFilter.mandatorySkills || '',
           totalFound: 0,
           inspected: [],
           linkedinQuery: '',
@@ -4624,7 +4762,7 @@ async function handleApi(request, response) {
         if (shouldSearchApinfoLinkedin) {
           search = await searchApinfoAndLinkedinCandidates(
             {
-              ...runtimeFilter,
+              ...expandedRuntimeFilter,
               searchApinfo: shouldSearchApinfo
             },
             credentials,
@@ -4632,8 +4770,8 @@ async function handleApi(request, response) {
           );
         }
 
-        const alcateiaSearch = runtimeFilter.searchAlcateia
-          ? await searchAlcateiaCandidates(runtimeFilter, requestedLimit)
+        const alcateiaSearch = expandedRuntimeFilter.searchAlcateia
+          ? await searchAlcateiaCandidates(expandedRuntimeFilter, requestedLimit)
           : {
               totalFound: 0,
               results: [],
@@ -4653,7 +4791,7 @@ async function handleApi(request, response) {
 
         searchResponse.searchStatus = 'completed';
 
-        const apinfoSummary = runtimeFilter.searchApinfo
+        const apinfoSummary = expandedRuntimeFilter.searchApinfo
           ? (
               apinfoBlocked
                 ? 'APINFO marcado, mas credenciais não configuradas.'
@@ -4661,7 +4799,7 @@ async function handleApi(request, response) {
             )
           : 'APINFO desmarcado.';
 
-        const linkedinSummary = runtimeFilter.searchLinkedin
+        const linkedinSummary = expandedRuntimeFilter.searchLinkedin
           ? (
               search.linkedinError
                 ? ` Google/LinkedIn: ${search.linkedinError}`
@@ -4669,7 +4807,7 @@ async function handleApi(request, response) {
             )
           : ' Google/LinkedIn desmarcado.';
 
-        const alcateiaSummary = runtimeFilter.searchAlcateia
+        const alcateiaSummary = expandedRuntimeFilter.searchAlcateia
           ? ` ${alcateiaSearch.message}`
           : ' ALCATEIA desmarcado.';
 
@@ -4680,6 +4818,7 @@ async function handleApi(request, response) {
           `Rejeitados abaixo do percentual: ${mergedRejectedResults.length}.`,
           linkedinSummary,
           alcateiaSummary,
+          expandedRuntimeFilter.cityRadiusMessage,
           `Regra: ${ruleSummary}.`
         ].join(' ');
 

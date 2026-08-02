@@ -22,6 +22,8 @@ const LEGACY_CANDIDATE_STAGES = ['Inscrito', ...CANDIDATE_STAGES];
 
 export const OPPORTUNITY_STATUSES = ['WON', 'LOST', 'Freezing', 'Closed', 'Open'];
 export const OPPORTUNITY_MODELS = ['Alocação', 'Hunting', 'Projeto', 'Consultoria'];
+export const OPPORTUNITY_CONTRACT_TYPES = ['PJ', 'CLT'];
+export const OPPORTUNITY_WORK_MODELS = ['Presencial', 'Híbrido', 'Remoto'];
 export const BRAZIL_UFS = [
   'AC',
   'AL',
@@ -535,8 +537,13 @@ export function normalizeDatabase(data = {}) {
   data.opportunities = data.opportunities.map((opportunity) => ({
     ...opportunity,
     contactClientId: String(opportunity.contactClientId ?? opportunity.contatoClienteId ?? '').trim(),
+    opportunityCode: String(opportunity.opportunityCode ?? opportunity.idOportunidade ?? opportunity.id_oportunidade ?? '').trim(),
+    clientOpportunityCode: String(opportunity.clientOpportunityCode ?? opportunity.codigoOportunidadeCliente ?? opportunity.cod_oportunidade_cliente ?? '').trim(),
     status: normalizeOpportunityStatus(LEGACY_OPPORTUNITY_STATUS_MAP[opportunity.status] ?? opportunity.status ?? 'Open'),
-    model: normalizeOpportunityModel(opportunity.model ?? 'Alocação')
+    model: normalizeOpportunityModel(opportunity.model ?? 'Alocação'),
+    contractType: String(opportunity.contractType ?? opportunity.tipoContratacao ?? '').trim(),
+    workModel: String(opportunity.workModel ?? opportunity.modeloTrabalho ?? '').trim(),
+    jobDescription: String(opportunity.jobDescription ?? opportunity.job_description ?? '').trim()
   }));
   data.faturamento = data.faturamento.map((item) => normalizeFaturamento(item));
 
