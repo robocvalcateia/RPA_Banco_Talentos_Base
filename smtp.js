@@ -3,19 +3,18 @@ import tls from 'node:tls';
 
 const DEFAULT_TIMEOUT_MS = 30000;
 
-function normalizeCrlf(value) {
-  return String(value ?? '').replace(/\r?\n/g, '\r\n');
-}
-
-function dotStuff(value) {
-  return normalizeCrlf(value).replace(/^\./gm, '..');
-}
-
 function encodeHeader(value) {
   const text = String(value ?? '');
   return /^[\x00-\x7F]*$/.test(text)
     ? text
     : `=?UTF-8?B?${Buffer.from(text, 'utf8').toString('base64')}?=`;
+}
+
+function encodeBodyBase64(value) {
+  return Buffer.from(String(value ?? ''), 'utf8')
+    .toString('base64')
+    .replace(/.{1,76}/g, '$&\r\n')
+    .trim();
 }
 
 function parseRecipients(to) {
@@ -207,10 +206,10 @@ export async function sendMail({ host, port, secure = false, user, password, fro
     `To: ${recipients.join(', ')}`,
     `Subject: ${encodeHeader(subject)}`,
     'MIME-Version: 1.0',
-    'Content-Type: text/plain; charset=utf-8',
-    'Content-Transfer-Encoding: 8bit',
+    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: base64',
     '',
-    dotStuff(text),
+    encodeBodyBase64(text),
     '.'
   ].join('\r\n');
 
