@@ -8922,8 +8922,8 @@ function bindForms() {
       toast('Informe o e-mail do usuário.');
       return;
     }
-    if (!String(payload.email || '').trim().toLowerCase().endsWith('@alcateiaconsulting.com.br')) {
-      toast('O e-mail do usuário deve ser @alcateiaconsulting.com.br.');
+    if (payload.role !== 'Consultor' && !String(payload.email || '').trim().toLowerCase().endsWith('@alcateiaconsulting.com.br')) {
+      toast('O e-mail do usuário deve ser @alcateiaconsulting.com.br para perfis Admin/Gestão.');
       return;
     }
     payload.active = payload.active !== 'false';

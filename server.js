@@ -104,7 +104,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260803-status-no-preview';
+const APP_VERSION = '20260803-consultant-external-email';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -328,6 +328,10 @@ function normalizeUserRole(role) {
   const roles = USER_ROLES.includes('Consultor') ? USER_ROLES : [...USER_ROLES, 'Consultor'];
   const match = roles.find((item) => item.toLowerCase() === value.toLowerCase());
   return match || 'Gestão';
+}
+
+function canUseExternalUserEmail(role) {
+  return normalizeUserRole(role) === 'Consultor';
 }
 
 export function isAlcateiaSenderEmail(email) {
@@ -4145,8 +4149,8 @@ async function handleApi(request, response) {
         sendError(response, 422, 'Informe nome e e-mail do usuario.');
         return;
       }
-      if (!isAlcateiaSenderEmail(user.email)) {
-        sendError(response, 422, `O e-mail do usuario deve ser @${ALCATEIA_EMAIL_DOMAIN}.`);
+      if (!canUseExternalUserEmail(user.role) && !isAlcateiaSenderEmail(user.email)) {
+        sendError(response, 422, `O e-mail do usuario deve ser @${ALCATEIA_EMAIL_DOMAIN} para perfis Admin/Gestao.`);
         return;
       }
       if (db.users.some((item) => item.email.toLowerCase() === user.email)) {
@@ -4175,8 +4179,9 @@ async function handleApi(request, response) {
         sendError(response, 422, 'Informe nome e e-mail do usuario.');
         return;
       }
-      if (!isAlcateiaSenderEmail(email)) {
-        sendError(response, 422, `O e-mail do usuario deve ser @${ALCATEIA_EMAIL_DOMAIN}.`);
+      const nextRole = normalizeUserRole(payload.role || user.role);
+      if (!canUseExternalUserEmail(nextRole) && !isAlcateiaSenderEmail(email)) {
+        sendError(response, 422, `O e-mail do usuario deve ser @${ALCATEIA_EMAIL_DOMAIN} para perfis Admin/Gestao.`);
         return;
       }
       if (db.users.some((item) => item.id !== userId && item.email.toLowerCase() === email)) {
@@ -4187,7 +4192,7 @@ async function handleApi(request, response) {
       user.name = String(payload.name).trim();
       user.email = email;
       user.emailSignature = normalizeEmailSignature(payload.emailSignature || payload.signature || '');
-      user.role = normalizeUserRole(payload.role || user.role);
+      user.role = nextRole;
       user.active = payload.active === undefined ? user.active !== false : String(payload.active) !== 'false';
       if (payload.resetPassword === true) {
         const defaultPassword = String(payload.password || 'Alcateia123');
