@@ -15,6 +15,7 @@ import {
   enrichCandidatePool,
   enrichCvFilter,
   enrichRateCard,
+  enrichStatusReportMessage,
   enrichStatusReport,
   enrichSelectedCandidate,
   monthYearFromDate,
@@ -37,6 +38,7 @@ import {
   normalizeCandidatePool,
   normalizeFaturamento,
   normalizeRateCard,
+  normalizeStatusReportMessage,
   normalizeStatusReport,
   normalizeWorkHourClosure,
   normalizeWorkHourEntry,
@@ -102,7 +104,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260803-status-report-monthly';
+const APP_VERSION = '20260803-status-report-deliveries';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -169,6 +171,7 @@ async function seedUsersFromEnv() {
     if (existingUser) {
       existingUser.name = seedUser.name;
       existingUser.role = seedUser.role || existingUser.role || 'Admin';
+      existingUser.active = existingUser.active !== false;
       existingUser.updatedAt = toISODate();
 
       if (resetPasswords) {
@@ -185,6 +188,7 @@ async function seedUsersFromEnv() {
       name: seedUser.name,
       email: seedUser.email,
       role: seedUser.role || 'Admin',
+      active: true,
       passwordHash: hashPassword(seedUser.password),
       mustChangePassword: forceChangePassword,
       createdAt: toISODate()
@@ -960,7 +964,22 @@ function buildMonthlyStatusReport(db, allocated, monthKey) {
   });
 }
 
-async function sendStatusReportConsultantEmail({ report, allocated, type = 'invite' }) {
+function statusReportMessageForClient(db, clientId = '') {
+  const activeMessages = (db.statusReportMessages || []).filter((message) => message.active !== false);
+  return activeMessages.find((message) => message.clientId && message.clientId === clientId)
+    || activeMessages.find((message) => !message.clientId)
+    || null;
+}
+
+function applyStatusReportMessageTemplate(value = '', context = {}) {
+  return String(value || '')
+    .replace(/\{\{\s*consultor\s*\}\}/gi, context.consultantName || '')
+    .replace(/\{\{\s*cliente\s*\}\}/gi, context.clientName || '')
+    .replace(/\{\{\s*periodo\s*\}\}/gi, context.monthLabel || '')
+    .replace(/\{\{\s*link\s*\}\}/gi, context.url || '');
+}
+
+async function sendStatusReportConsultantEmail({ report, allocated, db, type = 'invite' }) {
   const config = getSmtpConfigFromEnv();
   if (!isSmtpAccountConfigured(config)) {
     return { sent: false, reason: 'SMTP nao configurado.' };
@@ -971,19 +990,26 @@ async function sendStatusReportConsultantEmail({ report, allocated, type = 'invi
   const url = buildStatusReportUrl(report);
   const consultantName = allocated.consultant || report.consultantName || 'consultor';
   const monthLabel = report.period || monthLabelFromKey(report.referenceMonth);
-  const subject = type === 'reminder'
+  const clientName = report.clientName || '-';
+  const customMessage = statusReportMessageForClient(db, allocated.clientId);
+  const context = { consultantName, clientName, monthLabel, url };
+  const subject = customMessage?.subject
+    ? applyStatusReportMessageTemplate(customMessage.subject, context)
+    : type === 'reminder'
     ? `[Alcateia] Lembrete Status Report ${monthLabel}: ${consultantName}`
     : `[Alcateia] Atualizacao mensal do Status Report ${monthLabel}: ${consultantName}`;
-  const text = [
-    `Consultor: ${consultantName}`,
-    `Cliente: ${report.clientName || '-'}`,
-    `Periodo: ${monthLabel}`,
-    `Status: ${report.deliveryStatus || 'Aberto'}`,
-    `Link de acesso: ${url}`,
-    '',
-    'Atualize o Status Report do mes a partir do campo Farol e salve as informacoes para concluir a entrega.',
-    'Seu acesso deve ser usado apenas neste modulo.'
-  ].join('\n');
+  const text = customMessage?.body
+    ? applyStatusReportMessageTemplate(customMessage.body, context)
+    : [
+      `Consultor: ${consultantName}`,
+      `Cliente: ${clientName}`,
+      `Periodo: ${monthLabel}`,
+      `Status: ${report.deliveryStatus || 'Aberto'}`,
+      `Link de acesso: ${url}`,
+      '',
+      'Atualize o Status Report do mes a partir do campo Farol e salve as informacoes para concluir a entrega.',
+      'Seu acesso deve ser usado apenas neste modulo.'
+    ].join('\n');
 
   await sendMail({ ...config, to, subject, text });
   return { sent: true, to };
@@ -993,7 +1019,7 @@ async function runMonthlyStatusReportCycle({ forceInvite = false, forceReminder 
   const monthKey = monthKeyForAppDate(date);
   const todayKey = todayKeyForAppDate(date);
   const shouldInvite = forceInvite || dayOfMonthForAppDate(date) === 1;
-  const db = await readDatabaseCollections(['clients', 'allocateds', 'statusReports']);
+  const db = await readDatabaseCollections(['clients', 'allocateds', 'statusReports', 'statusReportMessages']);
   const activeAllocateds = activeAllocatedsForStatusReportCycle(db);
   let created = 0;
   let invitesSent = 0;
@@ -1010,7 +1036,7 @@ async function runMonthlyStatusReportCycle({ forceInvite = false, forceReminder 
     }
 
     if (shouldInvite && !report.monthlyEmailSentAt && !report.consultantSubmittedAt) {
-      const notification = await sendStatusReportConsultantEmail({ report, allocated, type: 'invite' });
+      const notification = await sendStatusReportConsultantEmail({ report, allocated, db, type: 'invite' });
       report.monthlyEmailNotification = notification;
       if (notification.sent) {
         report.monthlyEmailSentAt = toISODate();
@@ -1023,7 +1049,7 @@ async function runMonthlyStatusReportCycle({ forceInvite = false, forceReminder 
     const isOpen = !report.consultantSubmittedAt && String(report.deliveryStatus || '').toLowerCase() !== 'salvo';
     const canRemind = isOpen && report.monthlyEmailSentAt && (forceReminder || report.monthlyEmailLastReminderDate !== todayKey);
     if (canRemind) {
-      const notification = await sendStatusReportConsultantEmail({ report, allocated, type: 'reminder' });
+      const notification = await sendStatusReportConsultantEmail({ report, allocated, db, type: 'reminder' });
       if (notification.sent) {
         report.monthlyEmailLastReminderDate = todayKey;
         report.monthlyEmailLastReminderAt = toISODate();
@@ -1257,6 +1283,40 @@ function activeAllocatedsForUser(allocateds = [], user = {}) {
 function canUserAccessAllocated(user, allocated) {
   if (isAdminUser(user)) return true;
   return activeAllocatedsForUser([allocated], user).length > 0;
+}
+
+function syncAllocatedConsultantUser(db, allocated) {
+  const email = String(allocated?.consultantEmail || '').trim().toLowerCase();
+  if (!email) return null;
+  db.users = Array.isArray(db.users) ? db.users : [];
+  let user = db.users.find((item) => String(item.email || '').trim().toLowerCase() === email);
+  const timestamp = toISODate();
+  if (!user && allocated.active !== true) return null;
+  if (!user) {
+    user = {
+      id: createId('user', allocated.consultant || email),
+      name: allocated.consultant || email,
+      email,
+      role: 'Consultor',
+      passwordHash: hashPassword('Alcateia123'),
+      mustChangePassword: true,
+      active: true,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+    db.users.push(user);
+    return user;
+  }
+
+  user.name = user.name || allocated.consultant || email;
+  user.role = user.role || 'Consultor';
+  user.active = allocated.active === true;
+  if (!user.passwordHash) {
+    user.passwordHash = hashPassword('Alcateia123');
+    user.mustChangePassword = true;
+  }
+  user.updatedAt = timestamp;
+  return user;
 }
 
 function visibleWorkHoursForUser(workHours = [], allocateds = [], user = {}) {
@@ -3149,6 +3209,10 @@ async function handleApi(request, response) {
         sendError(response, 401, 'Usuario ou senha invalidos.');
         return;
       }
+      if (user.active === false) {
+        sendError(response, 403, 'Usuario inativo. Procure o administrador.');
+        return;
+      }
 
       const token = createSession(user);
       sendJson(response, 200, {
@@ -3743,6 +3807,7 @@ async function handleApi(request, response) {
         businessCalendar: consultantOnly ? [] : responseDb.businessCalendar,
         rateCards: consultantOnly ? [] : responseDb.rateCards.map((rateCard) => enrichRateCard(rateCard, responseDb)),
         statusReports: visibleStatusReports.map((report) => enrichStatusReport(report, responseDb)),
+        statusReportMessages: consultantOnly ? [] : responseDb.statusReportMessages.map((message) => enrichStatusReportMessage(message, responseDb)),
         candidatePool: consultantOnly ? [] : responseDb.candidatePool.map((item) => enrichCandidatePool(item, responseDb)),
         users: responseDb.users.map(sanitizeUser),
         currentUser: sanitizeUser(auth.user),
@@ -4048,8 +4113,9 @@ async function handleApi(request, response) {
         email,
         emailSignature: normalizeEmailSignature(payload.emailSignature || payload.signature || ''),
         role: normalizeUserRole(payload.role || 'Gestão'),
+        active: payload.active === undefined ? true : String(payload.active) !== 'false',
         passwordHash: hashPassword('Alcateia123'),
-        mustChangePassword: false,
+        mustChangePassword: true,
         createdAt: toISODate()
       };
 
@@ -4100,6 +4166,7 @@ async function handleApi(request, response) {
       user.email = email;
       user.emailSignature = normalizeEmailSignature(payload.emailSignature || payload.signature || '');
       user.role = normalizeUserRole(payload.role || user.role);
+      user.active = payload.active === undefined ? user.active !== false : String(payload.active) !== 'false';
       if (payload.resetPassword === true) {
         const defaultPassword = String(payload.password || 'Alcateia123');
         if (defaultPassword.length < 6) {
@@ -5626,7 +5693,8 @@ async function handleApi(request, response) {
       }
 
       db.allocateds.push(allocated);
-      await writeDatabaseCollections(db, ['candidates', 'allocateds']);
+      syncAllocatedConsultantUser(db, allocated);
+      await writeDatabaseCollections(db, ['candidates', 'allocateds', 'users']);
       sendJson(response, 201, {
         candidate: enrichCandidate(candidate, db),
         allocated: enrichAllocated(allocated, db)
@@ -5636,7 +5704,7 @@ async function handleApi(request, response) {
 
     if (request.method === 'POST' && pathname === '/api/allocateds') {
       const payload = await readJsonBody(request);
-      const db = await readDatabaseCollections(['clients', 'allocateds', 'candidates', 'opportunities']);
+      const db = await readDatabaseCollections(['clients', 'allocateds', 'candidates', 'opportunities', 'users']);
       const allocated = normalizeAllocated({
         id: createId('alloc', payload.code || payload.consultant),
         ...payload,
@@ -5663,7 +5731,8 @@ async function handleApi(request, response) {
       }
 
       db.allocateds.push(allocated);
-      await writeDatabaseCollections(db, ['allocateds']);
+      syncAllocatedConsultantUser(db, allocated);
+      await writeDatabaseCollections(db, ['allocateds', 'users']);
       sendJson(response, 201, enrichAllocated(allocated, db));
       return;
     }
@@ -5671,7 +5740,7 @@ async function handleApi(request, response) {
     if (request.method === 'PATCH' && pathname.startsWith('/api/allocateds/')) {
       const allocatedId = decodeURIComponent(pathname.split('/').at(-1));
       const payload = await readJsonBody(request);
-      const db = await readDatabaseCollections(['clients', 'allocateds', 'candidates', 'opportunities']);
+      const db = await readDatabaseCollections(['clients', 'allocateds', 'candidates', 'opportunities', 'users']);
       const allocated = db.allocateds.find((item) => item.id === allocatedId);
 
       if (!allocated) {
@@ -5708,8 +5777,68 @@ async function handleApi(request, response) {
       }
 
       Object.assign(allocated, updated);
-      await writeDatabaseCollections(db, ['allocateds']);
+      syncAllocatedConsultantUser(db, allocated);
+      await writeDatabaseCollections(db, ['allocateds', 'users']);
       sendJson(response, 200, enrichAllocated(allocated, db));
+      return;
+    }
+
+    if (request.method === 'POST' && pathname === '/api/status-report-messages') {
+      if (requireAdmin(response, auth.user, 'Apenas administradores podem cadastrar mensagens de status report.')) {
+        return;
+      }
+      const payload = await readJsonBody(request);
+      const db = await readDatabaseCollections(['clients', 'statusReportMessages']);
+      const message = normalizeStatusReportMessage({
+        id: createId('status_report_message', payload.clientId || 'todos'),
+        ...payload,
+        createdAt: toISODate(),
+        updatedAt: toISODate()
+      });
+      if (message.clientId && !db.clients.some((client) => client.id === message.clientId)) {
+        sendError(response, 422, 'Selecione um cliente valido ou Todos.');
+        return;
+      }
+      if (!message.subject || !message.body) {
+        sendError(response, 422, 'Informe assunto e mensagem.');
+        return;
+      }
+      db.statusReportMessages.push(message);
+      await writeDatabaseCollections(db, ['statusReportMessages']);
+      sendJson(response, 201, enrichStatusReportMessage(message, db));
+      return;
+    }
+
+    if (request.method === 'PATCH' && pathname.startsWith('/api/status-report-messages/')) {
+      if (requireAdmin(response, auth.user, 'Apenas administradores podem alterar mensagens de status report.')) {
+        return;
+      }
+      const messageId = decodeURIComponent(pathname.split('/').at(-1));
+      const payload = await readJsonBody(request);
+      const db = await readDatabaseCollections(['clients', 'statusReportMessages']);
+      const message = db.statusReportMessages.find((item) => item.id === messageId);
+      if (!message) {
+        sendError(response, 404, 'Mensagem nao encontrada.');
+        return;
+      }
+      const updated = normalizeStatusReportMessage({
+        ...message,
+        ...payload,
+        id: message.id,
+        createdAt: message.createdAt,
+        updatedAt: toISODate()
+      });
+      if (updated.clientId && !db.clients.some((client) => client.id === updated.clientId)) {
+        sendError(response, 422, 'Selecione um cliente valido ou Todos.');
+        return;
+      }
+      if (!updated.subject || !updated.body) {
+        sendError(response, 422, 'Informe assunto e mensagem.');
+        return;
+      }
+      Object.assign(message, updated);
+      await writeDatabaseCollections(db, ['statusReportMessages']);
+      sendJson(response, 200, enrichStatusReportMessage(message, db));
       return;
     }
 

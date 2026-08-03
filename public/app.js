@@ -18,6 +18,7 @@
   businessCalendar: [],
   rateCards: [],
   statusReports: [],
+  statusReportMessages: [],
   candidatePool: [],
   users: [],
   currentUser: null,
@@ -74,6 +75,7 @@
     allocatedId: '',
     rateCardId: '',
     statusReportId: '',
+    statusReportMessageId: '',
     candidatePoolId: '',
     huntingId: '',
     userId: '',
@@ -166,7 +168,7 @@ function applyInitialRoute() {
     state.activeBillingReportPanel = formsPanel;
   }
 
-  if (viewId === 'statusReports' && ['editor', 'consultant', 'delivered'].includes(formsPanel)) {
+  if (viewId === 'statusReports' && ['editor', 'consultant', 'delivered', 'messages'].includes(formsPanel)) {
     state.activeStatusReportPanel = formsPanel;
     state.statusReportDeepLinkId = params.get('reportId') || '';
   }
@@ -227,7 +229,7 @@ const launcherNodes = {
     label: 'Contratos',
     eyebrow: 'Seção',
     description: 'Alocados, horas trabalhadas, status report, bolsão de candidatos, huntings e rate cards',
-    children: ['allocateds', 'workHours', 'statusReports', 'statusReportDeliveries', 'candidatePool', 'huntings', 'rateCards']
+    children: ['allocateds', 'workHours', 'statusReports', 'statusReportDeliveries', 'statusReportMessages', 'candidatePool', 'huntings', 'rateCards']
   },
   finance: {
     label: 'Financeiro',
@@ -392,6 +394,14 @@ const launcherNodes = {
     panel: 'delivered',
     roles: ['Admin']
   },
+  statusReportMessages: {
+    label: 'Mensagens Status',
+    eyebrow: 'Contratos',
+    description: 'Cadastro da mensagem mensal enviada aos consultores',
+    view: 'statusReports',
+    panel: 'messages',
+    roles: ['Admin']
+  },
   curriculums: {
     label: 'Banco de Talentos',
     eyebrow: 'Talentos',
@@ -540,8 +550,11 @@ function canAccessLauncherNode(node) {
   if (isCurrentUserConsultant()) {
     return node === launcherNodes.statusReports
       || node === launcherNodes.contracts
-      || node?.view === 'statusReports'
       || node?.panel === 'consultant';
+  }
+  if (node?.roles?.length) {
+    const role = currentUserRole().toLowerCase();
+    if (!node.roles.some((allowedRole) => String(allowedRole).toLowerCase() === role)) return false;
   }
   if (node?.view === 'statusReports') return canCurrentUserAccessStatusReports();
   if (node?.view === 'workHours') return canCurrentUserAccessWorkHours();
@@ -569,7 +582,8 @@ function applyRoleVisibility() {
     $$('[data-view], [data-nav-group]').forEach((element) => {
       const viewId = element.dataset.view;
       const group = element.dataset.navGroup;
-      element.hidden = !(viewId === 'statusReports' || group === 'contracts');
+      const statusPanel = element.dataset.statusPanel || '';
+      element.hidden = !(group === 'contracts' || (viewId === 'statusReports' && !statusPanel));
     });
     $$('[data-view="statusReports"]').forEach((element) => {
       element.hidden = !canCurrentUserAccessStatusReports();
@@ -5933,7 +5947,7 @@ function statusReportDeliveryStatus(report = {}) {
 
 function statusReportPanelMode() {
   if (isCurrentUserConsultant()) return 'consultant';
-  return ['editor', 'consultant', 'delivered'].includes(state.activeStatusReportPanel)
+  return ['editor', 'consultant', 'delivered', 'messages'].includes(state.activeStatusReportPanel)
     ? state.activeStatusReportPanel
     : 'editor';
 }
@@ -6011,6 +6025,49 @@ function renderStatusReportDeliveries() {
   `).join('') : '<tr><td colspan="6">Nenhum consultor ativo encontrado.</td></tr>';
 }
 
+function renderStatusReportMessageOptions() {
+  const select = $('#statusReportMessageClientSelect');
+  if (!select) return;
+  const current = select.value;
+  select.innerHTML = '<option value="">Todos</option>' + state.clients
+    .slice()
+    .sort((first, second) => String(first.customerName || '').localeCompare(String(second.customerName || ''), 'pt-BR', { sensitivity: 'base' }))
+    .map((client) => `<option value="${escapeHtml(client.id)}">${escapeHtml(client.customerName || '-')}</option>`)
+    .join('');
+  select.value = state.clients.some((client) => client.id === current) ? current : '';
+}
+
+function renderStatusReportMessages() {
+  renderStatusReportMessageOptions();
+  const rows = (state.statusReportMessages || [])
+    .slice()
+    .sort((first, second) => String(first.clientName || '').localeCompare(String(second.clientName || ''), 'pt-BR', { sensitivity: 'base' }));
+  const count = $('#statusReportMessageCount');
+  if (count) count.textContent = rows.length;
+  const table = $('#statusReportMessageTable');
+  if (!table) return;
+  table.innerHTML = rows.length ? rows.map((message) => `
+    <tr class="clickable-row" data-edit-status-report-message="${escapeHtml(message.id)}">
+      <td><strong>${escapeHtml(message.clientName || 'Todos')}</strong></td>
+      <td>${escapeHtml(message.subject || '-')}</td>
+      <td>${message.active === false ? 'Não' : 'Sim'}</td>
+      <td>${message.updatedAt ? new Date(message.updatedAt).toLocaleString('pt-BR') : '-'}</td>
+    </tr>
+  `).join('') : '<tr><td colspan="4">Nenhuma mensagem cadastrada.</td></tr>';
+}
+
+function loadStatusReportMessageForEdit(message) {
+  if (!message) return;
+  state.editing.statusReportMessageId = message.id;
+  fillForm('#statusReportMessageForm', {
+    clientId: message.clientId || '',
+    active: message.active === false ? 'false' : 'true',
+    subject: message.subject || '',
+    body: message.body || ''
+  }, 'Atualizar mensagem');
+  toast('Mensagem carregada para manutenção.');
+}
+
 function renderStatusReportOptions() {
   const allocateds = activeStatusReportAllocatedOptions();
   const options = allocateds.map((allocated) => {
@@ -6050,15 +6107,17 @@ function renderStatusReports() {
   state.activeStatusReportPanel = panelMode;
   $$('[data-status-report-panel]').forEach((panel) => {
     const panelName = panel.dataset.statusReportPanel;
-    const shouldShow = panelName === 'delivered'
-      ? panelMode === 'delivered'
-      : panelMode === 'consultant'
-        ? panelName === 'editor'
-        : panelName === 'editor' || panelName === 'editor-list';
+    const shouldShow = panelName === panelMode
+      || (panelMode === 'consultant' && panelName === 'editor')
+      || (panelMode === 'editor' && (panelName === 'editor' || panelName === 'editor-list'));
     panel.hidden = !shouldShow;
   });
   if (panelMode === 'delivered') {
     renderStatusReportDeliveries();
+    return;
+  }
+  if (panelMode === 'messages') {
+    renderStatusReportMessages();
     return;
   }
   renderStatusReportOptions();
@@ -6679,6 +6738,7 @@ function renderUsers() {
           <td><strong>${user.name}</strong></td>
           <td>${user.email}</td>
           <td>${user.role}</td>
+          <td>${user.active === false ? 'Não' : 'Sim'}</td>
           <td>${String(user.emailSignature || '').trim() ? 'Sim' : 'Não'}</td>
           <td>${user.mustChangePassword ? 'Sim' : 'Não'}</td>
         </tr>
@@ -7851,6 +7911,7 @@ function loadUserForEdit(user) {
     name: user.name,
     email: user.email,
     role: user.role,
+    active: user.active === false ? 'false' : 'true',
     emailSignature: user.emailSignature || ''
   }, 'Atualizar usuário');
   toast('Usuário carregado para atualização.');
@@ -8874,6 +8935,7 @@ function bindForms() {
       toast('O e-mail do usuário deve ser @alcateiaconsulting.com.br.');
       return;
     }
+    payload.active = payload.active !== 'false';
 
     const originalText = setSubmitButtonBusy(submitButton, editingId ? 'Atualizando...' : 'Salvando...');
     try {
@@ -8903,7 +8965,6 @@ function bindForms() {
     const editingId = state.editing.formDefinitionId;
     buildFormDefinitionStructuredPayload(form);
     const payload = formPayload(form);
-    payload.active = payload.active !== 'false';
 
     if (!String(payload.title || '').trim()) {
       toast('Informe o nome do formulário.');
@@ -8915,6 +8976,7 @@ function bindForms() {
     }
 
     const originalText = setSubmitButtonBusy(submitButton, editingId ? 'Atualizando...' : 'Salvando...');
+    payload.active = payload.active !== 'false';
     try {
       const savedDefinition = await api(editingId ? `/api/form-definitions/${encodeURIComponent(editingId)}` : '/api/form-definitions', {
         method: editingId ? 'PATCH' : 'POST',
@@ -9589,6 +9651,38 @@ function bindStatusReportActions() {
   });
 
   $('#statusReportDeliveryMonth')?.addEventListener('change', renderStatusReportDeliveries);
+
+  $('#statusReportMessageForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submitButton = $('button[type="submit"]', form);
+    const editingId = state.editing.statusReportMessageId;
+    const payload = formPayload(form);
+    payload.active = payload.active !== 'false';
+    const originalText = setSubmitButtonBusy(submitButton, editingId ? 'Atualizando...' : 'Salvando...');
+    try {
+      const saved = await api(editingId ? `/api/status-report-messages/${encodeURIComponent(editingId)}` : '/api/status-report-messages', {
+        method: editingId ? 'PATCH' : 'POST',
+        body: JSON.stringify(payload)
+      });
+      upsertStateItem('statusReportMessages', saved);
+      state.editing.statusReportMessageId = saved.id;
+      renderStatusReportMessages();
+      setSubmitLabel(form, 'Atualizar mensagem');
+      toast(editingId ? 'Mensagem atualizada.' : 'Mensagem cadastrada.');
+    } catch (error) {
+      toast(error.message || 'Não foi possível salvar a mensagem.');
+    } finally {
+      restoreSubmitButton(submitButton, originalText || (editingId ? 'Atualizar mensagem' : 'Salvar mensagem'));
+    }
+  });
+
+  $('#statusReportMessageTable')?.addEventListener('click', (event) => {
+    if (event.target.closest('button, a, input, select, textarea')) return;
+    const row = event.target.closest('[data-edit-status-report-message]');
+    const message = state.statusReportMessages.find((item) => item.id === row?.dataset.editStatusReportMessage);
+    if (message) loadStatusReportMessageForEdit(message);
+  });
 
   $('#statusReportExportImageButton')?.addEventListener('click', () => {
     exportStatusReportImage();

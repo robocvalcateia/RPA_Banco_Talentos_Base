@@ -3,8 +3,10 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   enrichStatusReport,
+  enrichStatusReportMessage,
   MONGO_APP_COLLECTIONS,
   normalizeDatabase,
+  normalizeStatusReportMessage,
   normalizeStatusReport
 } from '../db.js';
 
@@ -64,12 +66,31 @@ test('status report mensal possui ciclo de consultor e painel de entregas', () =
   const serverSource = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
 
   assert.match(indexSource, /Status Entregues/);
+  assert.match(indexSource, /Mensagens Status/);
   assert.match(indexSource, /value="Consultor"/);
+  assert.match(indexSource, /name="active"/);
   assert.match(appSource, /function isCurrentUserConsultant/);
   assert.match(appSource, /activeStatusReportPanel/);
   assert.match(appSource, /Salvar atualiza..o do m.s/);
+  assert.match(appSource, /renderStatusReportMessages/);
+  assert.match(appSource, /statusReportMessageForm/);
   assert.match(serverSource, /buildStatusReportUrl/);
   assert.match(serverSource, /runMonthlyStatusReportCycle/);
   assert.match(serverSource, /startStatusReportReminderJob/);
   assert.match(serverSource, /consultantSubmission/);
+  assert.match(serverSource, /statusReportMessageForClient/);
+  assert.match(serverSource, /Usuario inativo/);
+});
+
+test('mensagem de status report normaliza cliente todos e enriquece nome', () => {
+  const message = normalizeStatusReportMessage({
+    assunto: 'Status {{periodo}}',
+    mensagem: 'Ola {{consultor}}, acesse {{link}}',
+    ativo: 'Sim'
+  });
+  assert.equal(message.clientId, '');
+  assert.equal(message.active, true);
+
+  const enriched = enrichStatusReportMessage(message, { clients: [] });
+  assert.equal(enriched.clientName, 'Todos');
 });

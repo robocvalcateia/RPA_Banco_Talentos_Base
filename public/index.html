@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=20260803-status-report-monthly" />
+    <link rel="stylesheet" href="/styles.css?v=20260803-status-report-deliveries" />
   </head>
   <body class="auth-locked">
     <section class="auth-screen" id="authScreen">
@@ -103,6 +103,7 @@
             <button class="nav-item nav-subitem" data-view="workHours" data-parent-group="contracts">Horas Trabalhadas</button>
             <button class="nav-item nav-subitem" data-view="statusReports" data-parent-group="contracts">Status Report</button>
             <button class="nav-item nav-subitem" data-view="statusReports" data-status-panel="delivered" data-parent-group="contracts" data-admin-only>Status Entregues</button>
+            <button class="nav-item nav-subitem" data-view="statusReports" data-status-panel="messages" data-parent-group="contracts" data-admin-only>Mensagens Status</button>
             <button class="nav-item nav-subitem" data-view="candidatePool" data-parent-group="contracts">Bolsão de Candidatos</button>
             <button class="nav-item nav-subitem" data-view="huntings" data-parent-group="contracts">Huntings</button>
             <button class="nav-item nav-subitem" data-view="rateCards" data-parent-group="contracts">Rate Cards</button>
@@ -1338,6 +1339,10 @@
               <option value="Gestão">Gestão</option>
               <option value="Consultor">Consultor</option>
             </select></label>
+            <label>Ativo<select name="active">
+              <option value="true">Sim</option>
+              <option value="false">Não</option>
+            </select></label>
             <label>Senha inicial<input value="Alcateia123" readonly /></label>
             <label class="full">Assinatura de e-mail<textarea name="emailSignature" rows="4"></textarea></label>
             <button class="primary-action" type="submit">Salvar usuário</button>
@@ -1355,6 +1360,7 @@
                   <th>Nome</th>
                   <th>E-mail</th>
                   <th>Perfil</th>
+                  <th>Ativo</th>
                   <th>Assinatura</th>
                   <th>Troca obrigatória</th>
                 </tr>
@@ -1717,6 +1723,57 @@
             </table>
           </div>
         </section>
+
+        <section class="panel" data-status-report-panel="messages" data-admin-only>
+          <div class="panel-heading">
+            <div>
+              <h2>Mensagens Status</h2>
+              <span>Mensagem mensal enviada aos consultores</span>
+            </div>
+          </div>
+          <form id="statusReportMessageForm" class="form-grid" novalidate>
+            <label>Cliente
+              <select name="clientId" id="statusReportMessageClientSelect">
+                <option value="">Todos</option>
+              </select>
+            </label>
+            <label>Ativo
+              <select name="active">
+                <option value="true">Sim</option>
+                <option value="false">Não</option>
+              </select>
+            </label>
+            <label class="full">Assunto
+              <input name="subject" required placeholder="Ex.: Atualização mensal Status Report {{periodo}}" />
+            </label>
+            <label class="full">Mensagem
+              <textarea name="body" rows="8" required placeholder="Use {{consultor}}, {{cliente}}, {{periodo}} e {{link}}"></textarea>
+            </label>
+            <button class="primary-action" type="submit">Salvar mensagem</button>
+          </form>
+        </section>
+
+        <section class="panel" data-status-report-panel="messages" data-admin-only>
+          <div class="panel-heading">
+            <div>
+              <h2>Mensagens cadastradas</h2>
+              <span id="statusReportMessageCount">0</span>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Cliente</th>
+                  <th>Assunto</th>
+                  <th>Ativo</th>
+                  <th>Atualizado em</th>
+                </tr>
+              </thead>
+              <tbody id="statusReportMessageTable"></tbody>
+            </table>
+          </div>
+        </section>
       </section>
 
       <section class="view" id="billingReport">
@@ -1909,7 +1966,7 @@
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=20260803-status-report-monthly"></script>
+    <script src="/app.js?v=20260803-status-report-deliveries"></script>
   </body>
 </html>
 

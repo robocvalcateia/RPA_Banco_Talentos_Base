@@ -86,6 +86,7 @@ const REQUIRED_COLLECTIONS = [
   'businessCalendar',
   'rateCards',
   'statusReports',
+  'statusReportMessages',
   'candidatePool',
   'contactClients',
   'cvFilters',
@@ -555,7 +556,9 @@ export function normalizeDatabase(data = {}) {
   data.workHourClosures = data.workHourClosures.map((closure) => normalizeWorkHourClosure(closure));
   data.businessCalendar = data.businessCalendar.map((entry) => normalizeBusinessCalendarEntry(entry));
   data.rateCards = data.rateCards.map((rateCard) => normalizeRateCard(rateCard));
+  data.users = data.users.map((user) => normalizeUser(user));
   data.statusReports = data.statusReports.map((report) => normalizeStatusReport(report));
+  data.statusReportMessages = data.statusReportMessages.map((message) => normalizeStatusReportMessage(message));
   ensureDefaultRateCards(data);
   data.candidatePool = data.candidatePool.map((item) => normalizeCandidatePool(item));
   ensureDefaultCandidatePool(data);
@@ -942,6 +945,21 @@ export function sanitizeUser(user) {
   if (!user) return null;
   const { passwordHash, passwordResetTokenHash, passwordResetExpiresAt, ...safeUser } = user;
   return safeUser;
+}
+
+export function normalizeUser(user = {}) {
+  return {
+    ...user,
+    id: String(user.id ?? createId('user', user.name || user.email || 'usuario')).trim(),
+    name: String(user.name ?? user.nome ?? '').trim(),
+    email: String(user.email ?? '').trim().toLowerCase(),
+    role: String(user.role ?? user.perfil ?? 'Gestão').trim(),
+    active: user.active === undefined && user.ativo === undefined ? true : normalizeBoolean(user.active ?? user.ativo),
+    emailSignature: String(user.emailSignature ?? user.assinaturaEmail ?? '').trim(),
+    mustChangePassword: Boolean(user.mustChangePassword ?? user.trocaSenhaObrigatoria ?? false),
+    createdAt: String(user.createdAt ?? toISODate()).trim(),
+    updatedAt: String(user.updatedAt ?? '').trim()
+  };
 }
 
 export function monthYearFromDate(dateValue) {
@@ -1409,6 +1427,21 @@ export function normalizeStatusReport(report = {}) {
   };
 }
 
+export function normalizeStatusReportMessage(message = {}) {
+  const clientId = String(message.clientId ?? message.clienteId ?? '').trim();
+  return {
+    ...message,
+    id: String(message.id ?? createId('status_report_message', clientId || 'todos')).trim(),
+    clientId,
+    title: String(message.title ?? message.titulo ?? '').trim(),
+    subject: String(message.subject ?? message.assunto ?? '').trim(),
+    body: String(message.body ?? message.mensagem ?? '').trim(),
+    active: message.active === undefined && message.ativo === undefined ? true : normalizeBoolean(message.active ?? message.ativo),
+    createdAt: String(message.createdAt ?? toISODate()).trim(),
+    updatedAt: String(message.updatedAt ?? '').trim()
+  };
+}
+
 export function normalizeCandidatePool(item) {
   const profile = String(item.profile ?? item.perfil ?? item['Perfil (Select: Técnico, Funcional)'] ?? '').trim();
   const normalizedProfile = CANDIDATE_POOL_PROFILES.includes(profile) ? profile : 'Funcional';
@@ -1645,6 +1678,14 @@ export function enrichStatusReport(report, db) {
     managerName: allocated?.manager ?? report.managerName ?? '',
     managerEmail: allocated?.managerEmail ?? report.managerEmail ?? '',
     clientManagerName: client?.managerContactName ?? ''
+  };
+}
+
+export function enrichStatusReportMessage(message, db) {
+  const client = db.clients.find((item) => item.id === message.clientId);
+  return {
+    ...message,
+    clientName: client?.customerName ?? (message.clientId ? '' : 'Todos')
   };
 }
 
