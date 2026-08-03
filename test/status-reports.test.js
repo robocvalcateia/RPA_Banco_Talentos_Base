@@ -80,6 +80,9 @@ test('status report mensal possui ciclo de consultor e painel de entregas', () =
   assert.match(serverSource, /consultantSubmission/);
   assert.match(serverSource, /statusReportMessageForClient/);
   assert.match(serverSource, /Usuario inativo/);
+  assert.match(serverSource, /syncAllocatedConsultantUsersOnStartup/);
+  assert.match(serverSource, /hasActiveAllocation/);
+  assert.match(serverSource, /writeDatabaseCollections\(db, \['users'\]\)/);
 });
 
 test('mensagem de status report normaliza cliente todos e enriquece nome', () => {

@@ -205,6 +205,23 @@ async function seedUsersFromEnv() {
 
 await seedUsersFromEnv();
 
+async function syncAllocatedConsultantUsersOnStartup() {
+  const db = await readDatabaseCollections(['allocateds', 'users']);
+  const activeAllocateds = db.allocateds.filter((allocated) => allocated.active === true && allocated.consultantEmail);
+  let changed = false;
+
+  for (const allocated of activeAllocateds) {
+    const before = JSON.stringify(db.users);
+    syncAllocatedConsultantUser(db, allocated);
+    if (JSON.stringify(db.users) !== before) changed = true;
+  }
+
+  if (changed) {
+    await writeDatabaseCollections(db, ['users']);
+    console.log(`[sync-allocated-users] ${activeAllocateds.length} alocado(s) ativo(s) verificados para usuarios consultores`);
+  }
+}
+
 export function shouldResetEnvUserPasswords(env = process.env) {
   return env.RESET_ENV_USER_PASSWORDS === 'true'
     && env.ALLOW_ENV_USER_PASSWORD_RESET === 'CONFIRMO_RESETAR_SENHAS';
@@ -1289,9 +1306,14 @@ function syncAllocatedConsultantUser(db, allocated) {
   const email = String(allocated?.consultantEmail || '').trim().toLowerCase();
   if (!email) return null;
   db.users = Array.isArray(db.users) ? db.users : [];
+  db.allocateds = Array.isArray(db.allocateds) ? db.allocateds : [];
   let user = db.users.find((item) => String(item.email || '').trim().toLowerCase() === email);
   const timestamp = toISODate();
-  if (!user && allocated.active !== true) return null;
+  const hasActiveAllocation = db.allocateds.some((item) => (
+    String(item.consultantEmail || '').trim().toLowerCase() === email
+    && item.active === true
+  ));
+  if (!user && !hasActiveAllocation) return null;
   if (!user) {
     user = {
       id: createId('user', allocated.consultant || email),
@@ -1300,7 +1322,7 @@ function syncAllocatedConsultantUser(db, allocated) {
       role: 'Consultor',
       passwordHash: hashPassword('Alcateia123'),
       mustChangePassword: true,
-      active: true,
+      active: hasActiveAllocation,
       createdAt: timestamp,
       updatedAt: timestamp
     };
@@ -1310,7 +1332,7 @@ function syncAllocatedConsultantUser(db, allocated) {
 
   user.name = user.name || allocated.consultant || email;
   user.role = user.role || 'Consultor';
-  user.active = allocated.active === true;
+  user.active = hasActiveAllocation;
   if (!user.passwordHash) {
     user.passwordHash = hashPassword('Alcateia123');
     user.mustChangePassword = true;
@@ -6429,6 +6451,7 @@ const server = http.createServer((request, response) => {
 });
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await syncAllocatedConsultantUsersOnStartup();
   server.listen(PORT, () => {
     startFormRequestReminderJob();
     startStatusReportReminderJob();
