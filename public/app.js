@@ -40,6 +40,8 @@
   dashboardAnalyticsCsvUrl: '',
   activeFormsPanel: 'request',
   activeBillingReportPanel: 'query',
+  activeStatusReportPanel: 'editor',
+  statusReportDeepLinkId: '',
   launcherReturnNodeId: 'root',
   pendingWonOpportunitySave: null,
   taxReformSimulation: null,
@@ -164,6 +166,11 @@ function applyInitialRoute() {
     state.activeBillingReportPanel = formsPanel;
   }
 
+  if (viewId === 'statusReports' && ['editor', 'consultant', 'delivered'].includes(formsPanel)) {
+    state.activeStatusReportPanel = formsPanel;
+    state.statusReportDeepLinkId = params.get('reportId') || '';
+  }
+
   if (viewId && viewTitles[viewId]) {
     rememberLauncherReturnForView(viewId, formsPanel);
     showView(viewId);
@@ -220,7 +227,7 @@ const launcherNodes = {
     label: 'Contratos',
     eyebrow: 'Seção',
     description: 'Alocados, horas trabalhadas, status report, bolsão de candidatos, huntings e rate cards',
-    children: ['allocateds', 'workHours', 'statusReports', 'candidatePool', 'huntings', 'rateCards']
+    children: ['allocateds', 'workHours', 'statusReports', 'statusReportDeliveries', 'candidatePool', 'huntings', 'rateCards']
   },
   finance: {
     label: 'Financeiro',
@@ -377,6 +384,14 @@ const launcherNodes = {
     description: 'One page executivo por cliente, consultor, farol e pontos de atenção',
     view: 'statusReports'
   },
+  statusReportDeliveries: {
+    label: 'Status Entregues',
+    eyebrow: 'Contratos',
+    description: 'Controle mensal de enviados, salvos e pendentes',
+    view: 'statusReports',
+    panel: 'delivered',
+    roles: ['Admin']
+  },
   curriculums: {
     label: 'Banco de Talentos',
     eyebrow: 'Talentos',
@@ -490,6 +505,10 @@ function isCurrentUserAdmin() {
   return currentUserRole().toLowerCase() === 'admin';
 }
 
+function isCurrentUserConsultant() {
+  return currentUserRole().toLowerCase() === 'consultor';
+}
+
 function currentUserEmail() {
   return String(state.currentUser?.email || session.user?.email || '').trim().toLowerCase();
 }
@@ -513,7 +532,18 @@ function canCurrentUserAccessWorkHours() {
   return isCurrentUserAdmin() || activeAllocatedsForCurrentUser().length > 0;
 }
 
+function canCurrentUserAccessStatusReports() {
+  return isCurrentUserAdmin() || activeAllocatedsForCurrentUser().length > 0;
+}
+
 function canAccessLauncherNode(node) {
+  if (isCurrentUserConsultant()) {
+    return node === launcherNodes.statusReports
+      || node === launcherNodes.contracts
+      || node?.view === 'statusReports'
+      || node?.panel === 'consultant';
+  }
+  if (node?.view === 'statusReports') return canCurrentUserAccessStatusReports();
   if (node?.view === 'workHours') return canCurrentUserAccessWorkHours();
   if (node?.view === 'billingReport' || node === launcherNodes.billingReports) return canCurrentUserAccessWorkHours();
   if (!node?.roles?.length) return true;
@@ -522,6 +552,7 @@ function canAccessLauncherNode(node) {
 }
 
 function canAccessView(viewId) {
+  if (isCurrentUserConsultant()) return viewId === 'statusReports' || viewId === 'dashboard';
   if (viewId === 'faturamento') return isCurrentUserAdmin();
   if (viewId === 'taxReformSimulator') return isCurrentUserAdmin();
   if (viewId === 'allocationPrices') return isCurrentUserAdmin();
@@ -529,10 +560,22 @@ function canAccessView(viewId) {
   if (viewId === 'businessCalendar') return isCurrentUserAdmin();
   if (viewId === 'billingReport') return canCurrentUserAccessWorkHours();
   if (viewId === 'workHours') return canCurrentUserAccessWorkHours();
+  if (viewId === 'statusReports') return canCurrentUserAccessStatusReports();
   return true;
 }
 
 function applyRoleVisibility() {
+  if (isCurrentUserConsultant()) {
+    $$('[data-view], [data-nav-group]').forEach((element) => {
+      const viewId = element.dataset.view;
+      const group = element.dataset.navGroup;
+      element.hidden = !(viewId === 'statusReports' || group === 'contracts');
+    });
+    $$('[data-view="statusReports"]').forEach((element) => {
+      element.hidden = !canCurrentUserAccessStatusReports();
+    });
+    return;
+  }
   $$('[data-admin-only]').forEach((element) => {
     element.hidden = !isCurrentUserAdmin();
   });
@@ -5878,6 +5921,55 @@ async function sendStatusReportEvaluation() {
   toast(opened ? `PDF ${filename} gerado. Outlook aberto para envio da avaliação.` : `PDF ${filename} gerado.`);
 }
 
+function currentStatusReportMonthKey() {
+  return new Date().toLocaleDateString('en-CA', { year: 'numeric', month: '2-digit' }).slice(0, 7);
+}
+
+function statusReportDeliveryStatus(report = {}) {
+  return report.consultantSubmittedAt || String(report.deliveryStatus || '').toLowerCase() === 'salvo'
+    ? 'Salvo'
+    : 'Em aberto';
+}
+
+function statusReportPanelMode() {
+  if (isCurrentUserConsultant()) return 'consultant';
+  return ['editor', 'consultant', 'delivered'].includes(state.activeStatusReportPanel)
+    ? state.activeStatusReportPanel
+    : 'editor';
+}
+
+function setStatusReportFormReadOnlyForConsultant() {
+  const form = $('#statusReportForm');
+  if (!form) return;
+  const consultantMode = statusReportPanelMode() === 'consultant';
+  ['allocatedId', 'clientName', 'period', 'reportDate', 'alcateiaOwner'].forEach((fieldName) => {
+    const field = form.elements[fieldName];
+    if (!field) return;
+    if (field.tagName === 'SELECT') {
+      field.disabled = consultantMode;
+    } else {
+      field.readOnly = consultantMode;
+    }
+  });
+  $('#statusReportClearButton')?.toggleAttribute('hidden', consultantMode);
+  const submitButton = $('button[type="submit"]', form);
+  if (submitButton && consultantMode) submitButton.textContent = 'Salvar atualização do mês';
+}
+
+function statusReportPayloadFromForm(form) {
+  const payload = formPayload(form);
+  const allocatedSelect = $('#statusReportAllocatedSelect');
+  if (!payload.allocatedId && allocatedSelect?.value) payload.allocatedId = allocatedSelect.value;
+  const current = state.editing.statusReportId
+    ? state.statusReports.find((report) => report.id === state.editing.statusReportId)
+    : null;
+  if (current) {
+    payload.referenceMonth = current.referenceMonth || payload.referenceMonth || '';
+    if (statusReportPanelMode() === 'consultant') payload.consultantSubmission = true;
+  }
+  return payload;
+}
+
 function getFilteredStatusReports() {
   return state.statusReports
     .filter((report) => !state.statusReportFilter.clientId || report.clientId === state.statusReportFilter.clientId)
@@ -5885,6 +5977,38 @@ function getFilteredStatusReports() {
     .filter((report) => !state.statusReportFilter.statusLight || report.statusLight === state.statusReportFilter.statusLight)
     .slice()
     .sort((first, second) => String(second.reportDate || '').localeCompare(String(first.reportDate || '')));
+}
+
+function getStatusReportDeliveryRows() {
+  const month = $('#statusReportDeliveryMonth')?.value || currentStatusReportMonthKey();
+  return state.allocateds
+    .filter((allocated) => allocated.active === true)
+    .map((allocated) => {
+      const client = state.clients.find((item) => item.id === allocated.clientId);
+      const report = state.statusReports.find((item) => item.allocatedId === allocated.id && item.referenceMonth === month);
+      return { allocated, client, report };
+    })
+    .sort((first, second) => String(first.allocated.consultant || '').localeCompare(String(second.allocated.consultant || ''), 'pt-BR', { sensitivity: 'base' }));
+}
+
+function renderStatusReportDeliveries() {
+  const monthInput = $('#statusReportDeliveryMonth');
+  if (monthInput && !monthInput.value) monthInput.value = currentStatusReportMonthKey();
+  const rows = getStatusReportDeliveryRows();
+  const count = $('#statusReportDeliveryCount');
+  if (count) count.textContent = rows.length;
+  const table = $('#statusReportDeliveryTable');
+  if (!table) return;
+  table.innerHTML = rows.length ? rows.map(({ allocated, client, report }) => `
+    <tr>
+      <td><strong>${escapeHtml(allocated.consultant || '-')}</strong><br>${escapeHtml(allocated.consultantEmail || '-')}</td>
+      <td>${escapeHtml(client?.customerName || allocated.clientName || '-')}</td>
+      <td>${report?.monthlyEmailSentAt ? formatDateOnlyBR(report.monthlyEmailSentAt) : 'Não'}</td>
+      <td>${escapeHtml(report ? statusReportDeliveryStatus(report) : 'Sem envio')}</td>
+      <td>${report?.consultantSubmittedAt ? new Date(report.consultantSubmittedAt).toLocaleString('pt-BR') : '-'}</td>
+      <td>${report?.monthlyEmailLastReminderAt ? new Date(report.monthlyEmailLastReminderAt).toLocaleString('pt-BR') : '-'}</td>
+    </tr>
+  `).join('') : '<tr><td colspan="6">Nenhum consultor ativo encontrado.</td></tr>';
 }
 
 function renderStatusReportOptions() {
@@ -5922,7 +6046,35 @@ function renderStatusReportOptions() {
 }
 
 function renderStatusReports() {
+  const panelMode = statusReportPanelMode();
+  state.activeStatusReportPanel = panelMode;
+  $$('[data-status-report-panel]').forEach((panel) => {
+    const panelName = panel.dataset.statusReportPanel;
+    const shouldShow = panelName === 'delivered'
+      ? panelMode === 'delivered'
+      : panelMode === 'consultant'
+        ? panelName === 'editor'
+        : panelName === 'editor' || panelName === 'editor-list';
+    panel.hidden = !shouldShow;
+  });
+  if (panelMode === 'delivered') {
+    renderStatusReportDeliveries();
+    return;
+  }
   renderStatusReportOptions();
+  setStatusReportFormReadOnlyForConsultant();
+  if (panelMode === 'consultant' && !state.editing.statusReportId) {
+    const targetReport = state.statusReports.find((report) => report.id === state.statusReportDeepLinkId)
+      || state.statusReports
+        .filter((report) => activeAllocatedsForCurrentUser().some((allocated) => allocated.id === report.allocatedId))
+        .slice()
+        .sort((first, second) => String(second.referenceMonth || second.reportDate || '').localeCompare(String(first.referenceMonth || first.reportDate || '')))
+        .at(0);
+    if (targetReport) {
+      loadStatusReportForEdit(targetReport);
+      state.statusReportDeepLinkId = '';
+    }
+  }
   const rows = getFilteredStatusReports();
   const count = $('#statusReportCount');
   if (count) count.textContent = rows.length;
@@ -5941,6 +6093,7 @@ function renderStatusReports() {
     `).join('') : '<tr><td colspan="7">Nenhum status report encontrado.</td></tr>';
   }
   if (!state.editing.statusReportId) renderStatusReportPreview();
+  setStatusReportFormReadOnlyForConsultant();
 }
 
 function loadStatusReportForEdit(report, previewOnly = false) {
@@ -5963,6 +6116,7 @@ function loadStatusReportForEdit(report, previewOnly = false) {
   state.editing.statusReportId = previewOnly ? '' : report.id;
   syncStatusReportClientName();
   renderStatusReportPreview(report);
+  setStatusReportFormReadOnlyForConsultant();
   toast(previewOnly ? 'Status report aberto para visualizacao.' : 'Status report carregado para edicao.');
 }
 
@@ -8022,6 +8176,11 @@ function createLauncherCard(nodeId, className) {
       if (node.view === 'billingReport' && node.panel) {
         state.activeBillingReportPanel = node.panel;
       }
+      if (node.view === 'statusReports' && node.panel) {
+        state.activeStatusReportPanel = node.panel;
+      } else if (node.view === 'statusReports' && isCurrentUserConsultant()) {
+        state.activeStatusReportPanel = 'consultant';
+      }
       rememberLauncherReturnForNode(nodeId);
       showView(node.view);
       return;
@@ -8188,6 +8347,9 @@ function bindNavigation() {
     button.addEventListener('click', () => {
       if (button.dataset.view === 'billingReport' && button.dataset.billingPanel) {
         state.activeBillingReportPanel = button.dataset.billingPanel;
+      }
+      if (button.dataset.view === 'statusReports') {
+        state.activeStatusReportPanel = button.dataset.statusPanel || (isCurrentUserConsultant() ? 'consultant' : 'editor');
       }
       rememberLauncherReturnForView(button.dataset.view, button.dataset.billingPanel || '');
       showView(button.dataset.view);
@@ -9392,7 +9554,7 @@ function bindStatusReportActions() {
     const form = event.currentTarget;
     const submitButton = $('button[type="submit"]', form);
     const editingId = state.editing.statusReportId;
-    const payload = formPayload(form);
+    const payload = statusReportPayloadFromForm(form);
     delete payload.clientName;
     const originalText = setSubmitButtonBusy(submitButton, 'Salvando...');
     try {
@@ -9405,7 +9567,7 @@ function bindStatusReportActions() {
       renderStatusReports();
       renderStatusReportPreview(saved);
       setSubmitLabel(form, 'Atualizar status report');
-      toast(editingId ? 'Status report atualizado.' : 'Status report salvo.');
+      toast(statusReportPanelMode() === 'consultant' ? 'Status do mês salvo.' : (editingId ? 'Status report atualizado.' : 'Status report salvo.'));
     } catch (error) {
       toast(error.message || 'Não foi possível salvar o status report.');
     } finally {
@@ -9425,6 +9587,8 @@ function bindStatusReportActions() {
       renderStatusReports();
     });
   });
+
+  $('#statusReportDeliveryMonth')?.addEventListener('change', renderStatusReportDeliveries);
 
   $('#statusReportExportImageButton')?.addEventListener('click', () => {
     exportStatusReportImage();

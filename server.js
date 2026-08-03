@@ -102,7 +102,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260731-email-reprocess-sync-timeout';
+const APP_VERSION = '20260803-status-report-monthly';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -273,6 +273,16 @@ function buildFormRequestUrl(requestItem) {
   return url.toString();
 }
 
+function buildStatusReportUrl(report) {
+  const url = new URL(getPublicBaseUrl());
+  url.searchParams.set('view', 'statusReports');
+  url.searchParams.set('panel', 'consultant');
+  if (report?.id) {
+    url.searchParams.set('reportId', report.id);
+  }
+  return url.toString();
+}
+
 function isSmtpAccountConfigured(config) {
   return Boolean(config?.host && config?.port && config?.user && config?.password && config?.from);
 }
@@ -294,7 +304,8 @@ const USER_ROLES = ['Admin', 'Gestão'];
 
 function normalizeUserRole(role) {
   const value = String(role || '').trim();
-  const match = USER_ROLES.find((item) => item.toLowerCase() === value.toLowerCase());
+  const roles = USER_ROLES.includes('Consultor') ? USER_ROLES : [...USER_ROLES, 'Consultor'];
+  const match = roles.find((item) => item.toLowerCase() === value.toLowerCase());
   return match || 'Gestão';
 }
 
@@ -314,6 +325,10 @@ function requireAdmin(response, user, message = 'Apenas administradores podem ex
   if (isAdminUser(user)) return false;
   sendError(response, 403, message);
   return true;
+}
+
+function isConsultantUser(user) {
+  return String(user?.role || '').trim().toLowerCase() === 'consultor';
 }
 
 function visibleFormRequestsForUser(formRequests = [], user = {}) {
@@ -398,6 +413,7 @@ function addFormRequestObservation(db, requestItem, user, text, action = '') {
 const FORM_FIELD_TYPES = ['texto', 'numero', 'data', 'email', 'textarea', 'lista', 'arquivo', 'moeda'];
 const REQUESTER_WORKFLOW_ASSIGNEE = '__requester__';
 const FORM_REMINDER_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const STATUS_REPORT_REMINDER_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 function repairEncodingArtifacts(value) {
   return repairUnicodeText(value);
@@ -868,6 +884,198 @@ function startFormRequestReminderJob() {
     run();
     setInterval(run, FORM_REMINDER_INTERVAL_MS);
   }, msUntilNextFormReminderRun());
+}
+
+function monthKeyForAppDate(date = new Date()) {
+  return date.toLocaleDateString('en-CA', {
+    timeZone: APP_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit'
+  }).slice(0, 7);
+}
+
+function dayOfMonthForAppDate(date = new Date()) {
+  return Number(date.toLocaleDateString('en-CA', {
+    timeZone: APP_TIME_ZONE,
+    day: '2-digit'
+  }));
+}
+
+function todayKeyForAppDate(date = new Date()) {
+  return date.toLocaleDateString('en-CA', { timeZone: APP_TIME_ZONE });
+}
+
+function monthLabelFromKey(monthKey = '') {
+  const [year, month] = String(monthKey || '').split('-').map(Number);
+  if (!year || !month) return String(monthKey || '').trim();
+  return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString('pt-BR', {
+    timeZone: 'UTC',
+    month: 'long',
+    year: 'numeric'
+  });
+}
+
+function activeAllocatedsForStatusReportCycle(db) {
+  return (db.allocateds || [])
+    .filter((allocated) => allocated.active === true)
+    .filter((allocated) => String(allocated.consultantEmail || '').trim())
+    .filter((allocated) => db.clients.some((client) => client.id === allocated.clientId));
+}
+
+function latestStatusReportForAllocated(db, allocatedId, currentMonth) {
+  return (db.statusReports || [])
+    .filter((report) => report.allocatedId === allocatedId && report.referenceMonth !== currentMonth)
+    .slice()
+    .sort((first, second) => String(second.referenceMonth || second.reportDate || '').localeCompare(String(first.referenceMonth || first.reportDate || '')))
+    .at(0) || null;
+}
+
+function buildMonthlyStatusReport(db, allocated, monthKey) {
+  const client = db.clients.find((item) => item.id === allocated.clientId);
+  const previous = latestStatusReportForAllocated(db, allocated.id, monthKey) || {};
+  return normalizeStatusReport({
+    id: createId('status_report', `${allocated.id}-${monthKey}`),
+    clientId: client.id,
+    allocatedId: allocated.id,
+    referenceMonth: monthKey,
+    period: monthLabelFromKey(monthKey),
+    clientName: client.customerName,
+    consultantName: allocated.consultant,
+    consultantEmail: allocated.consultantEmail,
+    managerName: allocated.manager,
+    managerEmail: allocated.managerEmail,
+    alcateiaOwner: previous.alcateiaOwner || '',
+    reportDate: `${monthKey}-01`,
+    statusLight: previous.statusLight || 'verde',
+    executiveSummary: previous.executiveSummary || '',
+    tasks: previous.tasks || '',
+    nextSteps: previous.nextSteps || '',
+    attentionPoints: previous.attentionPoints || '',
+    risks: previous.risks || '',
+    recommendedActions: previous.recommendedActions || '',
+    governanceNote: previous.governanceNote || undefined,
+    deliveryStatus: 'Aberto',
+    createdAt: toISODate(),
+    updatedAt: toISODate()
+  });
+}
+
+async function sendStatusReportConsultantEmail({ report, allocated, type = 'invite' }) {
+  const config = getSmtpConfigFromEnv();
+  if (!isSmtpAccountConfigured(config)) {
+    return { sent: false, reason: 'SMTP nao configurado.' };
+  }
+  const to = String(allocated.consultantEmail || report.consultantEmail || '').trim().toLowerCase();
+  if (!to) return { sent: false, reason: 'E-mail do consultor nao informado.' };
+
+  const url = buildStatusReportUrl(report);
+  const consultantName = allocated.consultant || report.consultantName || 'consultor';
+  const monthLabel = report.period || monthLabelFromKey(report.referenceMonth);
+  const subject = type === 'reminder'
+    ? `[Alcateia] Lembrete Status Report ${monthLabel}: ${consultantName}`
+    : `[Alcateia] Atualizacao mensal do Status Report ${monthLabel}: ${consultantName}`;
+  const text = [
+    `Consultor: ${consultantName}`,
+    `Cliente: ${report.clientName || '-'}`,
+    `Periodo: ${monthLabel}`,
+    `Status: ${report.deliveryStatus || 'Aberto'}`,
+    `Link de acesso: ${url}`,
+    '',
+    'Atualize o Status Report do mes a partir do campo Farol e salve as informacoes para concluir a entrega.',
+    'Seu acesso deve ser usado apenas neste modulo.'
+  ].join('\n');
+
+  await sendMail({ ...config, to, subject, text });
+  return { sent: true, to };
+}
+
+async function runMonthlyStatusReportCycle({ forceInvite = false, forceReminder = false, date = new Date() } = {}) {
+  const monthKey = monthKeyForAppDate(date);
+  const todayKey = todayKeyForAppDate(date);
+  const shouldInvite = forceInvite || dayOfMonthForAppDate(date) === 1;
+  const db = await readDatabaseCollections(['clients', 'allocateds', 'statusReports']);
+  const activeAllocateds = activeAllocatedsForStatusReportCycle(db);
+  let created = 0;
+  let invitesSent = 0;
+  let remindersSent = 0;
+  const deliveryRows = [];
+
+  for (const allocated of activeAllocateds) {
+    let report = db.statusReports.find((item) => item.allocatedId === allocated.id && item.referenceMonth === monthKey);
+    if (!report) {
+      if (!shouldInvite) continue;
+      report = buildMonthlyStatusReport(db, allocated, monthKey);
+      db.statusReports.push(report);
+      created += 1;
+    }
+
+    if (shouldInvite && !report.monthlyEmailSentAt && !report.consultantSubmittedAt) {
+      const notification = await sendStatusReportConsultantEmail({ report, allocated, type: 'invite' });
+      report.monthlyEmailNotification = notification;
+      if (notification.sent) {
+        report.monthlyEmailSentAt = toISODate();
+        report.monthlyEmailLastReminderDate = todayKey;
+        invitesSent += 1;
+      }
+      report.updatedAt = toISODate();
+    }
+
+    const isOpen = !report.consultantSubmittedAt && String(report.deliveryStatus || '').toLowerCase() !== 'salvo';
+    const canRemind = isOpen && report.monthlyEmailSentAt && (forceReminder || report.monthlyEmailLastReminderDate !== todayKey);
+    if (canRemind) {
+      const notification = await sendStatusReportConsultantEmail({ report, allocated, type: 'reminder' });
+      if (notification.sent) {
+        report.monthlyEmailLastReminderDate = todayKey;
+        report.monthlyEmailLastReminderAt = toISODate();
+        remindersSent += 1;
+      }
+      report.monthlyEmailNotification = notification;
+      report.updatedAt = toISODate();
+    }
+
+    deliveryRows.push(enrichStatusReport(report, db));
+  }
+
+  if (created || invitesSent || remindersSent) {
+    await writeDatabaseCollections(db, ['statusReports']);
+  }
+
+  return {
+    monthKey,
+    activeAllocateds: activeAllocateds.length,
+    created,
+    invitesSent,
+    remindersSent,
+    reports: deliveryRows
+  };
+}
+
+function msUntilNextStatusReportRun() {
+  const hour = Math.min(23, Math.max(0, Number(process.env.STATUS_REPORT_REMINDER_HOUR || 8)));
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(hour, 10, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+  return next.getTime() - now.getTime();
+}
+
+function startStatusReportReminderJob() {
+  const enabled = String(process.env.STATUS_REPORT_REMINDER_ENABLED || (isProductionRuntime() ? 'true' : 'false')).toLowerCase();
+  if (enabled !== 'true') return;
+  const run = async () => {
+    try {
+      const result = await runMonthlyStatusReportCycle();
+      if (result.invitesSent || result.remindersSent) {
+        console.log(`Status Report mensal: ${result.invitesSent} convite(s), ${result.remindersSent} lembrete(s).`);
+      }
+    } catch (error) {
+      console.error('Falha no ciclo mensal de status report:', error.message);
+    }
+  };
+  setTimeout(() => {
+    run();
+    setInterval(run, STATUS_REPORT_REMINDER_INTERVAL_MS);
+  }, msUntilNextStatusReportRun());
 }
 
 async function withTimeout(promise, timeoutMs, message) {
@@ -3505,31 +3713,37 @@ async function handleApi(request, response) {
       const visibleWorkHours = visibleWorkHoursForUser(responseDb.workHours, responseDb.allocateds, auth.user);
       const visibleWorkHourClosures = visibleWorkHourClosuresForUser(responseDb.workHourClosures, responseDb.allocateds, auth.user);
       const visibleStatusReports = visibleStatusReportsForUser(responseDb.statusReports, responseDb.allocateds, auth.user);
+      const consultantOnly = isConsultantUser(auth.user);
+      const visibleAllocateds = consultantOnly ? activeAllocatedsForUser(responseDb.allocateds, auth.user) : responseDb.allocateds;
+      const visibleClientIds = new Set(visibleAllocateds.map((allocated) => allocated.clientId).filter(Boolean));
+      const visibleClients = consultantOnly
+        ? responseDb.clients.filter((client) => visibleClientIds.has(client.id))
+        : responseDb.clients;
       sendJson(response, 200, {
-        clients: responseDb.clients,
-        contactClients: responseDb.contactClients,
-        opportunities: responseDb.opportunities,
-        faturamento: responseDb.faturamento,
-        formDefinitions: responseDb.formDefinitions,
-        formRequests: visibleFormRequests,
-        formRequestObservations,
-        cvFilters: responseDb.cvFilters.map((filter) => enrichCvFilter(filter, responseDb)),
-        selectedCandidates: responseDb.selectedCandidates.map((candidate) => enrichSelectedCandidate(candidate, responseDb)),
-        curriculums: curriculumBootstrap.curriculums,
-        curriculumObservations: responseDb.curriculumObservations,
+        clients: visibleClients,
+        contactClients: consultantOnly ? [] : responseDb.contactClients,
+        opportunities: consultantOnly ? [] : responseDb.opportunities,
+        faturamento: consultantOnly ? [] : responseDb.faturamento,
+        formDefinitions: consultantOnly ? [] : responseDb.formDefinitions,
+        formRequests: consultantOnly ? [] : visibleFormRequests,
+        formRequestObservations: consultantOnly ? [] : formRequestObservations,
+        cvFilters: consultantOnly ? [] : responseDb.cvFilters.map((filter) => enrichCvFilter(filter, responseDb)),
+        selectedCandidates: consultantOnly ? [] : responseDb.selectedCandidates.map((candidate) => enrichSelectedCandidate(candidate, responseDb)),
+        curriculums: consultantOnly ? [] : curriculumBootstrap.curriculums,
+        curriculumObservations: consultantOnly ? [] : responseDb.curriculumObservations,
         curriculumTemplates,
         talentSource: curriculumBootstrap.source,
         talentStats: curriculumBootstrap.stats,
         talentError: curriculumBootstrap.error,
         emailProcessing: { ...emailProcessing },
-        candidates: responseDb.candidates.map((candidate) => enrichCandidate(candidate, responseDb)),
-        allocateds: responseDb.allocateds.map((allocated) => enrichAllocated(allocated, responseDb)),
-        workHours: visibleWorkHours,
-        workHourClosures: visibleWorkHourClosures,
-        businessCalendar: responseDb.businessCalendar,
-        rateCards: responseDb.rateCards.map((rateCard) => enrichRateCard(rateCard, responseDb)),
+        candidates: consultantOnly ? [] : responseDb.candidates.map((candidate) => enrichCandidate(candidate, responseDb)),
+        allocateds: visibleAllocateds.map((allocated) => enrichAllocated(allocated, responseDb)),
+        workHours: consultantOnly ? [] : visibleWorkHours,
+        workHourClosures: consultantOnly ? [] : visibleWorkHourClosures,
+        businessCalendar: consultantOnly ? [] : responseDb.businessCalendar,
+        rateCards: consultantOnly ? [] : responseDb.rateCards.map((rateCard) => enrichRateCard(rateCard, responseDb)),
         statusReports: visibleStatusReports.map((report) => enrichStatusReport(report, responseDb)),
-        candidatePool: responseDb.candidatePool.map((item) => enrichCandidatePool(item, responseDb)),
+        candidatePool: consultantOnly ? [] : responseDb.candidatePool.map((item) => enrichCandidatePool(item, responseDb)),
         users: responseDb.users.map(sanitizeUser),
         currentUser: sanitizeUser(auth.user),
         stages: CANDIDATE_STAGES,
@@ -5499,6 +5713,19 @@ async function handleApi(request, response) {
       return;
     }
 
+    if (request.method === 'POST' && pathname === '/api/admin/status-reports/monthly-cycle') {
+      if (requireAdmin(response, auth.user, 'Apenas administradores podem executar o ciclo mensal de status report.')) {
+        return;
+      }
+      const payload = await readJsonBody(request).catch(() => ({}));
+      const result = await runMonthlyStatusReportCycle({
+        forceInvite: payload.forceInvite === true,
+        forceReminder: payload.forceReminder === true
+      });
+      sendJson(response, 200, result);
+      return;
+    }
+
     if (request.method === 'POST' && pathname === '/api/status-reports') {
       const payload = await readJsonBody(request);
       const db = await readDatabaseCollections(['clients', 'allocateds', 'statusReports']);
@@ -5509,6 +5736,10 @@ async function handleApi(request, response) {
       }
       if (!canUserAccessAllocated(auth.user, allocated)) {
         sendError(response, 403, 'Voce nao tem acesso a este consultor.');
+        return;
+      }
+      if (!isAdminUser(auth.user) && db.statusReports.some((item) => item.allocatedId === allocated.id && item.referenceMonth === String(payload.referenceMonth || '').trim())) {
+        sendError(response, 409, 'Status report mensal ja existe para este consultor.');
         return;
       }
       const client = db.clients.find((item) => item.id === allocated.clientId);
@@ -5527,6 +5758,11 @@ async function handleApi(request, response) {
         consultantEmail: allocated.consultantEmail,
         managerName: allocated.manager,
         managerEmail: allocated.managerEmail,
+        deliveryStatus: payload.consultantSubmission === true ? 'Salvo' : payload.deliveryStatus,
+        consultantSubmittedAt: payload.consultantSubmission === true ? toISODate() : payload.consultantSubmittedAt,
+        consultantSubmittedById: payload.consultantSubmission === true ? auth.user.id : payload.consultantSubmittedById,
+        consultantSubmittedByName: payload.consultantSubmission === true ? auth.user.name : payload.consultantSubmittedByName,
+        consultantSubmittedByEmail: payload.consultantSubmission === true ? auth.user.email : payload.consultantSubmittedByEmail,
         createdById: auth.user.id,
         createdByName: auth.user.name,
         createdByEmail: auth.user.email,
@@ -5567,15 +5803,32 @@ async function handleApi(request, response) {
         sendError(response, 403, 'Voce nao tem acesso a este status report.');
         return;
       }
+      if (!isAdminUser(auth.user) && allocated.id !== report.allocatedId) {
+        sendError(response, 403, 'Consultor nao pode alterar o vinculo do status report.');
+        return;
+      }
       const client = db.clients.find((item) => item.id === allocated.clientId);
       if (!client) {
         sendError(response, 422, 'Cliente do alocado nao encontrado.');
         return;
       }
 
+      const writablePayload = isAdminUser(auth.user)
+        ? payload
+        : {
+          statusLight: payload.statusLight,
+          executiveSummary: payload.executiveSummary,
+          tasks: payload.tasks,
+          nextSteps: payload.nextSteps,
+          attentionPoints: payload.attentionPoints,
+          risks: payload.risks,
+          recommendedActions: payload.recommendedActions,
+          governanceNote: payload.governanceNote,
+          consultantSubmission: true
+        };
       const updated = normalizeStatusReport({
         ...report,
-        ...payload,
+        ...writablePayload,
         id: report.id,
         clientId: client.id,
         allocatedId: allocated.id,
@@ -5584,6 +5837,11 @@ async function handleApi(request, response) {
         consultantEmail: allocated.consultantEmail,
         managerName: allocated.manager,
         managerEmail: allocated.managerEmail,
+        deliveryStatus: writablePayload.consultantSubmission === true ? 'Salvo' : writablePayload.deliveryStatus,
+        consultantSubmittedAt: writablePayload.consultantSubmission === true ? toISODate() : report.consultantSubmittedAt,
+        consultantSubmittedById: writablePayload.consultantSubmission === true ? auth.user.id : report.consultantSubmittedById,
+        consultantSubmittedByName: writablePayload.consultantSubmission === true ? auth.user.name : report.consultantSubmittedByName,
+        consultantSubmittedByEmail: writablePayload.consultantSubmission === true ? auth.user.email : report.consultantSubmittedByEmail,
         createdById: report.createdById,
         createdByName: report.createdByName,
         createdByEmail: report.createdByEmail,
@@ -5607,6 +5865,9 @@ async function handleApi(request, response) {
     }
 
     if (request.method === 'DELETE' && /^\/api\/status-reports\/[^/]+$/.test(pathname)) {
+      if (requireAdmin(response, auth.user, 'Apenas administradores podem excluir status report.')) {
+        return;
+      }
       const reportId = decodeURIComponent(pathname.split('/').at(-1));
       const db = await readDatabaseCollections(['allocateds', 'statusReports']);
       const report = db.statusReports.find((item) => item.id === reportId);
@@ -6041,6 +6302,7 @@ const server = http.createServer((request, response) => {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   server.listen(PORT, () => {
     startFormRequestReminderJob();
+    startStatusReportReminderJob();
     startScheduledInboxEmailProcessingJob();
     console.log(`Gestão do Negócio Alcateia MVP em http://localhost:${PORT}`);
   });

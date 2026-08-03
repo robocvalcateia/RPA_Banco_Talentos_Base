@@ -1358,15 +1358,23 @@ export function normalizeStatusReport(report = {}) {
   const clientId = String(report.clientId ?? report.clienteId ?? '').trim();
   const allocatedId = String(report.allocatedId ?? report.alocadoId ?? report.consultorId ?? '').trim();
   const period = String(report.period ?? report.periodo ?? '').trim();
+  const referenceMonth = monthKeyFromValue(report.referenceMonth ?? report.monthYear ?? report.mesAno ?? period ?? report.reportDate);
   const statusLightInput = String(report.statusLight ?? report.farol ?? 'verde').trim().toLowerCase();
   const statusLight = ['verde', 'amarelo', 'vermelho'].includes(statusLightInput) ? statusLightInput : 'verde';
+  const deliveryStatus = String(
+    report.deliveryStatus
+      ?? report.statusEntrega
+      ?? report.statusReportStatus
+      ?? (report.consultantSubmittedAt ? 'Salvo' : 'Aberto')
+  ).trim() || 'Aberto';
 
   return {
     ...report,
-    id: String(report.id ?? createId('status_report', `${clientId}-${allocatedId}-${period}`)).trim(),
+    id: String(report.id ?? createId('status_report', `${clientId}-${allocatedId}-${referenceMonth || period}`)).trim(),
     clientId,
     allocatedId,
     period,
+    referenceMonth,
     clientName: String(report.clientName ?? report.nomeCliente ?? '').trim(),
     consultantName: String(report.consultantName ?? report.consultor ?? '').trim(),
     consultantEmail: String(report.consultantEmail ?? report.emailConsultor ?? '').trim().toLowerCase(),
@@ -1382,6 +1390,17 @@ export function normalizeStatusReport(report = {}) {
     risks: String(report.risks ?? report.riscos ?? '').trim(),
     recommendedActions: String(report.recommendedActions ?? report.acoesRecomendadas ?? '').trim(),
     governanceNote: String(report.governanceNote ?? report.observacaoGovernanca ?? 'Gestao diaria sob responsabilidade do cliente; acompanhamento Alcateia para mitigacao de riscos e antecipacao de pontos de atencao.').trim(),
+    deliveryStatus,
+    monthlyEmailSentAt: String(report.monthlyEmailSentAt ?? report.emailMensalEnviadoEm ?? '').trim(),
+    monthlyEmailLastReminderDate: String(report.monthlyEmailLastReminderDate ?? report.ultimoLembreteDia ?? '').trim(),
+    monthlyEmailLastReminderAt: String(report.monthlyEmailLastReminderAt ?? report.ultimoLembreteEm ?? '').trim(),
+    monthlyEmailNotification: report.monthlyEmailNotification && typeof report.monthlyEmailNotification === 'object'
+      ? report.monthlyEmailNotification
+      : null,
+    consultantSubmittedAt: String(report.consultantSubmittedAt ?? report.salvoPeloConsultorEm ?? '').trim(),
+    consultantSubmittedById: String(report.consultantSubmittedById ?? '').trim(),
+    consultantSubmittedByName: String(report.consultantSubmittedByName ?? '').trim(),
+    consultantSubmittedByEmail: String(report.consultantSubmittedByEmail ?? '').trim().toLowerCase(),
     createdById: String(report.createdById ?? '').trim(),
     createdByName: String(report.createdByName ?? '').trim(),
     createdByEmail: String(report.createdByEmail ?? '').trim().toLowerCase(),

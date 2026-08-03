@@ -23,6 +23,7 @@ test('status report normaliza estrutura executiva e farol', () => {
   assert.equal(report.allocatedId, 'alloc_1');
   assert.equal(report.period, 'Julho/2026');
   assert.equal(report.statusLight, 'amarelo');
+  assert.equal(report.referenceMonth, '2026-07');
   assert.equal(report.executiveSummary, 'Acompanhamento estavel');
   assert.match(report.governanceNote, /Gestao diaria/);
 });
@@ -55,4 +56,20 @@ test('status report usa envio de avaliacao e nome padronizado do PDF', () => {
   assert.match(appSource, /Status_\$\{statusReportFilenamePart\(report\.consultantName/);
   assert.match(appSource, /ALCATEIA - Relat.rio Acompanhamento Consultor/);
   assert.match(appSource, /mailto:/);
+});
+
+test('status report mensal possui ciclo de consultor e painel de entregas', () => {
+  const appSource = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+  const indexSource = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  const serverSource = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+
+  assert.match(indexSource, /Status Entregues/);
+  assert.match(indexSource, /value="Consultor"/);
+  assert.match(appSource, /function isCurrentUserConsultant/);
+  assert.match(appSource, /activeStatusReportPanel/);
+  assert.match(appSource, /Salvar atualiza..o do m.s/);
+  assert.match(serverSource, /buildStatusReportUrl/);
+  assert.match(serverSource, /runMonthlyStatusReportCycle/);
+  assert.match(serverSource, /startStatusReportReminderJob/);
+  assert.match(serverSource, /consultantSubmission/);
 });
