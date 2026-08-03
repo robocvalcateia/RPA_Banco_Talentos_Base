@@ -5492,7 +5492,6 @@ function syncStatusReportClientName() {
   const client = state.clients.find((item) => item.id === allocated?.clientId);
   const input = $('#statusReportClientName');
   if (input) input.value = client?.customerName || '';
-  renderStatusReportPreview();
 }
 
 function statusReportFormDraft() {
@@ -5617,12 +5616,6 @@ function buildStatusReportOnePageHtml(report = statusReportFormDraft(), standalo
   `;
   if (!standalone) return content;
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8" /><title>Status de Atuação - ${escapeHtml(report.clientName || 'Alcateia')}</title><link rel="stylesheet" href="/styles.css" /></head><body class="status-report-export-body">${content}</body></html>`;
-}
-
-function renderStatusReportPreview(report = statusReportFormDraft()) {
-  const preview = $('#statusReportPreview');
-  if (!preview) return;
-  preview.innerHTML = buildStatusReportOnePageHtml(report);
 }
 
 function statusReportCurrentExportData() {
@@ -6151,7 +6144,6 @@ function renderStatusReports() {
       </tr>
     `).join('') : '<tr><td colspan="7">Nenhum status report encontrado.</td></tr>';
   }
-  if (!state.editing.statusReportId) renderStatusReportPreview();
   setStatusReportFormReadOnlyForConsultant();
 }
 
@@ -6174,7 +6166,6 @@ function loadStatusReportForEdit(report, previewOnly = false) {
   }, previewOnly ? 'Salvar status report' : 'Atualizar status report');
   state.editing.statusReportId = previewOnly ? '' : report.id;
   syncStatusReportClientName();
-  renderStatusReportPreview(report);
   setStatusReportFormReadOnlyForConsultant();
   toast(previewOnly ? 'Status report aberto para visualizacao.' : 'Status report carregado para edicao.');
 }
@@ -9608,9 +9599,6 @@ function bindWorkHourActions() {
 function bindStatusReportActions() {
   $('#statusReportAllocatedSelect')?.addEventListener('change', syncStatusReportClientName);
 
-  $('#statusReportForm')?.addEventListener('input', () => renderStatusReportPreview());
-  $('#statusReportForm')?.addEventListener('change', () => renderStatusReportPreview());
-
   $('#statusReportForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -9627,7 +9615,6 @@ function bindStatusReportActions() {
       upsertStateItem('statusReports', saved);
       state.editing.statusReportId = saved.id;
       renderStatusReports();
-      renderStatusReportPreview(saved);
       setSubmitLabel(form, 'Atualizar status report');
       toast(statusReportPanelMode() === 'consultant' ? 'Status do mês salvo.' : (editingId ? 'Status report atualizado.' : 'Status report salvo.'));
     } catch (error) {
@@ -9682,14 +9669,6 @@ function bindStatusReportActions() {
     const row = event.target.closest('[data-edit-status-report-message]');
     const message = state.statusReportMessages.find((item) => item.id === row?.dataset.editStatusReportMessage);
     if (message) loadStatusReportMessageForEdit(message);
-  });
-
-  $('#statusReportExportImageButton')?.addEventListener('click', () => {
-    exportStatusReportImage();
-  });
-
-  $('#statusReportExportPdfButton')?.addEventListener('click', () => {
-    sendStatusReportEvaluation();
   });
 
   $('#statusReportTable')?.addEventListener('click', async (event) => {

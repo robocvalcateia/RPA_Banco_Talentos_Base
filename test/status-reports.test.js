@@ -50,11 +50,17 @@ test('status reports fazem parte das colecoes operacionais do Mongo app', () => 
   assert.ok(MONGO_APP_COLLECTIONS.includes('statusReports'));
 });
 
-test('status report usa envio de avaliacao e nome padronizado do PDF', () => {
+test('status report remove preview one page da tela principal', () => {
   const appSource = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
   const indexSource = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
 
-  assert.match(indexSource, />Enviar avaliação<\/button>/);
+  assert.doesNotMatch(indexSource, /One page view/);
+  assert.doesNotMatch(indexSource, /Exportar imagem/);
+  assert.doesNotMatch(indexSource, /Enviar avalia/);
+  assert.doesNotMatch(indexSource, /statusReportPreview/);
+  assert.doesNotMatch(appSource, /statusReportPreview/);
+  assert.doesNotMatch(appSource, /statusReportExportImageButton/);
+  assert.doesNotMatch(appSource, /statusReportExportPdfButton/);
   assert.match(appSource, /Status_\$\{statusReportFilenamePart\(report\.consultantName/);
   assert.match(appSource, /ALCATEIA - Relat.rio Acompanhamento Consultor/);
   assert.match(appSource, /mailto:/);
