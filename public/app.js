@@ -7658,7 +7658,7 @@ function clearEditing(form, key, submitLabel) {
   if (form) {
     form.reset();
     if (form.id === 'opportunityForm' && form.elements.opportunityCode) {
-      form.elements.opportunityCode.readOnly = false;
+      form.elements.opportunityCode.readOnly = true;
     }
     setSubmitLabel(form, submitLabel);
   }

@@ -104,7 +104,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260804-cv-quality-gate';
+const APP_VERSION = '20260804-opportunity-code-auto';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -2824,6 +2824,22 @@ function normalizeOptionalListValue(value, allowedValues, fieldLabel) {
   return normalized;
 }
 
+function nextOpportunityCode(db) {
+  const numericCodes = db.opportunities
+    .map((opportunity) => String(opportunity.opportunityCode ?? '').trim())
+    .filter((code) => /^\d+$/.test(code))
+    .map((code) => Number(code))
+    .filter(Number.isFinite);
+  let nextCode = (numericCodes.length ? Math.max(...numericCodes) : db.opportunities.length) + 1;
+  const existingCodes = new Set(db.opportunities.map((opportunity) => String(opportunity.opportunityCode ?? '').trim()));
+
+  while (existingCodes.has(String(nextCode))) {
+    nextCode += 1;
+  }
+
+  return String(nextCode);
+}
+
 function validateOpportunityBusinessRules(response, opportunity, db, existingId = '') {
   if (!opportunity.clientId || !db.clients.some((client) => client.id === opportunity.clientId)) {
     sendError(response, 422, 'Selecione um cliente valido.');
@@ -2840,10 +2856,7 @@ function validateOpportunityBusinessRules(response, opportunity, db, existingId 
     sendError(response, 422, 'Informe a oportunidade.');
     return true;
   }
-  if (!opportunity.opportunityCode) {
-    sendError(response, 422, 'Informe o Id_Oportunidade.');
-    return true;
-  }
+  if (!opportunity.opportunityCode) opportunity.opportunityCode = nextOpportunityCode(db);
   if (db.opportunities.some((item) => item.id !== existingId && item.opportunityCode === opportunity.opportunityCode)) {
     sendError(response, 409, 'Ja existe oportunidade cadastrada com esse Id_Oportunidade.');
     return true;

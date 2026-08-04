@@ -27,3 +27,16 @@ test('cards de Deals mantem Filtro de CVs antes de Candidatos', () => {
 
   assert.match(appSource, /children:\s*\['opportunities',\s*'cvFilters',\s*'dealCandidates'\]/);
 });
+
+test('cadastro de oportunidade gera Id_Oportunidade sem exigir digitacao', () => {
+  const indexSource = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  const appSource = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+  const serverSource = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+
+  assert.match(indexSource, /input name="opportunityCode"[^>]*readonly/);
+  assert.doesNotMatch(indexSource, /input name="opportunityCode" required/);
+  assert.match(appSource, /form\.elements\.opportunityCode\.readOnly = true/);
+  assert.match(serverSource, /function nextOpportunityCode\(db\)/);
+  assert.match(serverSource, /if \(!opportunity\.opportunityCode\) opportunity\.opportunityCode = nextOpportunityCode\(db\);/);
+  assert.doesNotMatch(serverSource, /Informe o Id_Oportunidade/);
+});
