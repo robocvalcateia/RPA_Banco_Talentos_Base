@@ -245,6 +245,29 @@ test('update de curriculo no Mongo preserva texto integral e estruturas ricas', 
   assert.equal(update.experiencias.length, 1);
 });
 
+test('texto pesquisavel do Mongo ignora metadados tecnicos', () => {
+  const text = __mongoTalentosTest.searchableTextFromValue({
+    nome: 'Pessoa Completa',
+    experiencia_profissional: 'Empresa A - Analista. Implantou governanca.',
+    hash_documento: 'bf33b3d1fd24ac098cce8bcbbf7d82ed2c561956769bda89cc8a1c2591174272',
+    data_criacao: '2026-07-23T21:53:18.224589',
+    cv_quality_metrics: { original_chars: 6000 },
+    versoes: [{
+      data: '2026-07-23T21:53:18.224589',
+      dados: {
+        Experiencia_Profissional: 'Empresa B - Coordenadora'
+      }
+    }]
+  });
+
+  assert.match(text, /Pessoa Completa/);
+  assert.match(text, /Implantou governanca/);
+  assert.match(text, /Empresa B - Coordenadora/);
+  assert.doesNotMatch(text, /bf33b3d1/);
+  assert.doesNotMatch(text, /2026-07-23T21:53:18/);
+  assert.doesNotMatch(text, /original_chars/);
+});
+
 test('update de curriculo no Mongo ignora hash_documento vazio', () => {
   const update = __mongoTalentosTest.curriculumPayloadToMongoUpdate({
     nome: 'Pessoa Sem Hash',

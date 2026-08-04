@@ -1062,6 +1062,13 @@ export function normalizeCurriculum(curriculum) {
     tecnologias: curriculum.tecnologias ?? [],
     search_text: String(curriculum.search_text ?? curriculum.texto_pesquisa ?? '').trim(),
     search_text_all: String(curriculum.search_text_all ?? curriculum.texto_pesquisavel ?? '').trim(),
+    texto_integral_original: String(curriculum.texto_integral_original ?? curriculum.Texto_Integral_Original ?? '').trim(),
+    cv_quality_status: String(curriculum.cv_quality_status ?? '').trim(),
+    cv_quality_issues: Array.isArray(curriculum.cv_quality_issues) ? curriculum.cv_quality_issues : [],
+    cv_quality_warnings: Array.isArray(curriculum.cv_quality_warnings) ? curriculum.cv_quality_warnings : [],
+    cv_quality_metrics: curriculum.cv_quality_metrics && typeof curriculum.cv_quality_metrics === 'object'
+      ? curriculum.cv_quality_metrics
+      : {},
     data_nascimento: String(curriculum.data_nascimento ?? '').trim(),
     blackflag: normalizeBoolean(
       curriculum.blackflag

@@ -94,7 +94,11 @@ const CURRICULUM_BOOTSTRAP_PROJECTION = {
   blackListObservation: 1,
   blacklist_observation: 1,
   tem_arquivo_original: 1,
-  arquivo_original_atualizado_em: 1
+  arquivo_original_atualizado_em: 1,
+  cv_quality_status: 1,
+  cv_quality_issues: 1,
+  cv_quality_warnings: 1,
+  cv_quality_metrics: 1
 };
 
 export function isMongoTalentosConfigured(env = process.env) {
@@ -136,9 +140,57 @@ function normalizeMongoId(value) {
   return String(value);
 }
 
+const TECHNICAL_SEARCH_KEYS = new Set([
+  '_id',
+  'id',
+  'id_controle',
+  'idcontrole',
+  'mongoid',
+  'legacymongoid',
+  'legacy_candidato_id',
+  'legacy_id_controle',
+  'hash_documento',
+  'document_hash',
+  'fonte',
+  'source',
+  'data',
+  'data_criacao',
+  'data_atualizacao',
+  'data_origem',
+  'arquivo_original_atualizado_em',
+  'tem_arquivo_original',
+  'cv_quality_status',
+  'cv_quality_issues',
+  'cv_quality_warnings',
+  'cv_quality_metrics'
+]);
+
+function normalizeSearchKey(key = '') {
+  return String(key)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function isTechnicalSearchKey(key = '') {
+  return TECHNICAL_SEARCH_KEYS.has(normalizeSearchKey(key));
+}
+
+function removeTechnicalSearchNoise(value = '') {
+  return String(value || '')
+    .replace(/\b[a-f0-9]{40,128}\b/gi, '')
+    .replace(/\b[a-f0-9]{24}\b/gi, '')
+    .replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?\b/g, '')
+    .replace(/\b(?:hash_documento|document_hash|id_controle|data_criacao|data_atualizacao|data_origem)\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 function searchableTextFromValue(value, seen = new WeakSet()) {
   if (value === null || value === undefined) return '';
-  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Date) return '';
 
   if (Array.isArray(value)) {
     return value.map((item) => searchableTextFromValue(item, seen)).filter(Boolean).join(' ');
@@ -149,13 +201,13 @@ function searchableTextFromValue(value, seen = new WeakSet()) {
     seen.add(value);
 
     return Object.entries(value)
-      .filter(([key]) => key !== '_id')
+      .filter(([key]) => !isTechnicalSearchKey(key))
       .map(([, item]) => searchableTextFromValue(item, seen))
       .filter(Boolean)
       .join(' ');
   }
 
-  return String(value);
+  return removeTechnicalSearchNoise(value);
 }
 
 export function mongoCandidateToCurriculum(doc = {}) {
@@ -520,6 +572,7 @@ export const __mongoTalentosTest = {
   curriculumPayloadToMongoUpdate,
   duplicateKeyQueryFromError,
   selectedCandidateToMongoPayload,
+  searchableTextFromValue,
   normalizeOriginalFileLookupText,
   originalFileNameFallbackQuery,
   originalFileMatchesCandidate
@@ -738,7 +791,9 @@ function curriculumPayloadToMongoUpdate(payload = {}) {
     'search_text',
     'search_text_all',
     'texto_pesquisa',
-    'texto_pesquisavel'
+    'texto_pesquisavel',
+    'texto_integral_original',
+    'cv_quality_status'
   ];
   const passthroughFields = [
     'versoes',
@@ -748,7 +803,10 @@ function curriculumPayloadToMongoUpdate(payload = {}) {
     'atividades_exercidas',
     'empresas',
     'projetos',
-    'tecnologias'
+    'tecnologias',
+    'cv_quality_issues',
+    'cv_quality_warnings',
+    'cv_quality_metrics'
   ];
 
   const update = {};

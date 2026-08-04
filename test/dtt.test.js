@@ -117,6 +117,35 @@ test('requisição de IA envia texto integral original para preservar detalhes d
   assert.equal(request.max_output_tokens, 24000);
 });
 
+test('fonte da geracao prioriza texto integral e remove metadados tecnicos', () => {
+  const request = buildOpenAIRequest({
+    ...curriculum,
+    texto_integral_original: [
+      'EXPERIENCIA PROFISSIONAL',
+      'Empresa Rica - Analista (2020 - Atual)',
+      '• Implantou governanca de projetos.',
+      '• Liderou integracoes SAP e Power BI.'
+    ].join('\n'),
+    search_text_all: [
+      'bf33b3d1fd24ac098cce8bcbbf7d82ed2c561956769bda89cc8a1c2591174272',
+      'email 2026-07-23T21:53:18.224589',
+      'hash_documento'
+    ].join('\n'),
+    versoes: [{
+      data: '2026-07-23T21:53:18.224589',
+      dados: {
+        Experiencia_Profissional: 'Empresa Rica - Analista'
+      }
+    }]
+  });
+
+  const source = JSON.parse(request.input[1].content.split('\n').slice(1).join('\n'));
+  assert.match(source.texto_integral_original, /Implantou governanca de projetos/);
+  assert.doesNotMatch(source.texto_integral_original, /bf33b3d1/);
+  assert.doesNotMatch(source.texto_integral_original, /2026-07-23T21:53:18/);
+  assert.doesNotMatch(source.texto_integral_original, /hash_documento/);
+});
+
 test('higienizacao de CV remove lixo invisivel e preserva termos tecnicos', () => {
   const text = sanitizeCvText([
     'C\u200B#  .NET\u00A0 C++ Node.js SAP S/4HANA',

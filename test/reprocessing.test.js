@@ -88,6 +88,24 @@ test('reprocessing does not mark email as success when original CV storage fails
   assert.match(storeSource, /result\.matched_count/);
 });
 
+test('reprocessing blocks sparse CV extraction before moving email to success', () => {
+  const mainSource = readRepoFile('legacy_banco_talentos/main.py');
+  const gateSource = readRepoFile('legacy_banco_talentos/modules/cv_quality_gate.py');
+  const deduplicationSource = readRepoFile('legacy_banco_talentos/modules/deduplication.py');
+  const emailSource = readRepoFile('legacy_banco_talentos/utils/email_sender.py');
+
+  assert.match(mainSource, /from modules\.cv_quality_gate import validate_cv_quality/);
+  assert.match(mainSource, /quality_result = validate_cv_quality\(candidate_data\)/);
+  assert.match(mainSource, /gate_qualidade_cv/);
+  assert.match(mainSource, /Folder_Mail_Erro/);
+  assert.match(mainSource, /nao gravado\/atualizado como sucesso/);
+  assert.match(gateSource, /experiencia_profissional_incompleta_frente_ao_anexo_original/);
+  assert.match(gateSource, /experiencia_profissional_menor_que_25_porcento_da_fonte/);
+  assert.match(deduplicationSource, /texto_integral_original/);
+  assert.match(deduplicationSource, /cv_quality_status/);
+  assert.match(emailSource, /Reprovados no gate de qualidade/);
+});
+
 test('curriculum detail exposes original CV download from GridFS without bootstrapping blobs', () => {
   const serverSource = readRepoFile('server.js');
   const mongoSource = readRepoFile('mongo_talentos.js');

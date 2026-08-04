@@ -114,13 +114,62 @@ export function sanitizeCvText(value = '') {
 }
 
 function compactSourceText(value, maxChars = 50000) {
-  return sanitizeCvText(value)
+  return removeTechnicalSourceNoise(sanitizeCvText(value))
     .slice(0, maxChars);
+}
+
+const TECHNICAL_SOURCE_KEYS = new Set([
+  '_id',
+  'id',
+  'id_controle',
+  'idcontrole',
+  'mongoid',
+  'legacymongoid',
+  'legacy_candidato_id',
+  'legacy_id_controle',
+  'hash_documento',
+  'document_hash',
+  'fonte',
+  'source',
+  'data',
+  'data_criacao',
+  'data_atualizacao',
+  'data_origem',
+  'arquivo_original_atualizado_em',
+  'tem_arquivo_original',
+  'cv_quality_status',
+  'cv_quality_issues',
+  'cv_quality_warnings',
+  'cv_quality_metrics'
+]);
+
+function normalizeSourceKey(key = '') {
+  return String(key)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function isTechnicalSourceKey(key = '') {
+  return TECHNICAL_SOURCE_KEYS.has(normalizeSourceKey(key));
+}
+
+function removeTechnicalSourceNoise(value = '') {
+  return String(value || '')
+    .replace(/\b[a-f0-9]{40,128}\b/gi, '')
+    .replace(/\b[a-f0-9]{24}\b/gi, '')
+    .replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?\b/g, '')
+    .replace(/\b(?:hash_documento|document_hash|id_controle|data_criacao|data_atualizacao|data_origem)\b/gi, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function sourceTextFromValue(value, seen = new WeakSet()) {
   if (value === null || value === undefined) return '';
-  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Date) return '';
 
   if (Array.isArray(value)) {
     return value.map((item) => sourceTextFromValue(item, seen)).filter(Boolean).join('\n');
@@ -130,7 +179,7 @@ function sourceTextFromValue(value, seen = new WeakSet()) {
     if (seen.has(value)) return '';
     seen.add(value);
     return Object.entries(value)
-      .filter(([key]) => key !== '_id')
+      .filter(([key]) => !isTechnicalSourceKey(key))
       .map(([, item]) => sourceTextFromValue(item, seen))
       .filter(Boolean)
       .join('\n');
@@ -141,6 +190,8 @@ function sourceTextFromValue(value, seen = new WeakSet()) {
 
 function fullSourceText(curriculum) {
   const parts = [
+    curriculum.texto_integral_original,
+    curriculum.Texto_Integral_Original,
     curriculum.search_text_all,
     curriculum.search_text,
     curriculum.texto_pesquisavel,

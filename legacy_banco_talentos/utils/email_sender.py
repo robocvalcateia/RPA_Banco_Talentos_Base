@@ -96,6 +96,7 @@ def enviar_email_resumo_graph(stats, total_candidatos):
         <li>Novos candidatos: {stats.get('novos_candidatos', 0)}</li>
         <li>Atualizados: {stats.get('candidatos_atualizados', 0)}</li>
         <li>Sem mudanças: {stats.get('sem_mudancas', 0)}</li>
+        <li>Reprovados no gate de qualidade: {stats.get('gate_qualidade_reprovados', 0)}</li>
         <li>Erros: {stats.get('erros', 0)}</li>
     </ul>
 

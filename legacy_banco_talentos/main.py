@@ -19,6 +19,7 @@ from modules.email_reader import process_emails
 from modules.email_reader import EmailReader
 from modules.whatsapp_reader import process_whatsapp_messages
 from modules.gemini_extractor import extract_cv_data_detalhado
+from modules.cv_quality_gate import validate_cv_quality
 from modules.deduplication import process_candidate_data
 from modules.original_file_store import save_original_cv_file
 from utils.file_handler import FileHandler
@@ -41,6 +42,7 @@ class BancoTalentosOrchestrator:
             'sem_mudancas': 0,
             'arquivos_originais_gravados': 0,
             'arquivos_originais_ja_existentes': 0,
+            'gate_qualidade_reprovados': 0,
             'erros': 0,
 
             # NOVO - rastreabilidade
@@ -260,6 +262,30 @@ class BancoTalentosOrchestrator:
                         continue
                     self.logger.info(f" Dados extraídos: {candidate_data.get('Nome', 'Desconhecido')}")
                     
+                    quality_result = validate_cv_quality(candidate_data)
+                    candidate_data["CV_Quality_Status"] = quality_result.get("status", "")
+                    candidate_data["CV_Quality_Issues"] = quality_result.get("issues", [])
+                    candidate_data["CV_Quality_Warnings"] = quality_result.get("warnings", [])
+                    candidate_data["CV_Quality_Metrics"] = quality_result.get("metrics", {})
+
+                    if not quality_result.get("passed"):
+                        self.stats['gate_qualidade_reprovados'] += 1
+                        issues = ", ".join(quality_result.get("issues", [])) or "sem detalhe"
+                        self._registrar_erro(
+                            tipo="gate_qualidade_cv",
+                            mensagem=(
+                                f"CV reprovado no gate de qualidade: {filename}. "
+                                f"Motivo(s): {issues}. Metricas: {quality_result.get('metrics', {})}"
+                            ),
+                            file_info=file_info,
+                            acao=f"E-mail movido para {Folder_Mail_Erro}; nao gravado/atualizado como sucesso."
+                        )
+
+                        if file_info.get("source") == "email" and file_info.get("email_id"):
+                            mover_email_uma_vez(file_info, Folder_Mail_Erro)
+
+                        continue
+
                     # Processar candidato (inserir ou atualizar)
                     source_date = file_info.get('email_date') or file_info.get('message_date')
                     
@@ -400,6 +426,7 @@ class BancoTalentosOrchestrator:
         self.logger.info(f"Sem mudanças: {self.stats['sem_mudancas']}")
         self.logger.info(f" Arquivos originais gravados: {self.stats.get('arquivos_originais_gravados', 0)}")
         self.logger.info(f" Arquivos originais ja existentes: {self.stats.get('arquivos_originais_ja_existentes', 0)}")
+        self.logger.info(f" Gate qualidade reprovados: {self.stats.get('gate_qualidade_reprovados', 0)}")
         self.logger.info(f" Erros: {self.stats['erros']}")
         if self.stats.get('erros_por_tipo'):
             self.logger.info("\n Erros por tipo:")

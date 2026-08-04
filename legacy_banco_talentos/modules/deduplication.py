@@ -117,7 +117,8 @@ class DeduplicationHandler:
                 'DataNascimento', 'Skil', 'Formacao_Academica',
                 'Cursos_Certificacoes', 'Nivel_Idioma_Ingles',
                 'Nivel_Idioma_Espanhol', 'Experiencia_Profissional',
-                'Conhecimento_Tecnico', 'Link_Linkedin'
+                'Conhecimento_Tecnico', 'Link_Linkedin',
+                'Texto_Integral_Original', 'CV_Quality_Status'
             ]
 
             field_map = {
@@ -136,7 +137,9 @@ class DeduplicationHandler:
                 'Nivel_Idioma_Espanhol': 'nivel_espanhol',
                 'Experiencia_Profissional': 'experiencia_profissional',
                 'Conhecimento_Tecnico': 'conhecimento_tecnico',
-                'Link_Linkedin': 'linkedin'
+                'Link_Linkedin': 'linkedin',
+                'Texto_Integral_Original': 'texto_integral_original',
+                'CV_Quality_Status': 'cv_quality_status'
             }
             
             for field in fields_to_compare:
@@ -191,10 +194,15 @@ class DeduplicationHandler:
                 'cursos_certificacoes': candidate_data.get('Cursos_Certificacoes', '').strip(),
                 'conhecimento_tecnico': candidate_data.get('Conhecimento_Tecnico', '').strip(),
                 'experiencia_profissional': candidate_data.get('Experiencia_Profissional', '').strip(),
+                'texto_integral_original': candidate_data.get('Texto_Integral_Original', '').strip(),
                 'search_text_all': (
                     candidate_data.get('Texto_Integral_Original', '').strip()
                     or candidate_data.get('Experiencia_Profissional', '').strip()
                 ),
+                'cv_quality_status': candidate_data.get('CV_Quality_Status', '').strip(),
+                'cv_quality_issues': candidate_data.get('CV_Quality_Issues', []),
+                'cv_quality_warnings': candidate_data.get('CV_Quality_Warnings', []),
+                'cv_quality_metrics': candidate_data.get('CV_Quality_Metrics', {}),
                 'hash_documento': document_hash,
                 'fonte': source,
                 'data_criacao': now,
@@ -285,10 +293,15 @@ class DeduplicationHandler:
                 'nivel_espanhol': candidate_data.get('Nivel_Idioma_Espanhol', ''),
                 'conhecimento_tecnico': candidate_data.get('Conhecimento_Tecnico', ''),
                 'experiencia_profissional': candidate_data.get('Experiencia_Profissional', ''),
+                'texto_integral_original': candidate_data.get('Texto_Integral_Original', ''),
                 'search_text_all': (
                     candidate_data.get('Texto_Integral_Original', '')
                     or candidate_data.get('Experiencia_Profissional', '')
-                )
+                ),
+                'cv_quality_status': candidate_data.get('CV_Quality_Status', ''),
+                'cv_quality_issues': candidate_data.get('CV_Quality_Issues', []),
+                'cv_quality_warnings': candidate_data.get('CV_Quality_Warnings', []),
+                'cv_quality_metrics': candidate_data.get('CV_Quality_Metrics', {})
             }
 
             for field_name, value in field_map.items():
