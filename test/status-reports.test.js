@@ -91,6 +91,13 @@ test('status report mensal possui ciclo de consultor e painel de entregas', () =
   assert.match(serverSource, /writeDatabaseCollections\(db, \['users'\]\)/);
   assert.match(serverSource, /canUseExternalUserEmail/);
   assert.match(serverSource, /perfis Admin\/Gestao/);
+  assert.match(serverSource, /consultantCanAccessApi/);
+  assert.match(serverSource, /Perfil consultor tem acesso apenas ao modulo de Status Report/);
+  assert.match(serverSource, /canUserAccessStatusReport/);
+  assert.match(appSource, /currentConsultantDraftReport/);
+  assert.match(appSource, /statusReportBelongsToCurrentConsultant/);
+  assert.match(appSource, /Acesso restrito ao Status Report/);
+  assert.match(appSource, /Selecione o Farol antes de salvar/);
 });
 
 test('mensagem de status report normaliza cliente todos e enriquece nome', () => {

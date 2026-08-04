@@ -548,9 +548,7 @@ function canCurrentUserAccessStatusReports() {
 
 function canAccessLauncherNode(node) {
   if (isCurrentUserConsultant()) {
-    return node === launcherNodes.statusReports
-      || node === launcherNodes.contracts
-      || node?.panel === 'consultant';
+    return node === launcherNodes.statusReports || node?.panel === 'consultant';
   }
   if (node?.roles?.length) {
     const role = currentUserRole().toLowerCase();
@@ -565,7 +563,7 @@ function canAccessLauncherNode(node) {
 }
 
 function canAccessView(viewId) {
-  if (isCurrentUserConsultant()) return viewId === 'statusReports' || viewId === 'dashboard';
+  if (isCurrentUserConsultant()) return viewId === 'statusReports';
   if (viewId === 'faturamento') return isCurrentUserAdmin();
   if (viewId === 'taxReformSimulator') return isCurrentUserAdmin();
   if (viewId === 'allocationPrices') return isCurrentUserAdmin();
@@ -581,12 +579,11 @@ function applyRoleVisibility() {
   if (isCurrentUserConsultant()) {
     $$('[data-view], [data-nav-group]').forEach((element) => {
       const viewId = element.dataset.view;
-      const group = element.dataset.navGroup;
       const statusPanel = element.dataset.statusPanel || '';
-      element.hidden = !(group === 'contracts' || (viewId === 'statusReports' && !statusPanel));
+      element.hidden = !(viewId === 'statusReports' && !statusPanel);
     });
     $$('[data-view="statusReports"]').forEach((element) => {
-      element.hidden = !canCurrentUserAccessStatusReports();
+      element.hidden = false;
     });
     return;
   }
@@ -836,9 +833,16 @@ async function refresh() {
   const payload = await api('/api/bootstrap');
   Object.assign(state, payload);
   state.currentUser = payload.currentUser ?? state.currentUser;
+  if (isCurrentUserConsultant()) {
+    state.activeStatusReportPanel = 'consultant';
+  }
   render();
   showApp();
-  applyInitialRoute();
+  if (isCurrentUserConsultant()) {
+    showView('statusReports');
+  } else {
+    applyInitialRoute();
+  }
 }
 
 function upsertStateItem(collectionName, item) {
@@ -5482,6 +5486,48 @@ function activeStatusReportAllocatedOptions() {
     .sort((first, second) => String(first.consultant || '').localeCompare(String(second.consultant || ''), 'pt-BR', { sensitivity: 'base' }));
 }
 
+function statusReportBelongsToCurrentConsultant(report = {}) {
+  if (!isCurrentUserConsultant()) return true;
+  const email = currentUserEmail();
+  const name = currentUserNameKey();
+  if (email && String(report.consultantEmail || '').trim().toLowerCase() === email) return true;
+  if (email && String(report.createdByEmail || '').trim().toLowerCase() === email) return true;
+  return name && normalizeText(report.consultantName || '') === name;
+}
+
+function currentConsultantStatusReports() {
+  return state.statusReports
+    .filter(statusReportBelongsToCurrentConsultant)
+    .slice()
+    .sort((first, second) => String(second.referenceMonth || second.reportDate || '').localeCompare(String(first.referenceMonth || first.reportDate || '')));
+}
+
+function currentConsultantDraftReport() {
+  const allocated = activeAllocatedsForCurrentUser()[0];
+  const client = state.clients.find((item) => item.id === allocated?.clientId);
+  const month = currentStatusReportMonthKey();
+  return {
+    id: '',
+    allocatedId: allocated?.id || '',
+    clientId: client?.id || allocated?.clientId || '',
+    clientName: client?.customerName || allocated?.clientName || 'Não vinculado',
+    consultantName: allocated?.consultant || state.currentUser?.name || session.user?.name || 'Consultor',
+    consultantEmail: allocated?.consultantEmail || currentUserEmail(),
+    period: month ? formatMonthLabel(month) : '',
+    referenceMonth: month,
+    reportDate: new Date().toISOString().slice(0, 10),
+    alcateiaOwner: 'Alcateia',
+    statusLight: '',
+    executiveSummary: 'Atualização mensal de atividades do consultor.',
+    tasks: '',
+    nextSteps: '',
+    attentionPoints: '',
+    risks: '',
+    recommendedActions: '',
+    governanceNote: 'Gestão diária sob responsabilidade do cliente; acompanhamento Alcateia para mitigação de riscos e antecipação de pontos de atenção.'
+  };
+}
+
 function selectedStatusReportAllocated() {
   const allocatedId = $('#statusReportAllocatedSelect')?.value || '';
   return state.allocateds.find((allocated) => allocated.id === allocatedId) || null;
@@ -5491,7 +5537,7 @@ function syncStatusReportClientName() {
   const allocated = selectedStatusReportAllocated();
   const client = state.clients.find((item) => item.id === allocated?.clientId);
   const input = $('#statusReportClientName');
-  if (input) input.value = client?.customerName || '';
+  if (input && (allocated || !input.value)) input.value = client?.customerName || input.value || '';
 }
 
 function statusReportFormDraft() {
@@ -5970,10 +6016,22 @@ function statusReportPayloadFromForm(form) {
   const current = state.editing.statusReportId
     ? state.statusReports.find((report) => report.id === state.editing.statusReportId)
     : null;
+  const consultantDraft = statusReportPanelMode() === 'consultant'
+    ? (current || currentConsultantStatusReports().at(0) || currentConsultantDraftReport())
+    : null;
+  if (consultantDraft) {
+    payload.allocatedId = payload.allocatedId || consultantDraft.allocatedId || '';
+    payload.clientId = consultantDraft.clientId || payload.clientId || '';
+    payload.clientName = payload.clientName || consultantDraft.clientName || '';
+    payload.consultantName = consultantDraft.consultantName || payload.consultantName || '';
+    payload.consultantEmail = consultantDraft.consultantEmail || payload.consultantEmail || currentUserEmail();
+    payload.referenceMonth = consultantDraft.referenceMonth || payload.referenceMonth || currentStatusReportMonthKey();
+  }
   if (current) {
     payload.referenceMonth = current.referenceMonth || payload.referenceMonth || '';
     if (statusReportPanelMode() === 'consultant') payload.consultantSubmission = true;
   }
+  if (statusReportPanelMode() === 'consultant') payload.consultantSubmission = true;
   return payload;
 }
 
@@ -6063,6 +6121,9 @@ function loadStatusReportMessageForEdit(message) {
 
 function renderStatusReportOptions() {
   const allocateds = activeStatusReportAllocatedOptions();
+  const consultantReport = isCurrentUserConsultant()
+    ? (currentConsultantStatusReports()[0] || currentConsultantDraftReport())
+    : null;
   const options = allocateds.map((allocated) => {
     const client = state.clients.find((item) => item.id === allocated.clientId);
     const label = [allocated.consultant, client?.customerName].filter(Boolean).join(' - ');
@@ -6070,9 +6131,14 @@ function renderStatusReportOptions() {
   }).join('');
   const select = $('#statusReportAllocatedSelect');
   if (select) {
-    const current = select.value || allocateds[0]?.id || '';
-    select.innerHTML = options || '<option value="">Nenhum alocado ativo</option>';
-    select.value = allocateds.some((allocated) => allocated.id === current) ? current : allocateds[0]?.id || '';
+    const current = select.value || allocateds[0]?.id || consultantReport?.allocatedId || '';
+    const syntheticOption = consultantReport && !allocateds.some((allocated) => allocated.id === consultantReport.allocatedId)
+      ? `<option value="${escapeHtml(consultantReport.allocatedId || '')}">${escapeHtml([consultantReport.consultantName, consultantReport.clientName].filter(Boolean).join(' - '))}</option>`
+      : '';
+    select.innerHTML = options || syntheticOption || '<option value="">Nenhum alocado ativo</option>';
+    select.value = allocateds.some((allocated) => allocated.id === current)
+      ? current
+      : consultantReport?.allocatedId || allocateds[0]?.id || '';
   }
   const reportDate = $('#statusReportForm input[name="reportDate"]');
   if (reportDate && !reportDate.value) reportDate.value = new Date().toISOString().slice(0, 10);
@@ -6117,11 +6183,8 @@ function renderStatusReports() {
   setStatusReportFormReadOnlyForConsultant();
   if (panelMode === 'consultant' && !state.editing.statusReportId) {
     const targetReport = state.statusReports.find((report) => report.id === state.statusReportDeepLinkId)
-      || state.statusReports
-        .filter((report) => activeAllocatedsForCurrentUser().some((allocated) => allocated.id === report.allocatedId))
-        .slice()
-        .sort((first, second) => String(second.referenceMonth || second.reportDate || '').localeCompare(String(first.referenceMonth || first.reportDate || '')))
-        .at(0);
+      || currentConsultantStatusReports().at(0)
+      || currentConsultantDraftReport();
     if (targetReport) {
       loadStatusReportForEdit(targetReport);
       state.statusReportDeepLinkId = '';
@@ -6149,13 +6212,20 @@ function renderStatusReports() {
 
 function loadStatusReportForEdit(report, previewOnly = false) {
   if (!report) return;
+  const select = $('#statusReportAllocatedSelect');
+  if (select && report.consultantName && !Array.from(select.options).some((option) => option.value === (report.allocatedId || ''))) {
+    const option = document.createElement('option');
+    option.value = report.allocatedId || '';
+    option.textContent = [report.consultantName, report.clientName].filter(Boolean).join(' - ');
+    select.appendChild(option);
+  }
   fillForm('#statusReportForm', {
     allocatedId: report.allocatedId,
     clientName: report.clientName,
     period: report.period,
     reportDate: report.reportDate,
     alcateiaOwner: report.alcateiaOwner,
-    statusLight: report.statusLight,
+    statusLight: isCurrentUserConsultant() && !report.consultantSubmittedAt ? '' : report.statusLight,
     executiveSummary: report.executiveSummary,
     tasks: report.tasks,
     nextSteps: report.nextSteps,
@@ -7513,8 +7583,8 @@ function setDashboardInsightsVisible(visible) {
 
 function showView(viewId) {
   if (!canAccessView(viewId)) {
-    toast('Acesso restrito a administradores.');
-    showView('dashboard');
+    toast(isCurrentUserConsultant() ? 'Acesso restrito ao Status Report.' : 'Acesso restrito a administradores.');
+    showView(isCurrentUserConsultant() ? 'statusReports' : 'dashboard');
     return;
   }
   $$('.view').forEach((view) => view.classList.toggle('active', view.id === viewId));
@@ -9605,7 +9675,11 @@ function bindStatusReportActions() {
     const submitButton = $('button[type="submit"]', form);
     const editingId = state.editing.statusReportId;
     const payload = statusReportPayloadFromForm(form);
-    delete payload.clientName;
+    if (statusReportPanelMode() !== 'consultant') delete payload.clientName;
+    if (statusReportPanelMode() === 'consultant' && !payload.statusLight) {
+      toast('Selecione o Farol antes de salvar.');
+      return;
+    }
     const originalText = setSubmitButtonBusy(submitButton, 'Salvando...');
     try {
       const saved = await api(editingId ? `/api/status-reports/${encodeURIComponent(editingId)}` : '/api/status-reports', {

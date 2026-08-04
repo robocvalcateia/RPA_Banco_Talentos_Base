@@ -104,7 +104,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260803-smtp-utf8-base64';
+const APP_VERSION = '20260803-consultant-status-only';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -354,6 +354,16 @@ function requireAdmin(response, user, message = 'Apenas administradores podem ex
 
 function isConsultantUser(user) {
   return String(user?.role || '').trim().toLowerCase() === 'consultor';
+}
+
+function consultantCanAccessApi(pathname, method = '') {
+  if (pathname === '/api/bootstrap') return method === 'GET';
+  if (pathname === '/api/logout') return method === 'POST';
+  if (pathname === '/api/change-password') return method === 'POST';
+  if (/^\/api\/status-reports(\/[^/]+)?$/.test(pathname)) {
+    return ['GET', 'POST', 'PATCH'].includes(String(method || '').toUpperCase());
+  }
+  return false;
 }
 
 function visibleFormRequestsForUser(formRequests = [], user = {}) {
@@ -1363,8 +1373,17 @@ function visibleStatusReportsForUser(statusReports = [], allocateds = [], user =
   const userEmail = String(user.email || '').trim().toLowerCase();
   return statusReports.filter((report) => (
     visibleAllocatedIds.has(report.allocatedId)
+    || String(report.consultantEmail || '').trim().toLowerCase() === userEmail
     || String(report.createdByEmail || '').trim().toLowerCase() === userEmail
   ));
+}
+
+function canUserAccessStatusReport(user, report, allocated) {
+  if (isAdminUser(user)) return true;
+  const userEmail = String(user?.email || '').trim().toLowerCase();
+  if (userEmail && String(report?.consultantEmail || '').trim().toLowerCase() === userEmail) return true;
+  if (userEmail && String(report?.createdByEmail || '').trim().toLowerCase() === userEmail) return true;
+  return allocated ? canUserAccessAllocated(user, allocated) : false;
 }
 
 function buildWorkHourEntryFromPayload(payload, allocated, user, existing = {}) {
@@ -3342,6 +3361,10 @@ async function handleApi(request, response) {
     const canAccessBeforePasswordChange = pathname === '/api/change-password' || pathname === '/api/logout';
     if (auth.user.mustChangePassword && !canAccessBeforePasswordChange) {
       sendError(response, 403, 'Troque sua senha para continuar.');
+      return;
+    }
+    if (isConsultantUser(auth.user) && !consultantCanAccessApi(pathname, request.method)) {
+      sendError(response, 403, 'Perfil consultor tem acesso apenas ao modulo de Status Report.');
       return;
     }
 
@@ -5886,34 +5909,48 @@ async function handleApi(request, response) {
       const payload = await readJsonBody(request);
       const db = await readDatabaseCollections(['clients', 'allocateds', 'statusReports']);
       const allocated = db.allocateds.find((item) => item.id === String(payload.allocatedId || '').trim());
-      if (!allocated) {
+      if (!allocated && !isConsultantUser(auth.user)) {
         sendError(response, 422, 'Selecione um consultor alocado valido.');
         return;
       }
-      if (!canUserAccessAllocated(auth.user, allocated)) {
+      const consultantEmail = String(allocated?.consultantEmail || payload.consultantEmail || auth.user.email || '').trim().toLowerCase();
+      if (allocated && !canUserAccessAllocated(auth.user, allocated)) {
         sendError(response, 403, 'Voce nao tem acesso a este consultor.');
         return;
       }
-      if (!isAdminUser(auth.user) && db.statusReports.some((item) => item.allocatedId === allocated.id && item.referenceMonth === String(payload.referenceMonth || '').trim())) {
+      if (!allocated && consultantEmail !== String(auth.user.email || '').trim().toLowerCase()) {
+        sendError(response, 403, 'Consultor pode criar status report apenas para o proprio e-mail.');
+        return;
+      }
+      if (!isAdminUser(auth.user) && db.statusReports.some((item) => (
+        String(payload.referenceMonth || '').trim()
+        && item.referenceMonth === String(payload.referenceMonth || '').trim()
+        && (
+          (allocated && item.allocatedId === allocated.id)
+          || String(item.consultantEmail || '').trim().toLowerCase() === consultantEmail
+        )
+      ))) {
         sendError(response, 409, 'Status report mensal ja existe para este consultor.');
         return;
       }
-      const client = db.clients.find((item) => item.id === allocated.clientId);
-      if (!client) {
+      const client = allocated
+        ? db.clients.find((item) => item.id === allocated.clientId)
+        : db.clients.find((item) => item.id === String(payload.clientId || '').trim());
+      if (!client && allocated) {
         sendError(response, 422, 'Cliente do alocado nao encontrado.');
         return;
       }
 
       const report = normalizeStatusReport({
-        id: createId('status_report', `${allocated.id}-${payload.period || payload.reportDate || ''}`),
+        id: createId('status_report', `${allocated?.id || consultantEmail}-${payload.period || payload.reportDate || ''}`),
         ...payload,
-        clientId: client.id,
-        allocatedId: allocated.id,
-        clientName: client.customerName,
-        consultantName: allocated.consultant,
-        consultantEmail: allocated.consultantEmail,
-        managerName: allocated.manager,
-        managerEmail: allocated.managerEmail,
+        clientId: client?.id || String(payload.clientId || '').trim(),
+        allocatedId: allocated?.id || '',
+        clientName: client?.customerName || String(payload.clientName || '').trim(),
+        consultantName: allocated?.consultant || String(payload.consultantName || auth.user.name || '').trim(),
+        consultantEmail,
+        managerName: allocated?.manager || String(payload.managerName || '').trim(),
+        managerEmail: allocated?.managerEmail || String(payload.managerEmail || '').trim().toLowerCase(),
         deliveryStatus: payload.consultantSubmission === true ? 'Salvo' : payload.deliveryStatus,
         consultantSubmittedAt: payload.consultantSubmission === true ? toISODate() : payload.consultantSubmittedAt,
         consultantSubmittedById: payload.consultantSubmission === true ? auth.user.id : payload.consultantSubmittedById,
@@ -5951,20 +5988,22 @@ async function handleApi(request, response) {
         return;
       }
       const allocated = db.allocateds.find((item) => item.id === String(payload.allocatedId || report.allocatedId || '').trim());
-      if (!allocated) {
+      if (!allocated && isAdminUser(auth.user)) {
         sendError(response, 422, 'Selecione um consultor alocado valido.');
         return;
       }
-      if (!canUserAccessAllocated(auth.user, allocated)) {
+      if (!canUserAccessStatusReport(auth.user, report, allocated)) {
         sendError(response, 403, 'Voce nao tem acesso a este status report.');
         return;
       }
-      if (!isAdminUser(auth.user) && allocated.id !== report.allocatedId) {
+      if (!isAdminUser(auth.user) && allocated && allocated.id !== report.allocatedId) {
         sendError(response, 403, 'Consultor nao pode alterar o vinculo do status report.');
         return;
       }
-      const client = db.clients.find((item) => item.id === allocated.clientId);
-      if (!client) {
+      const client = allocated
+        ? db.clients.find((item) => item.id === allocated.clientId)
+        : db.clients.find((item) => item.id === report.clientId);
+      if (!client && allocated) {
         sendError(response, 422, 'Cliente do alocado nao encontrado.');
         return;
       }
@@ -5986,13 +6025,13 @@ async function handleApi(request, response) {
         ...report,
         ...writablePayload,
         id: report.id,
-        clientId: client.id,
-        allocatedId: allocated.id,
-        clientName: client.customerName,
-        consultantName: allocated.consultant,
-        consultantEmail: allocated.consultantEmail,
-        managerName: allocated.manager,
-        managerEmail: allocated.managerEmail,
+        clientId: client?.id || report.clientId,
+        allocatedId: allocated?.id || report.allocatedId,
+        clientName: client?.customerName || report.clientName,
+        consultantName: allocated?.consultant || report.consultantName,
+        consultantEmail: allocated?.consultantEmail || report.consultantEmail,
+        managerName: allocated?.manager || report.managerName,
+        managerEmail: allocated?.managerEmail || report.managerEmail,
         deliveryStatus: writablePayload.consultantSubmission === true ? 'Salvo' : writablePayload.deliveryStatus,
         consultantSubmittedAt: writablePayload.consultantSubmission === true ? toISODate() : report.consultantSubmittedAt,
         consultantSubmittedById: writablePayload.consultantSubmission === true ? auth.user.id : report.consultantSubmittedById,
