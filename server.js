@@ -104,7 +104,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260805-status-report-delivery-fields';
+const APP_VERSION = '20260805-status-report-admin-delivery-date';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -6090,10 +6090,26 @@ async function handleApi(request, response) {
         managerName: allocated?.manager || report.managerName,
         managerEmail: allocated?.managerEmail || report.managerEmail,
         deliveryStatus: writablePayload.consultantSubmission === true ? 'Salvo' : writablePayload.deliveryStatus,
-        consultantSubmittedAt: writablePayload.consultantSubmission === true ? toISODate() : report.consultantSubmittedAt,
-        consultantSubmittedById: writablePayload.consultantSubmission === true ? auth.user.id : report.consultantSubmittedById,
-        consultantSubmittedByName: writablePayload.consultantSubmission === true ? auth.user.name : report.consultantSubmittedByName,
-        consultantSubmittedByEmail: writablePayload.consultantSubmission === true ? auth.user.email : report.consultantSubmittedByEmail,
+        consultantSubmittedAt: writablePayload.consultantSubmission === true
+          ? toISODate()
+          : isAdminUser(auth.user) && Object.hasOwn(writablePayload, 'consultantSubmittedAt')
+            ? writablePayload.consultantSubmittedAt
+            : report.consultantSubmittedAt,
+        consultantSubmittedById: writablePayload.consultantSubmission === true
+          ? auth.user.id
+          : isAdminUser(auth.user) && Object.hasOwn(writablePayload, 'consultantSubmittedById')
+            ? writablePayload.consultantSubmittedById
+            : report.consultantSubmittedById,
+        consultantSubmittedByName: writablePayload.consultantSubmission === true
+          ? auth.user.name
+          : isAdminUser(auth.user) && Object.hasOwn(writablePayload, 'consultantSubmittedByName')
+            ? writablePayload.consultantSubmittedByName
+            : report.consultantSubmittedByName,
+        consultantSubmittedByEmail: writablePayload.consultantSubmission === true
+          ? auth.user.email
+          : isAdminUser(auth.user) && Object.hasOwn(writablePayload, 'consultantSubmittedByEmail')
+            ? writablePayload.consultantSubmittedByEmail
+            : report.consultantSubmittedByEmail,
         createdById: report.createdById,
         createdByName: report.createdByName,
         createdByEmail: report.createdByEmail,
