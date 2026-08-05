@@ -119,11 +119,13 @@ test('status report mensal possui ciclo de consultor e painel de entregas', () =
   assert.match(indexSource, /textarea name="attentionPoints" rows="5" required/);
   assert.match(indexSource, /textarea name="risks" rows="5" required/);
   assert.match(indexSource, /textarea name="recommendedActions" rows="3" required/);
-  assert.match(indexSource, /textarea name="governanceNote" rows="2" required/);
+  assert.match(indexSource, /textarea name="governanceNote" rows="2" required placeholder="Observa..es de governan.a do per.odo"/);
   assert.match(appSource, /fillStatusReportLockedDefaults/);
   assert.match(appSource, /\['allocatedId', 'clientName', 'period', 'reportDate', 'alcateiaOwner'\]/);
   assert.match(appSource, /CONSULTANT_STATUS_REPORT_REQUIRED_FIELDS/);
   assert.match(appSource, /Preencha os campos obrigat.rios antes de salvar/);
+  assert.match(appSource, /executiveSummary:\s*''/);
+  assert.match(appSource, /governanceNote:\s*''/);
   assert.match(serverSource, /missingConsultantStatusReportFields/);
   assert.match(serverSource, /Preencha os campos obrigatorios antes de salvar/);
 });

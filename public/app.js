@@ -5518,13 +5518,13 @@ function currentConsultantDraftReport() {
     reportDate: new Date().toISOString().slice(0, 10),
     alcateiaOwner: 'Alcateia',
     statusLight: '',
-    executiveSummary: 'Atualização mensal de atividades do consultor.',
+    executiveSummary: '',
     tasks: '',
     nextSteps: '',
     attentionPoints: '',
     risks: '',
     recommendedActions: '',
-    governanceNote: 'Gestão diária sob responsabilidade do cliente; acompanhamento Alcateia para mitigação de riscos e antecipação de pontos de atenção.'
+    governanceNote: ''
   };
 }
 
@@ -6278,7 +6278,7 @@ function clearStatusReportForm() {
   const dateField = form.elements.reportDate;
   if (dateField) dateField.value = new Date().toISOString().slice(0, 10);
   const governance = form.elements.governanceNote;
-  if (governance) governance.value = 'Gestão diária sob responsabilidade do cliente; acompanhamento Alcateia para mitigação de riscos e antecipação de pontos de atenção.';
+  if (governance) governance.value = '';
   syncStatusReportClientName();
   setSubmitLabel(form, 'Salvar status report');
 }

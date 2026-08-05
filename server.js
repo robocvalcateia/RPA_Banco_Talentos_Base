@@ -104,7 +104,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260805-status-report-consultant-required';
+const APP_VERSION = '20260805-status-report-consultant-required-v2';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -982,13 +982,13 @@ function buildMonthlyStatusReport(db, allocated, monthKey) {
     alcateiaOwner: previous.alcateiaOwner || 'Alcateia',
     reportDate: `${monthKey}-01`,
     statusLight: '',
-    executiveSummary: previous.executiveSummary || 'Atualização mensal de atividades do consultor.',
-    tasks: previous.tasks || 'Atuação em acompanhamento no período.',
-    nextSteps: previous.nextSteps || 'Atualizar status do mês.',
-    attentionPoints: previous.attentionPoints || 'Sem pontos de atenção registrados.',
-    risks: previous.risks || 'Sem riscos registrados.',
-    recommendedActions: previous.recommendedActions || 'Registrar farol e observações do mês.',
-    governanceNote: previous.governanceNote || undefined,
+    executiveSummary: '',
+    tasks: '',
+    nextSteps: '',
+    attentionPoints: '',
+    risks: '',
+    recommendedActions: '',
+    governanceNote: '',
     deliveryStatus: 'Aberto',
     createdAt: toISODate(),
     updatedAt: toISODate()
