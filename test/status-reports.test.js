@@ -85,6 +85,11 @@ test('status report mensal possui ciclo de consultor e painel de entregas', () =
   assert.match(serverSource, /startStatusReportReminderJob/);
   assert.match(serverSource, /consultantSubmission/);
   assert.match(serverSource, /statusReportMessageForClient/);
+  assert.match(serverSource, /ensureStatusReportEmailLink/);
+  assert.match(serverSource, /statusReportCycleTargetMatches/);
+  assert.match(serverSource, /emails:\s*Array\.isArray\(payload\.emails\)/);
+  assert.match(serverSource, /allocatedIds:\s*Array\.isArray\(payload\.allocatedIds\)/);
+  assert.match(serverSource, /statusLight:\s*''/);
   assert.match(serverSource, /Usuario inativo/);
   assert.match(serverSource, /syncAllocatedConsultantUsersOnStartup/);
   assert.match(serverSource, /hasActiveAllocation/);

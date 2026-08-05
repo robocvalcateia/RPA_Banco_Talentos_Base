@@ -104,7 +104,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260804-opportunity-code-auto';
+const APP_VERSION = '20260805-status-report-targeted-send';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -981,18 +981,25 @@ function buildMonthlyStatusReport(db, allocated, monthKey) {
     managerEmail: allocated.managerEmail,
     alcateiaOwner: previous.alcateiaOwner || '',
     reportDate: `${monthKey}-01`,
-    statusLight: previous.statusLight || 'verde',
-    executiveSummary: previous.executiveSummary || '',
-    tasks: previous.tasks || '',
-    nextSteps: previous.nextSteps || '',
-    attentionPoints: previous.attentionPoints || '',
-    risks: previous.risks || '',
-    recommendedActions: previous.recommendedActions || '',
+    statusLight: '',
+    executiveSummary: previous.executiveSummary || 'Atualização mensal de atividades do consultor.',
+    tasks: previous.tasks || 'Atuação em acompanhamento no período.',
+    nextSteps: previous.nextSteps || 'Atualizar status do mês.',
+    attentionPoints: previous.attentionPoints || 'Sem pontos de atenção registrados.',
+    risks: previous.risks || 'Sem riscos registrados.',
+    recommendedActions: previous.recommendedActions || 'Registrar farol e observações do mês.',
     governanceNote: previous.governanceNote || undefined,
     deliveryStatus: 'Aberto',
     createdAt: toISODate(),
     updatedAt: toISODate()
   });
+}
+
+function ensureStatusReportEmailLink(text = '', url = '') {
+  const body = String(text || '').trimEnd();
+  const link = String(url || '').trim();
+  if (!link || body.includes(link)) return body;
+  return `${body}\n\nLink de acesso: ${link}`;
 }
 
 function statusReportMessageForClient(db, clientId = '') {
@@ -1030,7 +1037,7 @@ async function sendStatusReportConsultantEmail({ report, allocated, db, type = '
     ? `[Alcateia] Lembrete Status Report ${monthLabel}: ${consultantName}`
     : `[Alcateia] Atualizacao mensal do Status Report ${monthLabel}: ${consultantName}`;
   const text = customMessage?.body
-    ? applyStatusReportMessageTemplate(customMessage.body, context)
+    ? ensureStatusReportEmailLink(applyStatusReportMessageTemplate(customMessage.body, context), url)
     : [
       `Consultor: ${consultantName}`,
       `Cliente: ${clientName}`,
@@ -1046,12 +1053,27 @@ async function sendStatusReportConsultantEmail({ report, allocated, db, type = '
   return { sent: true, to };
 }
 
-async function runMonthlyStatusReportCycle({ forceInvite = false, forceReminder = false, date = new Date() } = {}) {
+function statusReportCycleTargetMatches(allocated, targets = {}) {
+  const targetAllocatedIds = new Set((targets.allocatedIds || []).map((item) => String(item || '').trim()).filter(Boolean));
+  const targetEmails = new Set((targets.emails || []).map((item) => String(item || '').trim().toLowerCase()).filter(Boolean));
+  if (!targetAllocatedIds.size && !targetEmails.size) return true;
+  return targetAllocatedIds.has(String(allocated.id || '').trim())
+    || targetEmails.has(String(allocated.consultantEmail || '').trim().toLowerCase());
+}
+
+async function runMonthlyStatusReportCycle({
+  forceInvite = false,
+  forceReminder = false,
+  date = new Date(),
+  allocatedIds = [],
+  emails = []
+} = {}) {
   const monthKey = monthKeyForAppDate(date);
   const todayKey = todayKeyForAppDate(date);
   const shouldInvite = forceInvite || dayOfMonthForAppDate(date) === 1;
   const db = await readDatabaseCollections(['clients', 'allocateds', 'statusReports', 'statusReportMessages']);
-  const activeAllocateds = activeAllocatedsForStatusReportCycle(db);
+  const activeAllocateds = activeAllocatedsForStatusReportCycle(db)
+    .filter((allocated) => statusReportCycleTargetMatches(allocated, { allocatedIds, emails }));
   let created = 0;
   let invitesSent = 0;
   let remindersSent = 0;
@@ -5912,7 +5934,9 @@ async function handleApi(request, response) {
       const payload = await readJsonBody(request).catch(() => ({}));
       const result = await runMonthlyStatusReportCycle({
         forceInvite: payload.forceInvite === true,
-        forceReminder: payload.forceReminder === true
+        forceReminder: payload.forceReminder === true,
+        allocatedIds: Array.isArray(payload.allocatedIds) ? payload.allocatedIds : [],
+        emails: Array.isArray(payload.emails) ? payload.emails : []
       });
       sendJson(response, 200, result);
       return;
