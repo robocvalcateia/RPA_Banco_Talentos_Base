@@ -126,6 +126,8 @@ test('status report mensal possui ciclo de consultor e painel de entregas', () =
   assert.match(appSource, /Preencha os campos obrigat.rios antes de salvar/);
   assert.match(appSource, /executiveSummary:\s*''/);
   assert.match(appSource, /governanceNote:\s*''/);
+  assert.match(appSource, /filter\(\(report\) => report\.monthlyEmailSentAt \|\| report\.consultantSubmittedAt\)/);
+  assert.match(appSource, /rows\.push\(\{ allocated, client, report \}\)/);
   assert.match(serverSource, /missingConsultantStatusReportFields/);
   assert.match(serverSource, /Preencha os campos obrigatorios antes de salvar/);
   assert.doesNotMatch(serverSource, /Informe o resumo executivo/);

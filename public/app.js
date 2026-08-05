@@ -6076,13 +6076,33 @@ function getFilteredStatusReports() {
 
 function getStatusReportDeliveryRows() {
   const month = $('#statusReportDeliveryMonth')?.value || currentStatusReportMonthKey();
-  return state.allocateds
+  const rows = state.allocateds
     .filter((allocated) => allocated.active === true)
     .map((allocated) => {
       const client = state.clients.find((item) => item.id === allocated.clientId);
       const report = state.statusReports.find((item) => item.allocatedId === allocated.id && item.referenceMonth === month);
       return { allocated, client, report };
-    })
+    });
+  const rowKeys = new Set(rows.map(({ allocated }) => allocated.id).filter(Boolean));
+  state.statusReports
+    .filter((report) => report.referenceMonth === month)
+    .filter((report) => report.monthlyEmailSentAt || report.consultantSubmittedAt)
+    .forEach((report) => {
+      if (report.allocatedId && rowKeys.has(report.allocatedId)) return;
+      const allocated = state.allocateds.find((item) => item.id === report.allocatedId) || {
+        id: report.allocatedId || report.id,
+        consultant: report.consultantName,
+        consultantEmail: report.consultantEmail,
+        clientId: report.clientId,
+        clientName: report.clientName
+      };
+      const client = state.clients.find((item) => item.id === (allocated.clientId || report.clientId)) || {
+        customerName: report.clientName
+      };
+      rows.push({ allocated, client, report });
+      if (allocated.id) rowKeys.add(allocated.id);
+    });
+  return rows
     .sort((first, second) => String(first.allocated.consultant || '').localeCompare(String(second.allocated.consultant || ''), 'pt-BR', { sensitivity: 'base' }));
 }
 
