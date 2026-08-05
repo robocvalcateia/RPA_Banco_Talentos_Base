@@ -104,7 +104,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260805-status-report-consultant-required-v2';
+const APP_VERSION = '20260805-status-report-consultant-required-v3';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -6021,10 +6021,6 @@ async function handleApi(request, response) {
         sendError(response, 422, 'Informe o periodo de referencia.');
         return;
       }
-      if (!report.executiveSummary) {
-        sendError(response, 422, 'Informe o resumo executivo.');
-        return;
-      }
       if (!isAdminUser(auth.user) && report.consultantSubmittedAt) {
         const missingFields = missingConsultantStatusReportFields(report);
         if (missingFields.length) {
@@ -6107,10 +6103,6 @@ async function handleApi(request, response) {
 
       if (!updated.period) {
         sendError(response, 422, 'Informe o periodo de referencia.');
-        return;
-      }
-      if (!updated.executiveSummary) {
-        sendError(response, 422, 'Informe o resumo executivo.');
         return;
       }
       if (!isAdminUser(auth.user) && updated.consultantSubmittedAt) {

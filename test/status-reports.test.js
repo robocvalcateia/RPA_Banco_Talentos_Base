@@ -128,6 +128,7 @@ test('status report mensal possui ciclo de consultor e painel de entregas', () =
   assert.match(appSource, /governanceNote:\s*''/);
   assert.match(serverSource, /missingConsultantStatusReportFields/);
   assert.match(serverSource, /Preencha os campos obrigatorios antes de salvar/);
+  assert.doesNotMatch(serverSource, /Informe o resumo executivo/);
 });
 
 test('mensagem de status report normaliza cliente todos e enriquece nome', () => {
