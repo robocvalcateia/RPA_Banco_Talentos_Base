@@ -101,7 +101,7 @@ test('status report mensal possui ciclo de consultor e painel de entregas', () =
   assert.match(serverSource, /emails:\s*Array\.isArray\(payload\.emails\)/);
   assert.match(serverSource, /allocatedIds:\s*Array\.isArray\(payload\.allocatedIds\)/);
   assert.match(serverSource, /statusLight:\s*''/);
-  assert.match(serverSource, /alcateiaOwner:\s*previous\.alcateiaOwner \|\| 'Alcateia'/);
+  assert.match(serverSource, /alcateiaOwner:\s*previous\.alcateiaOwner \|\| 'Gerson'/);
   assert.match(serverSource, /Usuario inativo/);
   assert.match(serverSource, /syncAllocatedConsultantUsersOnStartup/);
   assert.match(serverSource, /hasActiveAllocation/);
@@ -128,6 +128,14 @@ test('status report mensal possui ciclo de consultor e painel de entregas', () =
   assert.match(appSource, /governanceNote:\s*''/);
   assert.match(appSource, /filter\(\(report\) => report\.monthlyEmailSentAt \|\| report\.consultantSubmittedAt\)/);
   assert.match(appSource, /rows\.push\(\{ allocated, client, report \}\)/);
+  assert.match(indexSource, /<th>Status<\/th>/);
+  assert.match(appSource, /function renderStatusReportLightCell/);
+  assert.match(appSource, /if \(!light\) return '<span>-<\/span>'/);
+  assert.match(appSource, /function statusReportDisplayDate/);
+  assert.match(appSource, /report\.monthlyEmailSentAt \|\| report\.reportDate/);
+  assert.match(appSource, /function statusReportOwnerLabel/);
+  assert.match(appSource, /return 'Gerson'/);
+  assert.match(appSource, /: 'Pendente'/);
   assert.match(serverSource, /missingConsultantStatusReportFields/);
   assert.match(serverSource, /Preencha os campos obrigatorios antes de salvar/);
   assert.doesNotMatch(serverSource, /Informe o resumo executivo/);

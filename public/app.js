@@ -5457,16 +5457,31 @@ async function finalizeWorkHourPeriod(button, confirmMissingDays = false) {
   }
 }
 
-function statusReportLightLabel(value = 'verde') {
-  const light = String(value || 'verde').toLowerCase();
+function statusReportLightLabel(value = '') {
+  const light = String(value || '').toLowerCase();
+  if (!light) return '';
   if (light === 'vermelho') return 'Vermelho';
   if (light === 'amarelo') return 'Amarelo';
-  return 'Verde';
+  return light === 'verde' ? 'Verde' : '';
 }
 
-function statusReportLightClass(value = 'verde') {
-  const light = String(value || 'verde').toLowerCase();
-  return ['verde', 'amarelo', 'vermelho'].includes(light) ? light : 'verde';
+function statusReportLightClass(value = '') {
+  const light = String(value || '').toLowerCase();
+  return ['verde', 'amarelo', 'vermelho'].includes(light) ? light : '';
+}
+
+function renderStatusReportLightCell(value = '') {
+  const light = statusReportLightClass(value);
+  if (!light) return '<span>-</span>';
+  return `<span class="status-report-pill status-report-pill-${light}">${escapeHtml(statusReportLightLabel(light))}</span>`;
+}
+
+function statusReportDisplayDate(report = {}) {
+  return report.monthlyEmailSentAt || report.reportDate || '';
+}
+
+function statusReportOwnerLabel(report = {}) {
+  return 'Gerson';
 }
 
 function reportTextLines(value = '') {
@@ -5516,7 +5531,7 @@ function currentConsultantDraftReport() {
     period: month ? formatMonthLabel(month) : '',
     referenceMonth: month,
     reportDate: new Date().toISOString().slice(0, 10),
-    alcateiaOwner: 'Alcateia',
+    alcateiaOwner: 'Gerson',
     statusLight: '',
     executiveSummary: '',
     tasks: '',
@@ -5541,7 +5556,7 @@ function fillStatusReportLockedDefaults() {
   const reportDate = form.elements.reportDate;
   if (reportDate && !String(reportDate.value || '').trim()) reportDate.value = new Date().toISOString().slice(0, 10);
   const owner = form.elements.alcateiaOwner;
-  if (owner && !String(owner.value || '').trim()) owner.value = 'Alcateia';
+  if (owner && !String(owner.value || '').trim()) owner.value = 'Gerson';
 }
 
 function syncStatusReportClientName() {
@@ -5763,7 +5778,7 @@ async function createStatusReportCanvas(report = statusReportCurrentExportData()
   const muted = '#647475';
   const line = '#d9e4e5';
   const light = statusReportLightClass(report.statusLight);
-  const lightColor = light === 'vermelho' ? '#c92a2a' : light === 'amarelo' ? '#f4a51c' : green;
+  const lightColor = !light ? muted : light === 'vermelho' ? '#c92a2a' : light === 'amarelo' ? '#f4a51c' : green;
 
   ctx.fillStyle = '#f4f8f8';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -5993,7 +6008,7 @@ function currentStatusReportMonthKey() {
 function statusReportDeliveryStatus(report = {}) {
   return report.consultantSubmittedAt || String(report.deliveryStatus || '').toLowerCase() === 'salvo'
     ? 'Salvo'
-    : 'Em aberto';
+    : 'Pendente';
 }
 
 function statusReportPanelMode() {
@@ -6250,12 +6265,13 @@ function renderStatusReports() {
         <td><strong>${escapeHtml(report.clientName || '-')}</strong></td>
         <td>${escapeHtml(report.consultantName || '-')}</td>
         <td>${escapeHtml(report.period || '-')}</td>
-        <td>${escapeHtml(formatDateOnlyBR(report.reportDate) || '-')}</td>
-        <td><span class="status-report-pill status-report-pill-${statusReportLightClass(report.statusLight)}">${escapeHtml(statusReportLightLabel(report.statusLight))}</span></td>
-        <td>${escapeHtml(report.alcateiaOwner || '-')}</td>
+        <td>${escapeHtml(formatDateOnlyBR(statusReportDisplayDate(report)) || '-')}</td>
+        <td>${renderStatusReportLightCell(report.statusLight)}</td>
+        <td>${escapeHtml(statusReportOwnerLabel(report))}</td>
+        <td>${escapeHtml(statusReportDeliveryStatus(report) === 'Salvo' ? 'Salvo' : 'Pendente')}</td>
         <td><div class="stage-actions"><button class="secondary-action compact-action" type="button" data-preview-status-report="${escapeHtml(report.id)}">Abrir</button><button class="danger-action compact-action" type="button" data-delete-status-report="${escapeHtml(report.id)}">Excluir</button></div></td>
       </tr>
-    `).join('') : '<tr><td colspan="7">Nenhum status report encontrado.</td></tr>';
+    `).join('') : '<tr><td colspan="8">Nenhum status report encontrado.</td></tr>';
   }
   setStatusReportFormReadOnlyForConsultant();
 }
