@@ -6133,7 +6133,7 @@ function renderStatusReportMessageOptions() {
 function filteredStatusReportMessages() {
   const clientId = $('#statusReportMessageFilterClient')?.value || '';
   return (state.statusReportMessages || [])
-    .filter((message) => !clientId || message.clientId === clientId)
+    .filter((message) => !clientId || !message.clientId || message.clientId === clientId)
     .slice()
     .sort((first, second) => String(first.clientName || '').localeCompare(String(second.clientName || ''), 'pt-BR', { sensitivity: 'base' }));
 }
@@ -6258,6 +6258,7 @@ function renderStatusReports() {
       || (panelMode === 'consultant' && panelName === 'editor')
       || (panelMode === 'editor' && panelName === 'editor');
     panel.hidden = !shouldShow;
+    panel.style.display = shouldShow ? '' : 'none';
   });
   if (panelMode === 'parameters') {
     renderStatusReportMessages();

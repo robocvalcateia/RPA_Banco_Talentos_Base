@@ -92,6 +92,8 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.match(indexSource, /data-status-report-panel="management"/);
   assert.match(indexSource, /data-status-report-panel="management" data-admin-only hidden/);
   assert.match(indexSource, /data-status-report-panel="parameters" data-admin-only hidden/);
+  assert.match(indexSource, /app\.js\?v=20260805-status-report-hard-isolation/);
+  assert.match(indexSource, /styles\.css\?v=20260805-status-report-hard-isolation/);
   assert.match(indexSource, /id="statusReportMessageFilterClient"/);
   assert.match(indexSource, /id="statusReportDispatchRecipients"/);
   assert.match(indexSource, /id="statusReportDispatchSelectAll"/);
@@ -104,6 +106,7 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.match(appSource, /renderStatusReportMessages/);
   assert.match(appSource, /renderStatusReportDispatchRecipients/);
   assert.match(appSource, /filteredStatusReportMessages/);
+  assert.match(appSource, /!clientId \|\| !message\.clientId \|\| message\.clientId === clientId/);
   assert.match(appSource, /refreshStatusReportMessagesFromApi/);
   assert.match(appSource, /statusReportMessagesFetched/);
   assert.match(appSource, /api\('\/api\/status-report-messages'\)/);
@@ -115,6 +118,7 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.match(appSource, /allocatedIds:\s*selectedIds/);
   assert.match(appSource, /state\.activeStatusReportPanel = node\.panel \|\| \(isCurrentUserConsultant\(\) \? 'consultant' : 'editor'\)/);
   assert.match(appSource, /element\.hidden = Boolean\(element\.dataset\.statusPanel\)/);
+  assert.match(appSource, /panel\.style\.display = shouldShow \? '' : 'none'/);
   assert.match(serverSource, /buildStatusReportUrl/);
   assert.match(serverSource, /request\.method === 'GET' && pathname === '\/api\/status-report-messages'/);
   assert.match(serverSource, /Apenas administradores podem consultar mensagens de status report/);
