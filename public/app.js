@@ -6091,16 +6091,22 @@ function getFilteredStatusReports() {
 
 function getStatusReportDeliveryRows() {
   const month = $('#statusReportDeliveryMonth')?.value || currentStatusReportMonthKey();
+  const reportMatchesDeliveryMonth = (report = {}) => [
+    report.monthlyEmailSentAt,
+    report.consultantSubmittedAt,
+    report.reportDate,
+    report.referenceMonth
+  ].some((value) => monthKeyFromValue(value) === month);
   const rows = state.allocateds
     .filter((allocated) => allocated.active === true)
     .map((allocated) => {
       const client = state.clients.find((item) => item.id === allocated.clientId);
-      const report = state.statusReports.find((item) => item.allocatedId === allocated.id && item.referenceMonth === month);
+      const report = state.statusReports.find((item) => item.allocatedId === allocated.id && reportMatchesDeliveryMonth(item));
       return { allocated, client, report };
     });
   const rowKeys = new Set(rows.map(({ allocated }) => allocated.id).filter(Boolean));
   state.statusReports
-    .filter((report) => report.referenceMonth === month)
+    .filter(reportMatchesDeliveryMonth)
     .filter((report) => report.monthlyEmailSentAt || report.consultantSubmittedAt)
     .forEach((report) => {
       if (report.allocatedId && rowKeys.has(report.allocatedId)) return;

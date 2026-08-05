@@ -128,6 +128,11 @@ test('status report mensal possui ciclo de consultor e painel de entregas', () =
   assert.match(appSource, /governanceNote:\s*''/);
   assert.match(appSource, /filter\(\(report\) => report\.monthlyEmailSentAt \|\| report\.consultantSubmittedAt\)/);
   assert.match(appSource, /rows\.push\(\{ allocated, client, report \}\)/);
+  assert.match(appSource, /reportMatchesDeliveryMonth/);
+  assert.match(appSource, /report\.monthlyEmailSentAt/);
+  assert.match(appSource, /report\.consultantSubmittedAt/);
+  assert.match(appSource, /report\.reportDate/);
+  assert.match(appSource, /report\.referenceMonth/);
   assert.match(indexSource, /<th>Status<\/th>/);
   assert.match(appSource, /function renderStatusReportLightCell/);
   assert.match(appSource, /if \(!light\) return '<span>-<\/span>'/);
