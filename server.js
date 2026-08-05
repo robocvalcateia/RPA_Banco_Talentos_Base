@@ -104,7 +104,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260805-status-report-targeted-send-v2';
+const APP_VERSION = '20260805-status-report-targeted-send-v3';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -979,7 +979,7 @@ function buildMonthlyStatusReport(db, allocated, monthKey) {
     consultantEmail: allocated.consultantEmail,
     managerName: allocated.manager,
     managerEmail: allocated.managerEmail,
-    alcateiaOwner: previous.alcateiaOwner || '',
+    alcateiaOwner: previous.alcateiaOwner || 'Alcateia',
     reportDate: `${monthKey}-01`,
     statusLight: '',
     executiveSummary: previous.executiveSummary || 'Atualização mensal de atividades do consultor.',

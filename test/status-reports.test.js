@@ -101,6 +101,7 @@ test('status report mensal possui ciclo de consultor e painel de entregas', () =
   assert.match(serverSource, /emails:\s*Array\.isArray\(payload\.emails\)/);
   assert.match(serverSource, /allocatedIds:\s*Array\.isArray\(payload\.allocatedIds\)/);
   assert.match(serverSource, /statusLight:\s*''/);
+  assert.match(serverSource, /alcateiaOwner:\s*previous\.alcateiaOwner \|\| 'Alcateia'/);
   assert.match(serverSource, /Usuario inativo/);
   assert.match(serverSource, /syncAllocatedConsultantUsersOnStartup/);
   assert.match(serverSource, /hasActiveAllocation/);
