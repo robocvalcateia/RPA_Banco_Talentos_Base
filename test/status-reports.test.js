@@ -77,23 +77,41 @@ test('status report remove preview one page da tela principal', () => {
   assert.match(appSource, /mailto:/);
 });
 
-test('status report mensal possui ciclo de consultor e consulta unificada de entregas', () => {
+test('status report mensal separa formulario, parametros e gestao', () => {
   const appSource = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
   const indexSource = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
   const serverSource = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
 
   assert.doesNotMatch(indexSource, /Status Entregues/);
   assert.doesNotMatch(indexSource, /data-status-report-panel="delivered"/);
-  assert.match(indexSource, /Mensagens Status/);
+  assert.doesNotMatch(indexSource, /Mensagens Status/);
+  assert.match(indexSource, /Par.metros Status/);
+  assert.match(indexSource, /Gest.o dos Status/);
+  assert.match(indexSource, /data-status-report-panel="parameters"/);
+  assert.match(indexSource, /data-status-report-panel="management"/);
+  assert.match(indexSource, /id="statusReportMessageFilterClient"/);
+  assert.match(indexSource, /id="statusReportDispatchRecipients"/);
+  assert.match(indexSource, /id="statusReportDispatchSelectAll"/);
+  assert.match(indexSource, /id="statusReportDispatchButton"/);
   assert.match(indexSource, /value="Consultor"/);
   assert.match(indexSource, /name="active"/);
   assert.match(appSource, /function isCurrentUserConsultant/);
   assert.match(appSource, /activeStatusReportPanel/);
   assert.match(appSource, /Salvar atualiza..o do m.s/);
   assert.match(appSource, /renderStatusReportMessages/);
+  assert.match(appSource, /renderStatusReportDispatchRecipients/);
+  assert.match(appSource, /filteredStatusReportMessages/);
+  assert.match(appSource, /statusReportDispatchRecipients/);
   assert.match(appSource, /statusReportMessageForm/);
+  assert.match(appSource, /\/api\/admin\/status-reports\/monthly-cycle/);
+  assert.match(appSource, /forceInvite:\s*true/);
+  assert.match(appSource, /forceReminder:\s*true/);
+  assert.match(appSource, /allocatedIds:\s*selectedIds/);
+  assert.match(appSource, /element\.hidden = Boolean\(element\.dataset\.statusPanel\)/);
   assert.match(serverSource, /buildStatusReportUrl/);
   assert.match(serverSource, /runMonthlyStatusReportCycle/);
+  assert.match(serverSource, /sentInviteThisRun/);
+  assert.match(serverSource, /!sentInviteThisRun && isOpen/);
   assert.match(serverSource, /startStatusReportReminderJob/);
   assert.match(serverSource, /consultantSubmission/);
   assert.match(serverSource, /statusReportMessageForClient/);

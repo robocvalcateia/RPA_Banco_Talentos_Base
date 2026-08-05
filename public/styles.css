@@ -861,6 +861,23 @@ label.full,
   padding: 0 6px;
 }
 
+.status-report-recipient-list {
+  align-items: stretch;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.status-report-recipient-option {
+  align-items: flex-start;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.status-report-recipient-option small {
+  color: var(--muted);
+}
+
 .primary-action {
   min-height: 44px;
   border: 0;

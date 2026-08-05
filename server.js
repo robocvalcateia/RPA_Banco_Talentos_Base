@@ -104,7 +104,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260805-status-report-unified-filters';
+const APP_VERSION = '20260805-status-report-separated-panels';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -1081,6 +1081,7 @@ async function runMonthlyStatusReportCycle({
 
   for (const allocated of activeAllocateds) {
     let report = db.statusReports.find((item) => item.allocatedId === allocated.id && item.referenceMonth === monthKey);
+    let sentInviteThisRun = false;
     if (!report) {
       if (!shouldInvite) continue;
       report = buildMonthlyStatusReport(db, allocated, monthKey);
@@ -1094,13 +1095,14 @@ async function runMonthlyStatusReportCycle({
       if (notification.sent) {
         report.monthlyEmailSentAt = toISODate();
         report.monthlyEmailLastReminderDate = todayKey;
+        sentInviteThisRun = true;
         invitesSent += 1;
       }
       report.updatedAt = toISODate();
     }
 
     const isOpen = !report.consultantSubmittedAt && String(report.deliveryStatus || '').toLowerCase() !== 'salvo';
-    const canRemind = isOpen && report.monthlyEmailSentAt && (forceReminder || report.monthlyEmailLastReminderDate !== todayKey);
+    const canRemind = !sentInviteThisRun && isOpen && report.monthlyEmailSentAt && (forceReminder || report.monthlyEmailLastReminderDate !== todayKey);
     if (canRemind) {
       const notification = await sendStatusReportConsultantEmail({ report, allocated, db, type: 'reminder' });
       if (notification.sent) {

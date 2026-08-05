@@ -168,7 +168,7 @@ function applyInitialRoute() {
     state.activeBillingReportPanel = formsPanel;
   }
 
-  if (viewId === 'statusReports' && ['editor', 'consultant', 'messages'].includes(formsPanel)) {
+  if (viewId === 'statusReports' && ['editor', 'consultant', 'parameters', 'management'].includes(formsPanel)) {
     state.activeStatusReportPanel = formsPanel;
     state.statusReportDeepLinkId = params.get('reportId') || '';
   }
@@ -229,7 +229,7 @@ const launcherNodes = {
     label: 'Contratos',
     eyebrow: 'Seção',
     description: 'Alocados, horas trabalhadas, status report, bolsão de candidatos, huntings e rate cards',
-    children: ['allocateds', 'workHours', 'statusReports', 'statusReportMessages', 'candidatePool', 'huntings', 'rateCards']
+    children: ['allocateds', 'workHours', 'statusReports', 'statusReportParameters', 'statusReportManagement', 'candidatePool', 'huntings', 'rateCards']
   },
   finance: {
     label: 'Financeiro',
@@ -386,12 +386,20 @@ const launcherNodes = {
     description: 'One page executivo por cliente, consultor, farol e pontos de atenção',
     view: 'statusReports'
   },
-  statusReportMessages: {
-    label: 'Mensagens Status',
+  statusReportParameters: {
+    label: 'Parâmetros Status',
     eyebrow: 'Contratos',
-    description: 'Cadastro da mensagem mensal enviada aos consultores',
+    description: 'Mensagens, destinatários e disparo manual do link',
     view: 'statusReports',
-    panel: 'messages',
+    panel: 'parameters',
+    roles: ['Admin']
+  },
+  statusReportManagement: {
+    label: 'Gestão dos Status',
+    eyebrow: 'Contratos',
+    description: 'Consulta de e-mails enviados, pendências e entregas',
+    view: 'statusReports',
+    panel: 'management',
     roles: ['Admin']
   },
   curriculums: {
@@ -575,7 +583,7 @@ function applyRoleVisibility() {
       element.hidden = !(viewId === 'statusReports' && !statusPanel);
     });
     $$('[data-view="statusReports"]').forEach((element) => {
-      element.hidden = false;
+      element.hidden = Boolean(element.dataset.statusPanel);
     });
     return;
   }
@@ -6001,7 +6009,7 @@ function statusReportDeliveryStatus(report = {}) {
 
 function statusReportPanelMode() {
   if (isCurrentUserConsultant()) return 'consultant';
-  return ['editor', 'consultant', 'messages'].includes(state.activeStatusReportPanel)
+  return ['editor', 'consultant', 'parameters', 'management'].includes(state.activeStatusReportPanel)
     ? state.activeStatusReportPanel
     : 'editor';
 }
@@ -6105,19 +6113,57 @@ function renderStatusReportMessageOptions() {
   const select = $('#statusReportMessageClientSelect');
   if (!select) return;
   const current = select.value;
-  select.innerHTML = '<option value="">Todos</option>' + state.clients
+  const options = '<option value="">Todos</option>' + state.clients
     .slice()
     .sort((first, second) => String(first.customerName || '').localeCompare(String(second.customerName || ''), 'pt-BR', { sensitivity: 'base' }))
     .map((client) => `<option value="${escapeHtml(client.id)}">${escapeHtml(client.customerName || '-')}</option>`)
     .join('');
+  select.innerHTML = options;
   select.value = state.clients.some((client) => client.id === current) ? current : '';
+  ['#statusReportMessageFilterClient', '#statusReportDispatchClient'].forEach((selector) => {
+    const filter = $(selector);
+    if (!filter) return;
+    const filterCurrent = filter.value;
+    filter.innerHTML = options;
+    filter.value = state.clients.some((client) => client.id === filterCurrent) ? filterCurrent : '';
+  });
+}
+
+function filteredStatusReportMessages() {
+  const clientId = $('#statusReportMessageFilterClient')?.value || '';
+  return (state.statusReportMessages || [])
+    .filter((message) => !clientId || message.clientId === clientId)
+    .slice()
+    .sort((first, second) => String(first.clientName || '').localeCompare(String(second.clientName || ''), 'pt-BR', { sensitivity: 'base' }));
+}
+
+function statusReportDispatchRecipients() {
+  const clientId = $('#statusReportDispatchClient')?.value || '';
+  return activeStatusReportAllocatedOptions().filter((allocated) => !clientId || allocated.clientId === clientId);
+}
+
+function renderStatusReportDispatchRecipients() {
+  const list = $('#statusReportDispatchRecipients');
+  if (!list) return;
+  const selectAll = $('#statusReportDispatchSelectAll');
+  const recipients = statusReportDispatchRecipients();
+  if (selectAll) selectAll.checked = false;
+  list.innerHTML = recipients.length ? recipients.map((allocated) => {
+    const client = state.clients.find((item) => item.id === allocated.clientId);
+    const email = String(allocated.consultantEmail || '').trim();
+    return `
+      <label class="checkbox-field status-report-recipient-option">
+        <input type="checkbox" value="${escapeHtml(allocated.id)}" ${email ? '' : 'disabled'} />
+        <span><strong>${escapeHtml(allocated.consultant || '-')}</strong> - ${escapeHtml(client?.customerName || allocated.clientName || '-')}<br><small>${escapeHtml(email || 'Sem e-mail cadastrado')}</small></span>
+      </label>
+    `;
+  }).join('') : '<p class="empty-state">Nenhum consultor ativo encontrado para o filtro.</p>';
 }
 
 function renderStatusReportMessages() {
   renderStatusReportMessageOptions();
-  const rows = (state.statusReportMessages || [])
-    .slice()
-    .sort((first, second) => String(first.clientName || '').localeCompare(String(second.clientName || ''), 'pt-BR', { sensitivity: 'base' }));
+  renderStatusReportDispatchRecipients();
+  const rows = filteredStatusReportMessages();
   const count = $('#statusReportMessageCount');
   if (count) count.textContent = rows.length;
   const table = $('#statusReportMessageTable');
@@ -6193,10 +6239,10 @@ function renderStatusReports() {
     const panelName = panel.dataset.statusReportPanel;
     const shouldShow = panelName === panelMode
       || (panelMode === 'consultant' && panelName === 'editor')
-      || (panelMode === 'editor' && (panelName === 'editor' || panelName === 'editor-list'));
+      || (panelMode === 'editor' && panelName === 'editor');
     panel.hidden = !shouldShow;
   });
-  if (panelMode === 'messages') {
+  if (panelMode === 'parameters') {
     renderStatusReportMessages();
     return;
   }
@@ -9770,6 +9816,42 @@ function bindStatusReportActions() {
     const row = event.target.closest('[data-edit-status-report-message]');
     const message = state.statusReportMessages.find((item) => item.id === row?.dataset.editStatusReportMessage);
     if (message) loadStatusReportMessageForEdit(message);
+  });
+
+  $('#statusReportMessageFilterClient')?.addEventListener('change', renderStatusReportMessages);
+  $('#statusReportDispatchClient')?.addEventListener('change', renderStatusReportDispatchRecipients);
+  $('#statusReportDispatchSelectAll')?.addEventListener('change', (event) => {
+    $$('#statusReportDispatchRecipients input[type="checkbox"]').forEach((checkbox) => {
+      if (!checkbox.disabled) checkbox.checked = event.currentTarget.checked;
+    });
+  });
+  $('#statusReportDispatchButton')?.addEventListener('click', async () => {
+    const selectedIds = $$('#statusReportDispatchRecipients input[type="checkbox"]:checked')
+      .map((checkbox) => checkbox.value)
+      .filter(Boolean);
+    if (!selectedIds.length) {
+      toast('Selecione ao menos um consultor para envio.');
+      return;
+    }
+    const button = $('#statusReportDispatchButton');
+    const originalText = setSubmitButtonBusy(button, 'Enviando...');
+    try {
+      const result = await api('/api/admin/status-reports/monthly-cycle', {
+        method: 'POST',
+        body: JSON.stringify({
+          forceInvite: true,
+          forceReminder: true,
+          allocatedIds: selectedIds
+        })
+      });
+      (result.reports || []).forEach((report) => upsertStateItem('statusReports', report));
+      renderStatusReportMessages();
+      toast(`Envio concluído: ${result.invitesSent || 0} convite(s) e ${result.remindersSent || 0} lembrete(s).`);
+    } catch (error) {
+      toast(error.message || 'Não foi possível enviar os e-mails de status.');
+    } finally {
+      restoreSubmitButton(button, originalText || 'Enviar e-mails');
+    }
   });
 
   $('#statusReportTable')?.addEventListener('click', async (event) => {
