@@ -1384,8 +1384,8 @@ export function normalizeStatusReport(report = {}) {
   const allocatedId = String(report.allocatedId ?? report.alocadoId ?? report.consultorId ?? '').trim();
   const period = String(report.period ?? report.periodo ?? '').trim();
   const referenceMonth = monthKeyFromValue(report.referenceMonth ?? report.monthYear ?? report.mesAno ?? period ?? report.reportDate);
-  const statusLightInput = String(report.statusLight ?? report.farol ?? 'verde').trim().toLowerCase();
-  const statusLight = ['verde', 'amarelo', 'vermelho'].includes(statusLightInput) ? statusLightInput : 'verde';
+  const statusLightInput = String(report.statusLight ?? report.farol ?? '').trim().toLowerCase();
+  const statusLight = ['verde', 'amarelo', 'vermelho'].includes(statusLightInput) ? statusLightInput : '';
   const deliveryStatus = String(
     report.deliveryStatus
       ?? report.statusEntrega

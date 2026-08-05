@@ -30,6 +30,17 @@ test('status report normaliza estrutura executiva e farol', () => {
   assert.match(report.governanceNote, /Gestao diaria/);
 });
 
+test('status report preserva farol vazio ate escolha do consultor', () => {
+  const report = normalizeStatusReport({
+    clienteId: 'client_1',
+    consultorId: 'alloc_1',
+    periodo: 'Agosto/2026',
+    resumoExecutivo: 'Atualizacao mensal'
+  });
+
+  assert.equal(report.statusLight, '');
+});
+
 test('base normalizada cria colecao de status reports e enriquece cliente e consultor', () => {
   const db = normalizeDatabase({
     clients: [{ id: 'client_1', customerName: 'Totvs', managerContactName: 'Eloi' }],
