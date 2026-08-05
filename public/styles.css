@@ -17,6 +17,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 #codex-browser-sidebar-comments-root {
   display: none !important;
   pointer-events: none !important;
@@ -955,6 +959,12 @@ label.full,
   grid-column: auto;
   align-self: end;
   padding: 0 18px;
+}
+
+.status-report-management-filter-bar {
+  align-items: end;
+  grid-template-columns: 220px 260px 160px 170px 160px;
+  justify-content: start;
 }
 
 .opportunity-filter-bar {

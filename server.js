@@ -104,7 +104,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260805-status-report-separated-panels';
+const APP_VERSION = '20260805-status-report-parameters-management-fix';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -5884,6 +5884,15 @@ async function handleApi(request, response) {
       syncAllocatedConsultantUser(db, allocated);
       await writeDatabaseCollections(db, ['allocateds', 'users']);
       sendJson(response, 200, enrichAllocated(allocated, db));
+      return;
+    }
+
+    if (request.method === 'GET' && pathname === '/api/status-report-messages') {
+      if (requireAdmin(response, auth.user, 'Apenas administradores podem consultar mensagens de status report.')) {
+        return;
+      }
+      const db = await readDatabaseCollections(['clients', 'statusReportMessages']);
+      sendJson(response, 200, db.statusReportMessages.map((message) => enrichStatusReportMessage(message, db)));
       return;
     }
 

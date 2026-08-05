@@ -81,6 +81,7 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   const appSource = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
   const indexSource = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
   const serverSource = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+  const stylesSource = readFileSync(new URL('../public/styles.css', import.meta.url), 'utf8');
 
   assert.doesNotMatch(indexSource, /Status Entregues/);
   assert.doesNotMatch(indexSource, /data-status-report-panel="delivered"/);
@@ -101,6 +102,9 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.match(appSource, /renderStatusReportMessages/);
   assert.match(appSource, /renderStatusReportDispatchRecipients/);
   assert.match(appSource, /filteredStatusReportMessages/);
+  assert.match(appSource, /refreshStatusReportMessagesFromApi/);
+  assert.match(appSource, /statusReportMessagesFetched/);
+  assert.match(appSource, /api\('\/api\/status-report-messages'\)/);
   assert.match(appSource, /statusReportDispatchRecipients/);
   assert.match(appSource, /statusReportMessageForm/);
   assert.match(appSource, /\/api\/admin\/status-reports\/monthly-cycle/);
@@ -109,6 +113,8 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.match(appSource, /allocatedIds:\s*selectedIds/);
   assert.match(appSource, /element\.hidden = Boolean\(element\.dataset\.statusPanel\)/);
   assert.match(serverSource, /buildStatusReportUrl/);
+  assert.match(serverSource, /request\.method === 'GET' && pathname === '\/api\/status-report-messages'/);
+  assert.match(serverSource, /Apenas administradores podem consultar mensagens de status report/);
   assert.match(serverSource, /runMonthlyStatusReportCycle/);
   assert.match(serverSource, /sentInviteThisRun/);
   assert.match(serverSource, /!sentInviteThisRun && isOpen/);
@@ -147,6 +153,7 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.match(appSource, /governanceNote:\s*''/);
   assert.match(indexSource, /id="statusReportFilterMonth"/);
   assert.match(indexSource, /id="statusReportFilterStatus"/);
+  assert.match(indexSource, /status-report-management-filter-bar/);
   assert.match(indexSource, /<th>E-mail enviado<\/th>/);
   assert.match(indexSource, /<th>Salvo em<\/th>/);
   assert.match(indexSource, /<th>.ltimo lembrete<\/th>/);
@@ -172,6 +179,8 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.match(serverSource, /Preencha os campos obrigatorios antes de salvar/);
   assert.match(serverSource, /Object\.hasOwn\(writablePayload, 'consultantSubmittedAt'\)/);
   assert.doesNotMatch(serverSource, /Informe o resumo executivo/);
+  assert.match(stylesSource, /\[hidden\]\s*\{\s*display: none !important;/);
+  assert.match(stylesSource, /status-report-management-filter-bar/);
 });
 
 test('mensagem de status report normaliza cliente todos e enriquece nome', () => {

@@ -19,6 +19,7 @@
   rateCards: [],
   statusReports: [],
   statusReportMessages: [],
+  statusReportMessagesFetched: false,
   candidatePool: [],
   users: [],
   currentUser: null,
@@ -6160,9 +6161,25 @@ function renderStatusReportDispatchRecipients() {
   }).join('') : '<p class="empty-state">Nenhum consultor ativo encontrado para o filtro.</p>';
 }
 
+async function refreshStatusReportMessagesFromApi() {
+  if (state.statusReportMessagesFetched || isCurrentUserConsultant()) return;
+  state.statusReportMessagesFetched = true;
+  try {
+    const messages = await api('/api/status-report-messages');
+    if (Array.isArray(messages)) {
+      state.statusReportMessages = messages;
+      renderStatusReportMessages();
+    }
+  } catch (error) {
+    state.statusReportMessagesFetched = false;
+    toast(error.message || 'Não foi possível carregar as mensagens cadastradas.');
+  }
+}
+
 function renderStatusReportMessages() {
   renderStatusReportMessageOptions();
   renderStatusReportDispatchRecipients();
+  refreshStatusReportMessagesFromApi();
   const rows = filteredStatusReportMessages();
   const count = $('#statusReportMessageCount');
   if (count) count.textContent = rows.length;
