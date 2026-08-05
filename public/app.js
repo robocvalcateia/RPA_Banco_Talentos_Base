@@ -8385,10 +8385,8 @@ function createLauncherCard(nodeId, className) {
       if (node.view === 'billingReport' && node.panel) {
         state.activeBillingReportPanel = node.panel;
       }
-      if (node.view === 'statusReports' && node.panel) {
-        state.activeStatusReportPanel = node.panel;
-      } else if (node.view === 'statusReports' && isCurrentUserConsultant()) {
-        state.activeStatusReportPanel = 'consultant';
+      if (node.view === 'statusReports') {
+        state.activeStatusReportPanel = node.panel || (isCurrentUserConsultant() ? 'consultant' : 'editor');
       }
       rememberLauncherReturnForNode(nodeId);
       showView(node.view);
