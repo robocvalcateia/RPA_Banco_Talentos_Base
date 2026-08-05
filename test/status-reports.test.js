@@ -77,12 +77,13 @@ test('status report remove preview one page da tela principal', () => {
   assert.match(appSource, /mailto:/);
 });
 
-test('status report mensal possui ciclo de consultor e painel de entregas', () => {
+test('status report mensal possui ciclo de consultor e consulta unificada de entregas', () => {
   const appSource = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
   const indexSource = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
   const serverSource = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
 
-  assert.match(indexSource, /Status Entregues/);
+  assert.doesNotMatch(indexSource, /Status Entregues/);
+  assert.doesNotMatch(indexSource, /data-status-report-panel="delivered"/);
   assert.match(indexSource, /Mensagens Status/);
   assert.match(indexSource, /value="Consultor"/);
   assert.match(indexSource, /name="active"/);
@@ -126,21 +127,26 @@ test('status report mensal possui ciclo de consultor e painel de entregas', () =
   assert.match(appSource, /Preencha os campos obrigat.rios antes de salvar/);
   assert.match(appSource, /executiveSummary:\s*''/);
   assert.match(appSource, /governanceNote:\s*''/);
-  assert.match(appSource, /filter\(\(report\) => report\.monthlyEmailSentAt \|\| report\.consultantSubmittedAt\)/);
-  assert.match(appSource, /rows\.push\(\{ allocated, client, report \}\)/);
-  assert.match(appSource, /reportMatchesDeliveryMonth/);
+  assert.match(indexSource, /id="statusReportFilterMonth"/);
+  assert.match(indexSource, /id="statusReportFilterStatus"/);
+  assert.match(indexSource, /<th>E-mail enviado<\/th>/);
+  assert.match(indexSource, /<th>Salvo em<\/th>/);
+  assert.match(indexSource, /<th>.ltimo lembrete<\/th>/);
+  assert.match(appSource, /statusReportFilter:\s*\{ clientId: '', allocatedId: '', statusLight: '', month: '', deliveryStatus: '' \}/);
+  assert.match(appSource, /statusReportMatchesDeliveryMonth/);
+  assert.match(appSource, /statusReportSentDateLabel/);
+  assert.match(appSource, /statusReportDateTimeLabel/);
   assert.match(appSource, /report\.monthlyEmailSentAt/);
   assert.match(appSource, /report\.consultantSubmittedAt/);
   assert.match(appSource, /report\.reportDate/);
   assert.match(appSource, /report\.referenceMonth/);
-  assert.match(indexSource, /id="statusReportDeliveryStatus"/);
-  assert.match(appSource, /statusFilter = \$\('#statusReportDeliveryStatus'\)/);
-  assert.match(appSource, /statusReportDeliveryStatus\(report\) === statusFilter/);
+  assert.doesNotMatch(indexSource, /id="statusReportDeliveryStatus"/);
+  assert.doesNotMatch(appSource, /statusFilter = \$\('#statusReportDeliveryStatus'\)/);
+  assert.match(appSource, /statusReportDeliveryStatus\(report\) === state\.statusReportFilter\.deliveryStatus/);
   assert.match(indexSource, /<th>Status<\/th>/);
   assert.match(appSource, /function renderStatusReportLightCell/);
   assert.match(appSource, /if \(!light\) return '<span>-<\/span>'/);
-  assert.match(appSource, /function statusReportDisplayDate/);
-  assert.match(appSource, /report\.monthlyEmailSentAt \|\| report\.reportDate/);
+  assert.doesNotMatch(appSource, /function statusReportDisplayDate/);
   assert.match(appSource, /function statusReportOwnerLabel/);
   assert.match(appSource, /return 'Gerson'/);
   assert.match(appSource, /: 'Pendente'/);

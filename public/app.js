@@ -52,7 +52,7 @@
   allocatedFilter: { type: '', value: '', status: '' },
   workHourFilter: { allocatedId: '', clientId: '', dateFrom: '', dateTo: '' },
   billingReportFilter: { monthYear: '', clientId: '', allocatedId: '' },
-  statusReportFilter: { clientId: '', allocatedId: '', statusLight: '' },
+  statusReportFilter: { clientId: '', allocatedId: '', statusLight: '', month: '', deliveryStatus: '' },
   selectedAllocatedIds: new Set(),
   huntingFilter: { type: '', value: '' },
   rateCardFilter: { clientId: '' },
@@ -168,7 +168,7 @@ function applyInitialRoute() {
     state.activeBillingReportPanel = formsPanel;
   }
 
-  if (viewId === 'statusReports' && ['editor', 'consultant', 'delivered', 'messages'].includes(formsPanel)) {
+  if (viewId === 'statusReports' && ['editor', 'consultant', 'messages'].includes(formsPanel)) {
     state.activeStatusReportPanel = formsPanel;
     state.statusReportDeepLinkId = params.get('reportId') || '';
   }
@@ -229,7 +229,7 @@ const launcherNodes = {
     label: 'Contratos',
     eyebrow: 'Seção',
     description: 'Alocados, horas trabalhadas, status report, bolsão de candidatos, huntings e rate cards',
-    children: ['allocateds', 'workHours', 'statusReports', 'statusReportDeliveries', 'statusReportMessages', 'candidatePool', 'huntings', 'rateCards']
+    children: ['allocateds', 'workHours', 'statusReports', 'statusReportMessages', 'candidatePool', 'huntings', 'rateCards']
   },
   finance: {
     label: 'Financeiro',
@@ -385,14 +385,6 @@ const launcherNodes = {
     eyebrow: 'Contratos',
     description: 'One page executivo por cliente, consultor, farol e pontos de atenção',
     view: 'statusReports'
-  },
-  statusReportDeliveries: {
-    label: 'Status Entregues',
-    eyebrow: 'Contratos',
-    description: 'Controle mensal de enviados, salvos e pendentes',
-    view: 'statusReports',
-    panel: 'delivered',
-    roles: ['Admin']
   },
   statusReportMessages: {
     label: 'Mensagens Status',
@@ -5476,10 +5468,6 @@ function renderStatusReportLightCell(value = '') {
   return `<span class="status-report-pill status-report-pill-${light}">${escapeHtml(statusReportLightLabel(light))}</span>`;
 }
 
-function statusReportDisplayDate(report = {}) {
-  return report.monthlyEmailSentAt || report.reportDate || '';
-}
-
 function statusReportOwnerLabel(report = {}) {
   return 'Gerson';
 }
@@ -6013,7 +6001,7 @@ function statusReportDeliveryStatus(report = {}) {
 
 function statusReportPanelMode() {
   if (isCurrentUserConsultant()) return 'consultant';
-  return ['editor', 'consultant', 'delivered', 'messages'].includes(state.activeStatusReportPanel)
+  return ['editor', 'consultant', 'messages'].includes(state.activeStatusReportPanel)
     ? state.activeStatusReportPanel
     : 'editor';
 }
@@ -6085,68 +6073,32 @@ function getFilteredStatusReports() {
     .filter((report) => !state.statusReportFilter.clientId || report.clientId === state.statusReportFilter.clientId)
     .filter((report) => !state.statusReportFilter.allocatedId || report.allocatedId === state.statusReportFilter.allocatedId)
     .filter((report) => !state.statusReportFilter.statusLight || report.statusLight === state.statusReportFilter.statusLight)
+    .filter((report) => !state.statusReportFilter.month || statusReportMatchesDeliveryMonth(report, state.statusReportFilter.month))
+    .filter((report) => !state.statusReportFilter.deliveryStatus || statusReportDeliveryStatus(report) === state.statusReportFilter.deliveryStatus)
     .slice()
-    .sort((first, second) => String(second.reportDate || '').localeCompare(String(first.reportDate || '')));
+    .sort((first, second) => String(statusReportSortDate(second)).localeCompare(String(statusReportSortDate(first))));
 }
 
-function getStatusReportDeliveryRows() {
-  const month = $('#statusReportDeliveryMonth')?.value || currentStatusReportMonthKey();
-  const statusFilter = $('#statusReportDeliveryStatus')?.value || '';
-  const reportMatchesDeliveryMonth = (report = {}) => [
+function statusReportMatchesDeliveryMonth(report = {}, month = '') {
+  if (!month) return true;
+  return [
     report.monthlyEmailSentAt,
     report.consultantSubmittedAt,
     report.reportDate,
     report.referenceMonth
   ].some((value) => monthKeyFromValue(value) === month);
-  const rows = state.allocateds
-    .filter((allocated) => allocated.active === true)
-    .map((allocated) => {
-      const client = state.clients.find((item) => item.id === allocated.clientId);
-      const report = state.statusReports.find((item) => item.allocatedId === allocated.id && reportMatchesDeliveryMonth(item));
-      return { allocated, client, report };
-    });
-  const rowKeys = new Set(rows.map(({ allocated }) => allocated.id).filter(Boolean));
-  state.statusReports
-    .filter(reportMatchesDeliveryMonth)
-    .filter((report) => report.monthlyEmailSentAt || report.consultantSubmittedAt)
-    .forEach((report) => {
-      if (report.allocatedId && rowKeys.has(report.allocatedId)) return;
-      const allocated = state.allocateds.find((item) => item.id === report.allocatedId) || {
-        id: report.allocatedId || report.id,
-        consultant: report.consultantName,
-        consultantEmail: report.consultantEmail,
-        clientId: report.clientId,
-        clientName: report.clientName
-      };
-      const client = state.clients.find((item) => item.id === (allocated.clientId || report.clientId)) || {
-        customerName: report.clientName
-      };
-      rows.push({ allocated, client, report });
-      if (allocated.id) rowKeys.add(allocated.id);
-    });
-  return rows
-    .filter(({ report }) => !statusFilter || statusReportDeliveryStatus(report) === statusFilter)
-    .sort((first, second) => String(first.allocated.consultant || '').localeCompare(String(second.allocated.consultant || ''), 'pt-BR', { sensitivity: 'base' }));
 }
 
-function renderStatusReportDeliveries() {
-  const monthInput = $('#statusReportDeliveryMonth');
-  if (monthInput && !monthInput.value) monthInput.value = currentStatusReportMonthKey();
-  const rows = getStatusReportDeliveryRows();
-  const count = $('#statusReportDeliveryCount');
-  if (count) count.textContent = rows.length;
-  const table = $('#statusReportDeliveryTable');
-  if (!table) return;
-  table.innerHTML = rows.length ? rows.map(({ allocated, client, report }) => `
-    <tr>
-      <td><strong>${escapeHtml(allocated.consultant || '-')}</strong><br>${escapeHtml(allocated.consultantEmail || '-')}</td>
-      <td>${escapeHtml(client?.customerName || allocated.clientName || '-')}</td>
-      <td>${report?.monthlyEmailSentAt ? formatDateOnlyBR(report.monthlyEmailSentAt) : 'Não'}</td>
-      <td>${escapeHtml(report ? statusReportDeliveryStatus(report) : 'Sem envio')}</td>
-      <td>${report?.consultantSubmittedAt ? new Date(report.consultantSubmittedAt).toLocaleString('pt-BR') : '-'}</td>
-      <td>${report?.monthlyEmailLastReminderAt ? new Date(report.monthlyEmailLastReminderAt).toLocaleString('pt-BR') : '-'}</td>
-    </tr>
-  `).join('') : '<tr><td colspan="6">Nenhum consultor ativo encontrado.</td></tr>';
+function statusReportSortDate(report = {}) {
+  return report.monthlyEmailSentAt || report.consultantSubmittedAt || report.reportDate || report.referenceMonth || '';
+}
+
+function statusReportSentDateLabel(report = {}) {
+  return report.monthlyEmailSentAt ? formatDateOnlyBR(report.monthlyEmailSentAt) : 'Não';
+}
+
+function statusReportDateTimeLabel(value) {
+  return value ? new Date(value).toLocaleString('pt-BR') : '-';
 }
 
 function renderStatusReportMessageOptions() {
@@ -6244,10 +6196,6 @@ function renderStatusReports() {
       || (panelMode === 'editor' && (panelName === 'editor' || panelName === 'editor-list'));
     panel.hidden = !shouldShow;
   });
-  if (panelMode === 'delivered') {
-    renderStatusReportDeliveries();
-    return;
-  }
   if (panelMode === 'messages') {
     renderStatusReportMessages();
     return;
@@ -6273,13 +6221,15 @@ function renderStatusReports() {
         <td><strong>${escapeHtml(report.clientName || '-')}</strong></td>
         <td>${escapeHtml(report.consultantName || '-')}</td>
         <td>${escapeHtml(report.period || '-')}</td>
-        <td>${escapeHtml(formatDateOnlyBR(statusReportDisplayDate(report)) || '-')}</td>
+        <td>${escapeHtml(statusReportSentDateLabel(report))}</td>
         <td>${renderStatusReportLightCell(report.statusLight)}</td>
         <td>${escapeHtml(statusReportOwnerLabel(report))}</td>
         <td>${escapeHtml(statusReportDeliveryStatus(report) === 'Salvo' ? 'Salvo' : 'Pendente')}</td>
+        <td>${escapeHtml(statusReportDateTimeLabel(report.consultantSubmittedAt))}</td>
+        <td>${escapeHtml(statusReportDateTimeLabel(report.monthlyEmailLastReminderAt))}</td>
         <td><div class="stage-actions"><button class="secondary-action compact-action" type="button" data-preview-status-report="${escapeHtml(report.id)}">Abrir</button><button class="danger-action compact-action" type="button" data-delete-status-report="${escapeHtml(report.id)}">Excluir</button></div></td>
       </tr>
-    `).join('') : '<tr><td colspan="8">Nenhum status report encontrado.</td></tr>';
+    `).join('') : '<tr><td colspan="10">Nenhum status report encontrado.</td></tr>';
   }
   setStatusReportFormReadOnlyForConsultant();
 }
@@ -9777,19 +9727,17 @@ function bindStatusReportActions() {
 
   $('#statusReportClearButton')?.addEventListener('click', clearStatusReportForm);
 
-  ['#statusReportFilterClient', '#statusReportFilterAllocated', '#statusReportFilterLight'].forEach((selector) => {
+  ['#statusReportFilterClient', '#statusReportFilterAllocated', '#statusReportFilterLight', '#statusReportFilterMonth', '#statusReportFilterStatus'].forEach((selector) => {
     $(selector)?.addEventListener('change', () => {
       state.statusReportFilter = {
         clientId: $('#statusReportFilterClient')?.value || '',
         allocatedId: $('#statusReportFilterAllocated')?.value || '',
-        statusLight: $('#statusReportFilterLight')?.value || ''
+        statusLight: $('#statusReportFilterLight')?.value || '',
+        month: $('#statusReportFilterMonth')?.value || '',
+        deliveryStatus: $('#statusReportFilterStatus')?.value || ''
       };
       renderStatusReports();
     });
-  });
-
-  ['#statusReportDeliveryMonth', '#statusReportDeliveryStatus'].forEach((selector) => {
-    $(selector)?.addEventListener('change', renderStatusReportDeliveries);
   });
 
   $('#statusReportMessageForm')?.addEventListener('submit', async (event) => {

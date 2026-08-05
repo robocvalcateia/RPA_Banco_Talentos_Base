@@ -102,7 +102,6 @@
             <button class="nav-item nav-subitem" data-view="allocateds" data-parent-group="contracts">Alocados</button>
             <button class="nav-item nav-subitem" data-view="workHours" data-parent-group="contracts">Horas Trabalhadas</button>
             <button class="nav-item nav-subitem" data-view="statusReports" data-parent-group="contracts">Status Report</button>
-            <button class="nav-item nav-subitem" data-view="statusReports" data-status-panel="delivered" data-parent-group="contracts" data-admin-only>Status Entregues</button>
             <button class="nav-item nav-subitem" data-view="statusReports" data-status-panel="messages" data-parent-group="contracts" data-admin-only>Mensagens Status</button>
             <button class="nav-item nav-subitem" data-view="candidatePool" data-parent-group="contracts">Bolsão de Candidatos</button>
             <button class="nav-item nav-subitem" data-view="huntings" data-parent-group="contracts">Huntings</button>
@@ -1663,39 +1662,11 @@
                 <option value="vermelho">Vermelho</option>
               </select>
             </label>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Cliente</th>
-                  <th>Consultor</th>
-                  <th>Período</th>
-                  <th>Data</th>
-                  <th>Farol</th>
-                  <th>Responsável</th>
-                  <th>Status</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody id="statusReportTable"></tbody>
-            </table>
-          </div>
-        </section>
-
-        <section class="panel" data-status-report-panel="delivered" data-admin-only>
-          <div class="panel-heading">
-            <div>
-              <h2>Status Entregues</h2>
-              <span id="statusReportDeliveryCount">0</span>
-            </div>
-          </div>
-          <div class="filter-bar status-report-filter-bar">
             <label>Mês
-              <input id="statusReportDeliveryMonth" type="month" />
+              <input id="statusReportFilterMonth" type="month" />
             </label>
             <label>Status
-              <select id="statusReportDeliveryStatus">
+              <select id="statusReportFilterStatus">
                 <option value="">Todos</option>
                 <option value="Pendente">Pendente</option>
                 <option value="Salvo">Salvo</option>
@@ -1706,15 +1677,19 @@
             <table>
               <thead>
                 <tr>
-                  <th>Consultor</th>
                   <th>Cliente</th>
+                  <th>Consultor</th>
+                  <th>Período</th>
                   <th>E-mail enviado</th>
+                  <th>Farol</th>
+                  <th>Responsável</th>
                   <th>Status</th>
                   <th>Salvo em</th>
                   <th>Último lembrete</th>
+                  <th>Ações</th>
                 </tr>
               </thead>
-              <tbody id="statusReportDeliveryTable"></tbody>
+              <tbody id="statusReportTable"></tbody>
             </table>
           </div>
         </section>
