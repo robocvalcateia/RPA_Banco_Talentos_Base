@@ -6091,6 +6091,7 @@ function getFilteredStatusReports() {
 
 function getStatusReportDeliveryRows() {
   const month = $('#statusReportDeliveryMonth')?.value || currentStatusReportMonthKey();
+  const statusFilter = $('#statusReportDeliveryStatus')?.value || '';
   const reportMatchesDeliveryMonth = (report = {}) => [
     report.monthlyEmailSentAt,
     report.consultantSubmittedAt,
@@ -6124,6 +6125,7 @@ function getStatusReportDeliveryRows() {
       if (allocated.id) rowKeys.add(allocated.id);
     });
   return rows
+    .filter(({ report }) => !statusFilter || statusReportDeliveryStatus(report) === statusFilter)
     .sort((first, second) => String(first.allocated.consultant || '').localeCompare(String(second.allocated.consultant || ''), 'pt-BR', { sensitivity: 'base' }));
 }
 
@@ -9786,7 +9788,9 @@ function bindStatusReportActions() {
     });
   });
 
-  $('#statusReportDeliveryMonth')?.addEventListener('change', renderStatusReportDeliveries);
+  ['#statusReportDeliveryMonth', '#statusReportDeliveryStatus'].forEach((selector) => {
+    $(selector)?.addEventListener('change', renderStatusReportDeliveries);
+  });
 
   $('#statusReportMessageForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
