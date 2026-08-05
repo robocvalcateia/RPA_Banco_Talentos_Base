@@ -5533,11 +5533,23 @@ function selectedStatusReportAllocated() {
   return state.allocateds.find((allocated) => allocated.id === allocatedId) || null;
 }
 
+function fillStatusReportLockedDefaults() {
+  const form = $('#statusReportForm');
+  if (!form) return;
+  const period = form.elements.period;
+  if (period && !String(period.value || '').trim()) period.value = formatMonthLabel(currentStatusReportMonthKey());
+  const reportDate = form.elements.reportDate;
+  if (reportDate && !String(reportDate.value || '').trim()) reportDate.value = new Date().toISOString().slice(0, 10);
+  const owner = form.elements.alcateiaOwner;
+  if (owner && !String(owner.value || '').trim()) owner.value = 'Alcateia';
+}
+
 function syncStatusReportClientName() {
   const allocated = selectedStatusReportAllocated();
   const client = state.clients.find((item) => item.id === allocated?.clientId);
   const input = $('#statusReportClientName');
   if (input && (allocated || !input.value)) input.value = client?.customerName || input.value || '';
+  fillStatusReportLockedDefaults();
 }
 
 function statusReportFormDraft() {
@@ -5995,6 +6007,7 @@ function setStatusReportFormReadOnlyForConsultant() {
   const form = $('#statusReportForm');
   if (!form) return;
   const consultantMode = statusReportPanelMode() === 'consultant';
+  if (consultantMode) fillStatusReportLockedDefaults();
   ['allocatedId', 'clientName', 'period', 'reportDate', 'alcateiaOwner'].forEach((fieldName) => {
     const field = form.elements[fieldName];
     if (!field) return;
@@ -6007,6 +6020,23 @@ function setStatusReportFormReadOnlyForConsultant() {
   $('#statusReportClearButton')?.toggleAttribute('hidden', consultantMode);
   const submitButton = $('button[type="submit"]', form);
   if (submitButton && consultantMode) submitButton.textContent = 'Salvar atualização do mês';
+}
+
+const CONSULTANT_STATUS_REPORT_REQUIRED_FIELDS = [
+  ['statusLight', 'Farol'],
+  ['executiveSummary', 'Resumo executivo'],
+  ['tasks', 'Tarefas realizadas'],
+  ['nextSteps', 'Próximas atividades'],
+  ['attentionPoints', 'Pontos de atenção'],
+  ['risks', 'Riscos'],
+  ['recommendedActions', 'Ações recomendadas'],
+  ['governanceNote', 'Nota de governança']
+];
+
+function missingConsultantStatusReportFields(payload = {}) {
+  return CONSULTANT_STATUS_REPORT_REQUIRED_FIELDS
+    .filter(([fieldName]) => !String(payload[fieldName] || '').trim())
+    .map(([, label]) => label);
 }
 
 function statusReportPayloadFromForm(form) {
@@ -9676,9 +9706,12 @@ function bindStatusReportActions() {
     const editingId = state.editing.statusReportId;
     const payload = statusReportPayloadFromForm(form);
     if (statusReportPanelMode() !== 'consultant') delete payload.clientName;
-    if (statusReportPanelMode() === 'consultant' && !payload.statusLight) {
-      toast('Selecione o Farol antes de salvar.');
-      return;
+    if (statusReportPanelMode() === 'consultant') {
+      const missingFields = missingConsultantStatusReportFields(payload);
+      if (missingFields.length) {
+        toast(`Preencha os campos obrigatórios antes de salvar: ${missingFields.join(', ')}.`);
+        return;
+      }
     }
     const originalText = setSubmitButtonBusy(submitButton, 'Salvando...');
     try {

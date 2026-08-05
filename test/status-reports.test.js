@@ -114,7 +114,18 @@ test('status report mensal possui ciclo de consultor e painel de entregas', () =
   assert.match(appSource, /currentConsultantDraftReport/);
   assert.match(appSource, /statusReportBelongsToCurrentConsultant/);
   assert.match(appSource, /Acesso restrito ao Status Report/);
-  assert.match(appSource, /Selecione o Farol antes de salvar/);
+  assert.match(indexSource, /textarea name="tasks" rows="5" required/);
+  assert.match(indexSource, /textarea name="nextSteps" rows="5" required/);
+  assert.match(indexSource, /textarea name="attentionPoints" rows="5" required/);
+  assert.match(indexSource, /textarea name="risks" rows="5" required/);
+  assert.match(indexSource, /textarea name="recommendedActions" rows="3" required/);
+  assert.match(indexSource, /textarea name="governanceNote" rows="2" required/);
+  assert.match(appSource, /fillStatusReportLockedDefaults/);
+  assert.match(appSource, /\['allocatedId', 'clientName', 'period', 'reportDate', 'alcateiaOwner'\]/);
+  assert.match(appSource, /CONSULTANT_STATUS_REPORT_REQUIRED_FIELDS/);
+  assert.match(appSource, /Preencha os campos obrigat.rios antes de salvar/);
+  assert.match(serverSource, /missingConsultantStatusReportFields/);
+  assert.match(serverSource, /Preencha os campos obrigatorios antes de salvar/);
 });
 
 test('mensagem de status report normaliza cliente todos e enriquece nome', () => {

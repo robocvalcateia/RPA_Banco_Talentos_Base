@@ -104,7 +104,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260805-status-report-targeted-send-v3';
+const APP_VERSION = '20260805-status-report-consultant-required';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -1406,6 +1406,23 @@ function canUserAccessStatusReport(user, report, allocated) {
   if (userEmail && String(report?.consultantEmail || '').trim().toLowerCase() === userEmail) return true;
   if (userEmail && String(report?.createdByEmail || '').trim().toLowerCase() === userEmail) return true;
   return allocated ? canUserAccessAllocated(user, allocated) : false;
+}
+
+const CONSULTANT_STATUS_REPORT_REQUIRED_FIELDS = [
+  ['statusLight', 'Farol'],
+  ['executiveSummary', 'Resumo executivo'],
+  ['tasks', 'Tarefas realizadas'],
+  ['nextSteps', 'Próximas atividades'],
+  ['attentionPoints', 'Pontos de atenção'],
+  ['risks', 'Riscos'],
+  ['recommendedActions', 'Ações recomendadas'],
+  ['governanceNote', 'Nota de governança']
+];
+
+function missingConsultantStatusReportFields(report = {}) {
+  return CONSULTANT_STATUS_REPORT_REQUIRED_FIELDS
+    .filter(([fieldName]) => !String(report[fieldName] || '').trim())
+    .map(([, label]) => label);
 }
 
 function buildWorkHourEntryFromPayload(payload, allocated, user, existing = {}) {
@@ -6008,6 +6025,13 @@ async function handleApi(request, response) {
         sendError(response, 422, 'Informe o resumo executivo.');
         return;
       }
+      if (!isAdminUser(auth.user) && report.consultantSubmittedAt) {
+        const missingFields = missingConsultantStatusReportFields(report);
+        if (missingFields.length) {
+          sendError(response, 422, `Preencha os campos obrigatorios antes de salvar: ${missingFields.join(', ')}.`);
+          return;
+        }
+      }
 
       db.statusReports.push(report);
       await writeDatabaseCollections(db, ['statusReports']);
@@ -6088,6 +6112,13 @@ async function handleApi(request, response) {
       if (!updated.executiveSummary) {
         sendError(response, 422, 'Informe o resumo executivo.');
         return;
+      }
+      if (!isAdminUser(auth.user) && updated.consultantSubmittedAt) {
+        const missingFields = missingConsultantStatusReportFields(updated);
+        if (missingFields.length) {
+          sendError(response, 422, `Preencha os campos obrigatorios antes de salvar: ${missingFields.join(', ')}.`);
+          return;
+        }
       }
 
       Object.assign(report, updated);
