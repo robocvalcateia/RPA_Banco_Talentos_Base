@@ -94,8 +94,8 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.match(indexSource, /<section class="view" id="statusReportManagement">/);
   assert.match(indexSource, /data-view="statusReportParameters"/);
   assert.match(indexSource, /data-view="statusReportManagement"/);
-  assert.match(indexSource, /app\.js\?v=20260806-status-report-split-views/);
-  assert.match(indexSource, /styles\.css\?v=20260806-status-report-split-views/);
+  assert.match(indexSource, /app\.js\?v=20260806-status-report-view-switch/);
+  assert.match(indexSource, /styles\.css\?v=20260806-status-report-view-switch/);
   assert.match(indexSource, /id="statusReportMessageFilterClient"/);
   assert.match(indexSource, /id="statusReportDispatchRecipients"/);
   assert.match(indexSource, /id="statusReportDispatchSelectAll"/);

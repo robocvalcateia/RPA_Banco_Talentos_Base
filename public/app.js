@@ -8134,7 +8134,8 @@ function maximizeActiveViewPrimaryPanel(viewId) {
   if (viewId === 'dashboard') return;
   const view = $(`.view#${CSS.escape(viewId)}`);
   if (!view) return;
-  $$('.panel.panel-maximized', view).forEach((panel) => setSurfaceMaximized(panel, false));
+  $$('.panel.panel-maximized').forEach((panel) => setSurfaceMaximized(panel, false));
+  $$('.panel.surface-minimized').forEach((panel) => setSurfaceMinimized(panel, false));
   document.body.classList.toggle('panel-is-maximized', Boolean($('.modal-panel.panel-maximized, .modal-card.panel-maximized')));
 }
 

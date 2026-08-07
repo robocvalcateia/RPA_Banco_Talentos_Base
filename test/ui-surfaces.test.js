@@ -11,13 +11,14 @@ test('dialogos abrem pelo fluxo maximizado padronizado', () => {
   assert.doesNotMatch(appSource, /contactClientListModal'\)\?\.classList\.remove\('hidden'\);/);
 });
 
-test('views comuns nao maximizam um painel interno ao entrar', () => {
+test('views comuns limpam paineis antigos sem maximizar painel interno ao entrar', () => {
   const appSource = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
   const start = appSource.indexOf('function maximizeActiveViewPrimaryPanel(viewId)');
   const end = appSource.indexOf('function closeSurfaceDialog', start);
   const functionBody = appSource.slice(start, end);
 
-  assert.match(functionBody, /\$\$\(\'\.panel\.panel-maximized\', view\)\.forEach/);
+  assert.match(functionBody, /\$\$\(\'\.panel\.panel-maximized\'\)\.forEach/);
+  assert.match(functionBody, /\$\$\(\'\.panel\.surface-minimized\'\)\.forEach/);
   assert.doesNotMatch(functionBody, /setSurfaceMaximized\(targetPanel,\s*true\)/);
   assert.doesNotMatch(functionBody, /hasAttribute\('data-no-auto-maximize'\)/);
 });
