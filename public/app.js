@@ -40,6 +40,7 @@
   dashboardMonth: '',
   dashboardModel: '',
   dashboardAnalyticsCsvUrl: '',
+  activeView: 'dashboard',
   activeFormsPanel: 'request',
   activeBillingReportPanel: 'query',
   activeStatusReportPanel: 'editor',
@@ -169,7 +170,7 @@ function applyInitialRoute() {
     state.activeBillingReportPanel = formsPanel;
   }
 
-  if (viewId === 'statusReports' && ['editor', 'consultant', 'parameters', 'management'].includes(formsPanel)) {
+  if (viewId === 'statusReports' && ['editor', 'consultant'].includes(formsPanel)) {
     state.activeStatusReportPanel = formsPanel;
     state.statusReportDeepLinkId = params.get('reportId') || '';
   }
@@ -194,6 +195,8 @@ const viewTitles = {
   huntings: 'Contratos/Huntings',
   rateCards: 'Contratos/Rate Cards',
   statusReports: 'Contratos/Status Report',
+  statusReportParameters: 'Contratos/Parâmetros Status',
+  statusReportManagement: 'Contratos/Gestão dos Status',
   cvFilters: 'Deals/Filtro de CVs',
   selectedCandidates: 'Deals/Candidatos Selecionados',
   curriculums: 'Banco de Talentos',
@@ -391,16 +394,14 @@ const launcherNodes = {
     label: 'Parâmetros Status',
     eyebrow: 'Contratos',
     description: 'Mensagens, destinatários e disparo manual do link',
-    view: 'statusReports',
-    panel: 'parameters',
+    view: 'statusReportParameters',
     roles: ['Admin']
   },
   statusReportManagement: {
     label: 'Gestão dos Status',
     eyebrow: 'Contratos',
     description: 'Consulta de e-mails enviados, pendências e entregas',
-    view: 'statusReports',
-    panel: 'management',
+    view: 'statusReportManagement',
     roles: ['Admin']
   },
   curriculums: {
@@ -570,6 +571,8 @@ function canAccessView(viewId) {
   if (viewId === 'allocationPrices') return isCurrentUserAdmin();
   if (viewId === 'financeProjection') return isCurrentUserAdmin();
   if (viewId === 'businessCalendar') return isCurrentUserAdmin();
+  if (viewId === 'statusReportParameters') return isCurrentUserAdmin();
+  if (viewId === 'statusReportManagement') return isCurrentUserAdmin();
   if (viewId === 'billingReport') return canCurrentUserAccessWorkHours();
   if (viewId === 'workHours') return canCurrentUserAccessWorkHours();
   if (viewId === 'statusReports') return canCurrentUserAccessStatusReports();
@@ -6010,7 +6013,7 @@ function statusReportDeliveryStatus(report = {}) {
 
 function statusReportPanelMode() {
   if (isCurrentUserConsultant()) return 'consultant';
-  return ['editor', 'consultant', 'parameters', 'management'].includes(state.activeStatusReportPanel)
+  return ['editor', 'consultant'].includes(state.activeStatusReportPanel)
     ? state.activeStatusReportPanel
     : 'editor';
 }
@@ -6252,20 +6255,7 @@ function renderStatusReportOptions() {
 function renderStatusReports() {
   const panelMode = statusReportPanelMode();
   state.activeStatusReportPanel = panelMode;
-  $$('[data-status-report-panel]').forEach((panel) => {
-    const panelName = panel.dataset.statusReportPanel;
-    const shouldShow = panelName === panelMode
-      || (panelMode === 'consultant' && panelName === 'editor')
-      || (panelMode === 'editor' && panelName === 'editor');
-    panel.hidden = !shouldShow;
-    panel.style.display = shouldShow ? '' : 'none';
-  });
-  if (panelMode === 'parameters') {
-    renderStatusReportMessages();
-    return;
-  }
   renderStatusReportOptions();
-  setStatusReportFormReadOnlyForConsultant();
   if (panelMode === 'consultant' && !state.editing.statusReportId) {
     const targetReport = state.statusReports.find((report) => report.id === state.statusReportDeepLinkId)
       || currentConsultantStatusReports().at(0)
@@ -6275,6 +6265,12 @@ function renderStatusReports() {
       state.statusReportDeepLinkId = '';
     }
   }
+  setStatusReportFormReadOnlyForConsultant();
+}
+
+function renderStatusReportManagement() {
+  if (state.activeView !== 'statusReportManagement') return;
+  renderStatusReportOptions();
   const rows = getFilteredStatusReports();
   const count = $('#statusReportCount');
   if (count) count.textContent = rows.length;
@@ -6295,7 +6291,11 @@ function renderStatusReports() {
       </tr>
     `).join('') : '<tr><td colspan="10">Nenhum status report encontrado.</td></tr>';
   }
-  setStatusReportFormReadOnlyForConsultant();
+}
+
+function renderStatusReportParameters() {
+  if (state.activeView !== 'statusReportParameters') return;
+  renderStatusReportMessages();
 }
 
 function loadStatusReportForEdit(report, previewOnly = false) {
@@ -7609,6 +7609,8 @@ function render() {
   renderAllocateds();
   renderWorkHours();
   renderStatusReports();
+  renderStatusReportManagement();
+  renderStatusReportParameters();
   renderBillingReport();
   renderTaxReformSimulator();
   renderAllocationPriceResult();
@@ -7675,6 +7677,7 @@ function showView(viewId) {
     showView(isCurrentUserConsultant() ? 'statusReports' : 'dashboard');
     return;
   }
+  state.activeView = viewId;
   $$('.view').forEach((view) => view.classList.toggle('active', view.id === viewId));
   $$('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === viewId));
   syncNavGroups(viewId);
@@ -7683,6 +7686,9 @@ function showView(viewId) {
   document.body.classList.toggle('module-view-active', viewId !== 'dashboard');
   $('#viewTitle').textContent = viewTitles[viewId] || 'Gestão do Negócio Alcateia';
   if (viewId === 'forms') renderFormsPanel();
+  if (viewId === 'statusReports') renderStatusReports();
+  if (viewId === 'statusReportManagement') renderStatusReportManagement();
+  if (viewId === 'statusReportParameters') renderStatusReportParameters();
   window.setTimeout(() => maximizeActiveViewPrimaryPanel(viewId), 0);
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -9798,7 +9804,7 @@ function bindStatusReportActions() {
         month: $('#statusReportFilterMonth')?.value || '',
         deliveryStatus: $('#statusReportFilterStatus')?.value || ''
       };
-      renderStatusReports();
+      renderStatusReportManagement();
     });
   });
 
@@ -9879,7 +9885,7 @@ function bindStatusReportActions() {
         await api(`/api/status-reports/${encodeURIComponent(reportId)}`, { method: 'DELETE' });
         removeStateItem('statusReports', reportId);
         if (state.editing.statusReportId === reportId) clearStatusReportForm();
-        renderStatusReports();
+        renderStatusReportManagement();
         toast('Status report excluído.');
       } catch (error) {
         toast(error.message || 'Não foi possível excluir o status report.');

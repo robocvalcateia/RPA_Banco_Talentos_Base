@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=20260805-status-report-hard-isolation" />
+    <link rel="stylesheet" href="/styles.css?v=20260806-status-report-split-views" />
   </head>
   <body class="auth-locked">
     <section class="auth-screen" id="authScreen">
@@ -102,8 +102,8 @@
             <button class="nav-item nav-subitem" data-view="allocateds" data-parent-group="contracts">Alocados</button>
             <button class="nav-item nav-subitem" data-view="workHours" data-parent-group="contracts">Horas Trabalhadas</button>
             <button class="nav-item nav-subitem" data-view="statusReports" data-parent-group="contracts">Status Report</button>
-            <button class="nav-item nav-subitem" data-view="statusReports" data-status-panel="parameters" data-parent-group="contracts" data-admin-only>Parâmetros Status</button>
-            <button class="nav-item nav-subitem" data-view="statusReports" data-status-panel="management" data-parent-group="contracts" data-admin-only>Gestão dos Status</button>
+            <button class="nav-item nav-subitem" data-view="statusReportParameters" data-parent-group="contracts" data-admin-only>Parâmetros Status</button>
+            <button class="nav-item nav-subitem" data-view="statusReportManagement" data-parent-group="contracts" data-admin-only>Gestão dos Status</button>
             <button class="nav-item nav-subitem" data-view="candidatePool" data-parent-group="contracts">Bolsão de Candidatos</button>
             <button class="nav-item nav-subitem" data-view="huntings" data-parent-group="contracts">Huntings</button>
             <button class="nav-item nav-subitem" data-view="rateCards" data-parent-group="contracts">Rate Cards</button>
@@ -1580,7 +1580,7 @@
       </section>
 
       <section class="view" id="statusReports">
-        <section class="panel status-report-editor-panel" data-status-report-panel="editor">
+        <section class="panel status-report-editor-panel">
           <div class="panel-heading">
             <div>
               <h2>Status Report</h2>
@@ -1637,7 +1637,10 @@
           </form>
         </section>
 
-        <section class="panel" data-status-report-panel="management" data-admin-only hidden>
+      </section>
+
+      <section class="view" id="statusReportManagement">
+        <section class="panel" data-admin-only>
           <div class="panel-heading">
             <div>
               <h2>Gestão dos Status</h2>
@@ -1695,7 +1698,10 @@
           </div>
         </section>
 
-        <section class="panel" data-status-report-panel="parameters" data-admin-only hidden>
+      </section>
+
+      <section class="view" id="statusReportParameters">
+        <section class="panel" data-admin-only>
           <div class="panel-heading">
             <div>
               <h2>Parâmetros Status</h2>
@@ -1724,7 +1730,7 @@
           </form>
         </section>
 
-        <section class="panel" data-status-report-panel="parameters" data-admin-only hidden>
+        <section class="panel" data-admin-only>
           <div class="panel-heading">
             <div>
               <h2>Mensagens cadastradas</h2>
@@ -1753,7 +1759,7 @@
           </div>
         </section>
 
-        <section class="panel" data-status-report-panel="parameters" data-admin-only hidden>
+        <section class="panel" data-admin-only>
           <div class="panel-heading">
             <div>
               <h2>Enviar status</h2>
@@ -1966,7 +1972,7 @@
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=20260805-status-report-hard-isolation"></script>
+    <script src="/app.js?v=20260806-status-report-split-views"></script>
   </body>
 </html>
 
