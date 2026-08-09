@@ -6162,6 +6162,16 @@ function filteredStatusReportMessages() {
     .sort((first, second) => String(first.clientName || '').localeCompare(String(second.clientName || ''), 'pt-BR', { sensitivity: 'base' }));
 }
 
+function syncDefaultStatusReportMessageForm(messages = filteredStatusReportMessages()) {
+  if (state.editing.statusReportMessageId) return;
+  const form = $('#statusReportMessageForm');
+  if (!form) return;
+  const hasUserInput = ['subject', 'body'].some((fieldName) => String(form.elements[fieldName]?.value || '').trim());
+  if (hasUserInput) return;
+  const message = messages.find((item) => item.active !== false) || messages[0];
+  if (message) loadStatusReportMessageForEdit(message, { silent: true });
+}
+
 function statusReportDispatchRecipients() {
   const clientId = $('#statusReportDispatchClient')?.value || '';
   return activeStatusReportAllocatedOptions().filter((allocated) => !clientId || allocated.clientId === clientId);
@@ -6213,13 +6223,15 @@ function renderStatusReportMessages() {
     <tr class="clickable-row" data-edit-status-report-message="${escapeHtml(message.id)}">
       <td><strong>${escapeHtml(message.clientName || 'Todos')}</strong></td>
       <td>${escapeHtml(message.subject || '-')}</td>
+      <td>${escapeHtml(message.body || '-')}</td>
       <td>${message.active === false ? 'Não' : 'Sim'}</td>
       <td>${message.updatedAt ? new Date(message.updatedAt).toLocaleString('pt-BR') : '-'}</td>
     </tr>
-  `).join('') : '<tr><td colspan="4">Nenhuma mensagem cadastrada.</td></tr>';
+  `).join('') : '<tr><td colspan="5">Nenhuma mensagem cadastrada.</td></tr>';
+  syncDefaultStatusReportMessageForm(rows);
 }
 
-function loadStatusReportMessageForEdit(message) {
+function loadStatusReportMessageForEdit(message, options = {}) {
   if (!message) return;
   state.editing.statusReportMessageId = message.id;
   fillForm('#statusReportMessageForm', {
@@ -6228,7 +6240,7 @@ function loadStatusReportMessageForEdit(message) {
     subject: message.subject || '',
     body: message.body || ''
   }, 'Atualizar mensagem');
-  toast('Mensagem carregada para manutenção.');
+  if (!options.silent) toast('Mensagem carregada para manutenção.');
 }
 
 function renderStatusReportOptions() {

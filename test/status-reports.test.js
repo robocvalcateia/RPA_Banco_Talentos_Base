@@ -94,12 +94,13 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.match(indexSource, /<section class="view" id="statusReportManagement">/);
   assert.match(indexSource, /data-view="statusReportParameters"/);
   assert.match(indexSource, /data-view="statusReportManagement"/);
-  assert.match(indexSource, /app\.js\?v=20260809-status-report-pdf-download/);
-  assert.match(indexSource, /styles\.css\?v=20260809-status-report-pdf-download/);
+  assert.match(indexSource, /app\.js\?v=20260809-status-parameters-message-visible/);
+  assert.match(indexSource, /styles\.css\?v=20260809-status-parameters-message-visible/);
   assert.match(indexSource, /Status gravados/);
   assert.match(indexSource, /id="statusReportSavedTable"/);
   assert.match(indexSource, /Data de gera..o/);
   assert.match(indexSource, /id="statusReportMessageFilterClient"/);
+  assert.match(indexSource, /<th>Mensagem<\/th>/);
   assert.match(indexSource, /id="statusReportDispatchRecipients"/);
   assert.match(indexSource, /id="statusReportDispatchSelectAll"/);
   assert.match(indexSource, /id="statusReportDispatchButton"/);
@@ -117,6 +118,8 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.match(appSource, /api\('\/api\/status-report-messages'\)/);
   assert.match(appSource, /statusReportDispatchRecipients/);
   assert.match(appSource, /statusReportMessageForm/);
+  assert.match(appSource, /function syncDefaultStatusReportMessageForm/);
+  assert.match(appSource, /loadStatusReportMessageForEdit\(message, \{ silent: true \}\)/);
   assert.match(appSource, /\/api\/admin\/status-reports\/monthly-cycle/);
   assert.match(appSource, /forceInvite:\s*true/);
   assert.match(appSource, /forceReminder:\s*true/);
