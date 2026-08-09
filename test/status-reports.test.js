@@ -94,8 +94,11 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.match(indexSource, /<section class="view" id="statusReportManagement">/);
   assert.match(indexSource, /data-view="statusReportParameters"/);
   assert.match(indexSource, /data-view="statusReportManagement"/);
-  assert.match(indexSource, /app\.js\?v=20260806-status-report-view-switch/);
-  assert.match(indexSource, /styles\.css\?v=20260806-status-report-view-switch/);
+  assert.match(indexSource, /app\.js\?v=20260809-status-report-saved-list/);
+  assert.match(indexSource, /styles\.css\?v=20260809-status-report-saved-list/);
+  assert.match(indexSource, /Status gravados/);
+  assert.match(indexSource, /id="statusReportSavedTable"/);
+  assert.match(indexSource, /Data de gera..o/);
   assert.match(indexSource, /id="statusReportMessageFilterClient"/);
   assert.match(indexSource, /id="statusReportDispatchRecipients"/);
   assert.match(indexSource, /id="statusReportDispatchSelectAll"/);
@@ -128,6 +131,9 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.doesNotMatch(appSource, /\$\$\(\'\[data-status-report-panel\]\'\)/);
   assert.match(appSource, /function renderStatusReportManagement/);
   assert.match(appSource, /function renderStatusReportParameters/);
+  assert.match(appSource, /function renderSavedStatusReports/);
+  assert.match(appSource, /function statusReportGenerationDateLabel/);
+  assert.match(appSource, /data-open-saved-status-report/);
   assert.match(serverSource, /buildStatusReportUrl/);
   assert.match(serverSource, /request\.method === 'GET' && pathname === '\/api\/status-report-messages'/);
   assert.match(serverSource, /Apenas administradores podem consultar mensagens de status report/);

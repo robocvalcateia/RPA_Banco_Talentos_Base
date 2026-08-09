@@ -6091,6 +6091,22 @@ function getFilteredStatusReports() {
     .sort((first, second) => String(statusReportSortDate(second)).localeCompare(String(statusReportSortDate(first))));
 }
 
+function statusReportIsFinalized(report = {}) {
+  return statusReportDeliveryStatus(report) === 'Salvo';
+}
+
+function statusReportGenerationDateLabel(report = {}) {
+  return formatDateOnlyBR(report.reportDate || report.consultantSubmittedAt || report.createdAt || report.referenceMonth) || '-';
+}
+
+function getSavedStatusReports() {
+  return state.statusReports
+    .filter(statusReportBelongsToCurrentConsultant)
+    .filter(statusReportIsFinalized)
+    .slice()
+    .sort((first, second) => String(statusReportSortDate(second)).localeCompare(String(statusReportSortDate(first))));
+}
+
 function statusReportMatchesDeliveryMonth(report = {}, month = '') {
   if (!month) return true;
   return [
@@ -6256,6 +6272,7 @@ function renderStatusReports() {
   const panelMode = statusReportPanelMode();
   state.activeStatusReportPanel = panelMode;
   renderStatusReportOptions();
+  renderSavedStatusReports();
   if (panelMode === 'consultant' && !state.editing.statusReportId) {
     const targetReport = state.statusReports.find((report) => report.id === state.statusReportDeepLinkId)
       || currentConsultantStatusReports().at(0)
@@ -6266,6 +6283,27 @@ function renderStatusReports() {
     }
   }
   setStatusReportFormReadOnlyForConsultant();
+}
+
+function renderSavedStatusReports() {
+  const rows = getSavedStatusReports();
+  const count = $('#statusReportSavedCount');
+  if (count) count.textContent = rows.length;
+  const table = $('#statusReportSavedTable');
+  if (!table) return;
+  table.innerHTML = rows.length ? rows.map((report) => `
+    <tr data-open-saved-status-report="${escapeHtml(report.id)}">
+      <td>${escapeHtml(report.clientName || '-')}</td>
+      <td>${escapeHtml(report.consultantName || '-')}</td>
+      <td>${escapeHtml(report.period || formatMonthLabel(report.referenceMonth) || '-')}</td>
+      <td>${escapeHtml(statusReportGenerationDateLabel(report))}</td>
+      <td>${renderStatusReportLightCell(report.statusLight)}</td>
+      <td>${escapeHtml(statusReportOwnerLabel(report))}</td>
+      <td>
+        <button class="secondary-action table-action" type="button" data-open-saved-status-report-button="${escapeHtml(report.id)}">Abrir</button>
+      </td>
+    </tr>
+  `).join('') : '<tr><td colspan="7">Nenhum status report finalizado encontrado.</td></tr>';
 }
 
 function renderStatusReportManagement() {
@@ -9795,6 +9833,16 @@ function bindStatusReportActions() {
   });
 
   $('#statusReportClearButton')?.addEventListener('click', clearStatusReportForm);
+
+  $('#statusReportSavedTable')?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-open-saved-status-report-button]');
+    const row = event.target.closest('[data-open-saved-status-report]');
+    const reportId = button?.dataset.openSavedStatusReportButton || row?.dataset.openSavedStatusReport;
+    const report = state.statusReports.find((item) => item.id === reportId);
+    if (!report) return;
+    loadStatusReportForEdit(report, isCurrentUserConsultant());
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
 
   ['#statusReportFilterClient', '#statusReportFilterAllocated', '#statusReportFilterLight', '#statusReportFilterMonth', '#statusReportFilterStatus'].forEach((selector) => {
     $(selector)?.addEventListener('change', () => {
