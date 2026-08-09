@@ -94,8 +94,8 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.match(indexSource, /<section class="view" id="statusReportManagement">/);
   assert.match(indexSource, /data-view="statusReportParameters"/);
   assert.match(indexSource, /data-view="statusReportManagement"/);
-  assert.match(indexSource, /app\.js\?v=20260809-status-report-saved-list/);
-  assert.match(indexSource, /styles\.css\?v=20260809-status-report-saved-list/);
+  assert.match(indexSource, /app\.js\?v=20260809-status-report-pdf-download/);
+  assert.match(indexSource, /styles\.css\?v=20260809-status-report-pdf-download/);
   assert.match(indexSource, /Status gravados/);
   assert.match(indexSource, /id="statusReportSavedTable"/);
   assert.match(indexSource, /Data de gera..o/);
@@ -133,7 +133,10 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.match(appSource, /function renderStatusReportParameters/);
   assert.match(appSource, /function renderSavedStatusReports/);
   assert.match(appSource, /function statusReportGenerationDateLabel/);
+  assert.match(appSource, /async function downloadStatusReportPdf/);
   assert.match(appSource, /data-open-saved-status-report/);
+  assert.match(appSource, /data-download-saved-status-report/);
+  assert.match(appSource, />Baixar<\//);
   assert.match(serverSource, /buildStatusReportUrl/);
   assert.match(serverSource, /request\.method === 'GET' && pathname === '\/api\/status-report-messages'/);
   assert.match(serverSource, /Apenas administradores podem consultar mensagens de status report/);

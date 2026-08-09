@@ -5993,12 +5993,17 @@ function openStatusReportEvaluationEmail(report = {}) {
 
 async function sendStatusReportEvaluation() {
   const report = statusReportCurrentExportData();
+  const filename = await downloadStatusReportPdf(report);
+  const opened = openStatusReportEvaluationEmail(report);
+  toast(opened ? `PDF ${filename} gerado. Outlook aberto para envio da avaliação.` : `PDF ${filename} gerado.`);
+}
+
+async function downloadStatusReportPdf(report = statusReportCurrentExportData()) {
   const canvas = await createStatusReportCanvas(report);
   const pdfBlob = pdfBlobFromJpegDataUrl(canvas.toDataURL('image/jpeg', 0.95), canvas.width, canvas.height);
   const filename = statusReportPdfFilename(report);
   downloadBlob(pdfBlob, filename);
-  const opened = openStatusReportEvaluationEmail(report);
-  toast(opened ? `PDF ${filename} gerado. Outlook aberto para envio da avaliação.` : `PDF ${filename} gerado.`);
+  return filename;
 }
 
 function currentStatusReportMonthKey() {
@@ -6300,7 +6305,7 @@ function renderSavedStatusReports() {
       <td>${renderStatusReportLightCell(report.statusLight)}</td>
       <td>${escapeHtml(statusReportOwnerLabel(report))}</td>
       <td>
-        <button class="secondary-action table-action" type="button" data-open-saved-status-report-button="${escapeHtml(report.id)}">Abrir</button>
+        <button class="secondary-action table-action" type="button" data-download-saved-status-report="${escapeHtml(report.id)}">Baixar</button>
       </td>
     </tr>
   `).join('') : '<tr><td colspan="7">Nenhum status report finalizado encontrado.</td></tr>';
@@ -9835,9 +9840,17 @@ function bindStatusReportActions() {
   $('#statusReportClearButton')?.addEventListener('click', clearStatusReportForm);
 
   $('#statusReportSavedTable')?.addEventListener('click', (event) => {
-    const button = event.target.closest('[data-open-saved-status-report-button]');
+    const downloadButton = event.target.closest('[data-download-saved-status-report]');
+    if (downloadButton) {
+      const report = state.statusReports.find((item) => item.id === downloadButton.dataset.downloadSavedStatusReport);
+      if (!report) return;
+      downloadStatusReportPdf(report)
+        .then((filename) => toast(`PDF ${filename} baixado.`))
+        .catch((error) => toast(error.message || 'Não foi possível baixar o PDF.'));
+      return;
+    }
     const row = event.target.closest('[data-open-saved-status-report]');
-    const reportId = button?.dataset.openSavedStatusReportButton || row?.dataset.openSavedStatusReport;
+    const reportId = row?.dataset.openSavedStatusReport;
     const report = state.statusReports.find((item) => item.id === reportId);
     if (!report) return;
     loadStatusReportForEdit(report, isCurrentUserConsultant());
