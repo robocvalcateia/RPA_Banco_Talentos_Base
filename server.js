@@ -104,7 +104,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260809-status-parameters-message-visible';
+const APP_VERSION = '20260809-status-pending-daily-followup';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -1061,6 +1061,18 @@ function statusReportCycleTargetMatches(allocated, targets = {}) {
     || targetEmails.has(String(allocated.consultantEmail || '').trim().toLowerCase());
 }
 
+function statusReportPendingAfterEmail(report = {}) {
+  const deliveryStatus = String(report.deliveryStatus || '').trim().toLowerCase();
+  return Boolean(report.monthlyEmailSentAt)
+    && !report.consultantSubmittedAt
+    && deliveryStatus !== 'salvo';
+}
+
+function statusReportCanReceiveDailyFollowup(report = {}, todayKey = '') {
+  return statusReportPendingAfterEmail(report)
+    && report.monthlyEmailLastReminderDate !== todayKey;
+}
+
 async function runMonthlyStatusReportCycle({
   forceInvite = false,
   forceReminder = false,
@@ -1078,6 +1090,7 @@ async function runMonthlyStatusReportCycle({
   let invitesSent = 0;
   let remindersSent = 0;
   const deliveryRows = [];
+  const deliveryRowIds = new Set();
 
   for (const allocated of activeAllocateds) {
     let report = db.statusReports.find((item) => item.allocatedId === allocated.id && item.referenceMonth === monthKey);
@@ -1101,8 +1114,9 @@ async function runMonthlyStatusReportCycle({
       report.updatedAt = toISODate();
     }
 
-    const isOpen = !report.consultantSubmittedAt && String(report.deliveryStatus || '').toLowerCase() !== 'salvo';
-    const canRemind = !sentInviteThisRun && isOpen && report.monthlyEmailSentAt && (forceReminder || report.monthlyEmailLastReminderDate !== todayKey);
+    const canRemind = !sentInviteThisRun
+      && statusReportPendingAfterEmail(report)
+      && (forceReminder || statusReportCanReceiveDailyFollowup(report, todayKey));
     if (canRemind) {
       const notification = await sendStatusReportConsultantEmail({ report, allocated, db, type: 'reminder' });
       if (notification.sent) {
@@ -1115,6 +1129,28 @@ async function runMonthlyStatusReportCycle({
     }
 
     deliveryRows.push(enrichStatusReport(report, db));
+    deliveryRowIds.add(report.id);
+  }
+
+  const activeAllocatedById = new Map(activeAllocateds.map((allocated) => [allocated.id, allocated]));
+  for (const report of db.statusReports || []) {
+    if (deliveryRowIds.has(report.id)) continue;
+    const allocated = activeAllocatedById.get(report.allocatedId);
+    if (!allocated || !statusReportCycleTargetMatches(allocated, { allocatedIds, emails })) continue;
+    const canRemind = statusReportPendingAfterEmail(report)
+      && (forceReminder || statusReportCanReceiveDailyFollowup(report, todayKey));
+    if (!canRemind) continue;
+
+    const notification = await sendStatusReportConsultantEmail({ report, allocated, db, type: 'reminder' });
+    if (notification.sent) {
+      report.monthlyEmailLastReminderDate = todayKey;
+      report.monthlyEmailLastReminderAt = toISODate();
+      remindersSent += 1;
+    }
+    report.monthlyEmailNotification = notification;
+    report.updatedAt = toISODate();
+    deliveryRows.push(enrichStatusReport(report, db));
+    deliveryRowIds.add(report.id);
   }
 
   if (created || invitesSent || remindersSent) {

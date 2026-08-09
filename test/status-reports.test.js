@@ -94,8 +94,8 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.match(indexSource, /<section class="view" id="statusReportManagement">/);
   assert.match(indexSource, /data-view="statusReportParameters"/);
   assert.match(indexSource, /data-view="statusReportManagement"/);
-  assert.match(indexSource, /app\.js\?v=20260809-status-parameters-message-visible/);
-  assert.match(indexSource, /styles\.css\?v=20260809-status-parameters-message-visible/);
+  assert.match(indexSource, /app\.js\?v=20260809-status-pending-daily-followup/);
+  assert.match(indexSource, /styles\.css\?v=20260809-status-pending-daily-followup/);
   assert.match(indexSource, /Status gravados/);
   assert.match(indexSource, /id="statusReportSavedTable"/);
   assert.match(indexSource, /Data de gera..o/);
@@ -145,7 +145,10 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.match(serverSource, /Apenas administradores podem consultar mensagens de status report/);
   assert.match(serverSource, /runMonthlyStatusReportCycle/);
   assert.match(serverSource, /sentInviteThisRun/);
-  assert.match(serverSource, /!sentInviteThisRun && isOpen/);
+  assert.match(serverSource, /statusReportPendingAfterEmail/);
+  assert.match(serverSource, /statusReportCanReceiveDailyFollowup/);
+  assert.match(serverSource, /activeAllocatedById/);
+  assert.match(serverSource, /monthlyEmailLastReminderDate !== todayKey/);
   assert.match(serverSource, /startStatusReportReminderJob/);
   assert.match(serverSource, /consultantSubmission/);
   assert.match(serverSource, /statusReportMessageForClient/);
