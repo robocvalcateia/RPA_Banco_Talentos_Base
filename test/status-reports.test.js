@@ -94,8 +94,8 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.match(indexSource, /<section class="view" id="statusReportManagement">/);
   assert.match(indexSource, /data-view="statusReportParameters"/);
   assert.match(indexSource, /data-view="statusReportManagement"/);
-  assert.match(indexSource, /app\.js\?v=20260809-status-pending-daily-followup/);
-  assert.match(indexSource, /styles\.css\?v=20260809-status-pending-daily-followup/);
+  assert.match(indexSource, /app\.js\?v=20260811-status-email-access-credentials/);
+  assert.match(indexSource, /styles\.css\?v=20260811-status-email-access-credentials/);
   assert.match(indexSource, /Status gravados/);
   assert.match(indexSource, /id="statusReportSavedTable"/);
   assert.match(indexSource, /Data de gera..o/);
@@ -153,6 +153,12 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.match(serverSource, /consultantSubmission/);
   assert.match(serverSource, /statusReportMessageForClient/);
   assert.match(serverSource, /ensureStatusReportEmailLink/);
+  assert.match(serverSource, /ensureStatusReportAccessInstructions/);
+  assert.match(serverSource, /initialConsultantPassword/);
+  assert.match(serverSource, /Usuario inicial:/);
+  assert.match(serverSource, /Senha inicial:/);
+  assert.match(serverSource, /context\.userEmail/);
+  assert.match(serverSource, /context\.initialPassword/);
   assert.match(serverSource, /statusReportCycleTargetMatches/);
   assert.match(serverSource, /emails:\s*Array\.isArray\(payload\.emails\)/);
   assert.match(serverSource, /allocatedIds:\s*Array\.isArray\(payload\.allocatedIds\)/);

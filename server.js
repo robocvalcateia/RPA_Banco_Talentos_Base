@@ -104,7 +104,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260809-status-pending-daily-followup';
+const APP_VERSION = '20260811-status-email-access-credentials';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -995,11 +995,26 @@ function buildMonthlyStatusReport(db, allocated, monthKey) {
   });
 }
 
+function initialConsultantPassword() {
+  return process.env.CONSULTANT_INITIAL_PASSWORD || 'Alcateia123';
+}
+
 function ensureStatusReportEmailLink(text = '', url = '') {
   const body = String(text || '').trimEnd();
   const link = String(url || '').trim();
   if (!link || body.includes(link)) return body;
   return `${body}\n\nLink de acesso: ${link}`;
+}
+
+function ensureStatusReportAccessInstructions(text = '', context = {}) {
+  let body = ensureStatusReportEmailLink(text, context.url);
+  const accessLines = [];
+  const user = String(context.userEmail || '').trim().toLowerCase();
+  const password = String(context.initialPassword || '').trim();
+  if (user && !body.toLowerCase().includes(user)) accessLines.push(`Usuario inicial: ${user}`);
+  if (password && !body.includes(password)) accessLines.push(`Senha inicial: ${password}`);
+  if (!/primeiro acesso/i.test(body)) accessLines.push('No primeiro acesso, troque a senha para continuar.');
+  return accessLines.length ? `${body}\n\n${accessLines.join('\n')}` : body;
 }
 
 function statusReportMessageForClient(db, clientId = '') {
@@ -1014,6 +1029,8 @@ function applyStatusReportMessageTemplate(value = '', context = {}) {
     .replace(/\{\{\s*consultor\s*\}\}/gi, context.consultantName || '')
     .replace(/\{\{\s*cliente\s*\}\}/gi, context.clientName || '')
     .replace(/\{\{\s*periodo\s*\}\}/gi, context.monthLabel || '')
+    .replace(/\{\{\s*usuario\s*\}\}/gi, context.userEmail || '')
+    .replace(/\{\{\s*senha\s*\}\}/gi, context.initialPassword || '')
     .replace(/\{\{\s*link\s*\}\}/gi, context.url || '');
 }
 
@@ -1030,21 +1047,31 @@ async function sendStatusReportConsultantEmail({ report, allocated, db, type = '
   const monthLabel = report.period || monthLabelFromKey(report.referenceMonth);
   const clientName = report.clientName || '-';
   const customMessage = statusReportMessageForClient(db, allocated.clientId);
-  const context = { consultantName, clientName, monthLabel, url };
+  const context = {
+    consultantName,
+    clientName,
+    monthLabel,
+    url,
+    userEmail: to,
+    initialPassword: initialConsultantPassword()
+  };
   const subject = customMessage?.subject
     ? applyStatusReportMessageTemplate(customMessage.subject, context)
     : type === 'reminder'
     ? `[Alcateia] Lembrete Status Report ${monthLabel}: ${consultantName}`
     : `[Alcateia] Atualizacao mensal do Status Report ${monthLabel}: ${consultantName}`;
   const text = customMessage?.body
-    ? ensureStatusReportEmailLink(applyStatusReportMessageTemplate(customMessage.body, context), url)
+    ? ensureStatusReportAccessInstructions(applyStatusReportMessageTemplate(customMessage.body, context), context)
     : [
       `Consultor: ${consultantName}`,
       `Cliente: ${clientName}`,
       `Periodo: ${monthLabel}`,
       `Status: ${report.deliveryStatus || 'Aberto'}`,
       `Link de acesso: ${url}`,
+      `Usuario inicial: ${to}`,
+      `Senha inicial: ${context.initialPassword}`,
       '',
+      'No primeiro acesso, troque a senha para continuar.',
       'Atualize o Status Report do mes a partir do campo Farol e salve as informacoes para concluir a entrega.',
       'Seu acesso deve ser usado apenas neste modulo.'
     ].join('\n');
