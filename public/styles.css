@@ -366,7 +366,7 @@ textarea {
 .faturamento-chart-gridline text,
 .faturamento-chart-x-label {
   fill: #595959;
-  font-size: 14px;
+  font-size: 17px;
   font-family: Arial, sans-serif;
 }
 
@@ -397,7 +397,7 @@ textarea {
 
 .faturamento-chart-point-label {
   font-family: Arial, sans-serif;
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 700;
   text-anchor: middle;
 }
@@ -1981,7 +1981,7 @@ th {
 
   .faturamento-chart-gridline text,
   .faturamento-chart-x-label {
-    font-size: 22px;
+    font-size: 25px;
   }
 
   .bar-row {
