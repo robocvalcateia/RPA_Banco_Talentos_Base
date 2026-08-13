@@ -104,7 +104,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260811-status-email-access-credentials';
+const APP_VERSION = '20260813-status-report-persist-before-email';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -1118,6 +1118,7 @@ async function runMonthlyStatusReportCycle({
   let remindersSent = 0;
   const deliveryRows = [];
   const deliveryRowIds = new Set();
+  const createdReports = [];
 
   for (const allocated of activeAllocateds) {
     let report = db.statusReports.find((item) => item.allocatedId === allocated.id && item.referenceMonth === monthKey);
@@ -1126,9 +1127,19 @@ async function runMonthlyStatusReportCycle({
       if (!shouldInvite) continue;
       report = buildMonthlyStatusReport(db, allocated, monthKey);
       db.statusReports.push(report);
+      createdReports.push(report);
       created += 1;
     }
+  }
 
+  if (createdReports.length) {
+    await writeDatabaseCollections(db, ['statusReports']);
+  }
+
+  for (const allocated of activeAllocateds) {
+    const report = db.statusReports.find((item) => item.allocatedId === allocated.id && item.referenceMonth === monthKey);
+    if (!report) continue;
+    let sentInviteThisRun = false;
     if (shouldInvite && !report.monthlyEmailSentAt && !report.consultantSubmittedAt) {
       const notification = await sendStatusReportConsultantEmail({ report, allocated, db, type: 'invite' });
       report.monthlyEmailNotification = notification;
@@ -1155,8 +1166,10 @@ async function runMonthlyStatusReportCycle({
       report.updatedAt = toISODate();
     }
 
-    deliveryRows.push(enrichStatusReport(report, db));
-    deliveryRowIds.add(report.id);
+    if (!deliveryRowIds.has(report.id)) {
+      deliveryRows.push(enrichStatusReport(report, db));
+      deliveryRowIds.add(report.id);
+    }
   }
 
   const activeAllocatedById = new Map(activeAllocateds.map((allocated) => [allocated.id, allocated]));
