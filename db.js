@@ -1376,7 +1376,8 @@ function faturamentoNumber(value) {
 
 export function calculateFaturamentoGrossMargin(result, realized) {
   const resultNumber = faturamentoNumber(result);
-  const realizedNumber = faturamentoNumber(realized);
+  // Faturamento Previsto/Realizado e acumulados sao armazenados em milhares; Resultado e moeda cheia.
+  const realizedNumber = faturamentoNumber(realized) * 1000;
   if (!realizedNumber) return 0;
   return Math.round(((resultNumber / realizedNumber) * 100 + Number.EPSILON) * 100) / 100;
 }

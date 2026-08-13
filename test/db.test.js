@@ -493,8 +493,8 @@ test('apontamento de horas normaliza campos principais', () => {
 test('faturamento recalcula acumulado realizado por ano calendario', () => {
   const rows = recalculateFaturamentoAccumulatedRealized([
     { id: 'fat_2025_12', monthYear: '2025-12', realized: 4978, result: 1000, accumulatedRealized: 4978 },
-    { id: 'fat_2026_01', monthYear: '2026-01', realized: 888, result: 88.8, accumulatedRealized: 5866 },
-    { id: 'fat_2026_02', monthYear: '2026-02', realized: 854, result: 85.4, accumulatedRealized: 6720 },
+    { id: 'fat_2026_01', monthYear: '2026-01', realized: 888, result: 88800, accumulatedRealized: 5866 },
+    { id: 'fat_2026_02', monthYear: '2026-02', realized: 854, result: 85400, accumulatedRealized: 6720 },
     { id: 'fat_2027_01', monthYear: '2027-01', realized: 0, result: 0, accumulatedRealized: 9258 }
   ]);
 
@@ -506,7 +506,7 @@ test('faturamento recalcula acumulado realizado por ano calendario', () => {
 });
 
 test('faturamento calcula gross margin pelo resultado sobre realizado', () => {
-  assert.equal(calculateFaturamentoGrossMargin(122315.33, 1174.5), 10414.25);
+  assert.equal(calculateFaturamentoGrossMargin(122315.33, 1174.5), 10.41);
   assert.equal(calculateFaturamentoGrossMargin(100, 0), 0);
 });
 

@@ -2273,7 +2273,7 @@ function formatPercent(value, total) {
 }
 
 function calculateGrossMarginPercent(result, realized) {
-  const realizedNumber = Number(realized || 0);
+  const realizedNumber = Number(realized || 0) * 1000;
   if (!realizedNumber) return 0;
   return Math.round(((Number(result || 0) / realizedNumber) * 100 + Number.EPSILON) * 100) / 100;
 }
