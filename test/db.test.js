@@ -26,6 +26,7 @@ import {
   normalizeCurriculumObservation,
   normalizeCvFilter,
   normalizeCvSearchResult,
+  recalculateFaturamentoAccumulatedRealized,
   normalizeWorkHourClosure,
   normalizeWorkHourEntry,
   normalizeRateCard,
@@ -486,6 +487,20 @@ test('apontamento de horas normaliza campos principais', () => {
   assert.equal(normalized.date, '2026-07-27');
   assert.equal(normalized.hours, 8.5);
   assert.equal(normalized.project, 'Projeto A');
+});
+
+test('faturamento recalcula acumulado realizado por ano calendario', () => {
+  const rows = recalculateFaturamentoAccumulatedRealized([
+    { id: 'fat_2025_12', monthYear: '2025-12', realized: 4978, accumulatedRealized: 4978 },
+    { id: 'fat_2026_01', monthYear: '2026-01', realized: 888, accumulatedRealized: 5866 },
+    { id: 'fat_2026_02', monthYear: '2026-02', realized: 854, accumulatedRealized: 6720 },
+    { id: 'fat_2027_01', monthYear: '2027-01', realized: 0, accumulatedRealized: 9258 }
+  ]);
+
+  assert.equal(rows.find((item) => item.id === 'fat_2025_12').accumulatedRealized, 4978);
+  assert.equal(rows.find((item) => item.id === 'fat_2026_01').accumulatedRealized, 888);
+  assert.equal(rows.find((item) => item.id === 'fat_2026_02').accumulatedRealized, 1742);
+  assert.equal(rows.find((item) => item.id === 'fat_2027_01').accumulatedRealized, 0);
 });
 
 test('fechamento mensal de horas preserva dias uteis faltantes', () => {

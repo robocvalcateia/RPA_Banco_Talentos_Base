@@ -37,6 +37,7 @@ import {
   normalizeBusinessCalendarEntry,
   normalizeCandidatePool,
   normalizeFaturamento,
+  recalculateFaturamentoAccumulatedRealized,
   normalizeRateCard,
   normalizeStatusReportMessage,
   normalizeStatusReport,
@@ -104,7 +105,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260813-status-report-persist-before-email';
+const APP_VERSION = '20260813-faturamento-acumulado-anual';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -5022,6 +5023,7 @@ async function handleApi(request, response) {
       }
 
       db.faturamento.push(faturamento);
+      recalculateFaturamentoAccumulatedRealized(db.faturamento, faturamento.monthYear.slice(0, 4));
       await writeDatabaseCollections(db, ['faturamento']);
       sendJson(response, 201, faturamento);
       return;
@@ -5060,6 +5062,7 @@ async function handleApi(request, response) {
       }
 
       Object.assign(faturamento, updated);
+      recalculateFaturamentoAccumulatedRealized(db.faturamento, updated.monthYear.slice(0, 4));
       await writeDatabaseCollections(db, ['faturamento']);
       sendJson(response, 200, faturamento);
       return;

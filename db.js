@@ -549,7 +549,7 @@ export function normalizeDatabase(data = {}) {
     workModel: String(opportunity.workModel ?? opportunity.modeloTrabalho ?? '').trim(),
     jobDescription: String(opportunity.jobDescription ?? opportunity.job_description ?? '').trim()
   }));
-  data.faturamento = data.faturamento.map((item) => normalizeFaturamento(item));
+  data.faturamento = recalculateFaturamentoAccumulatedRealized(data.faturamento.map((item) => normalizeFaturamento(item)));
 
   data.curriculums = data.curriculums.map((curriculum) => normalizeCurriculum(curriculum));
   data.candidates = data.candidates.map((candidate) => normalizeCandidate(candidate));
@@ -1357,6 +1357,31 @@ export function normalizeFaturamento(item) {
     accumulatedRealized: Number(item.accumulatedRealized ?? item.acumuladoRealizado ?? 0),
     createdAt: String(item.createdAt ?? toISODate()).trim()
   };
+}
+
+export function recalculateFaturamentoAccumulatedRealized(faturamentoRows = [], targetYear = '') {
+  const years = new Set();
+  const rows = faturamentoRows.filter((item) => {
+    const monthYear = String(item?.monthYear ?? '').trim();
+    if (!/^\d{4}-\d{2}$/.test(monthYear)) return false;
+    const year = monthYear.slice(0, 4);
+    if (targetYear && year !== String(targetYear)) return false;
+    years.add(year);
+    return true;
+  });
+
+  for (const year of years) {
+    let accumulated = 0;
+    rows
+      .filter((item) => String(item.monthYear).startsWith(`${year}-`))
+      .sort((first, second) => String(first.monthYear).localeCompare(String(second.monthYear)))
+      .forEach((item) => {
+        accumulated += Number(item.realized || 0);
+        item.accumulatedRealized = Math.round((accumulated + Number.EPSILON) * 100) / 100;
+      });
+  }
+
+  return faturamentoRows;
 }
 
 export function normalizeRateCard(rateCard) {
