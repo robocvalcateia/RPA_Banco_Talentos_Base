@@ -324,6 +324,12 @@ textarea {
   margin-bottom: 16px;
 }
 
+.dashboard-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
 .faturamento-chart-panel {
   overflow: hidden;
 }
@@ -334,18 +340,18 @@ textarea {
 }
 
 .faturamento-chart-stage {
-  min-height: 260px;
+  min-height: 190px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: #ffffff;
-  padding: 10px 12px;
+  padding: 8px 10px;
 }
 
 .faturamento-chart-svg {
   display: block;
   width: 100%;
   height: auto;
-  min-height: 260px;
+  min-height: 190px;
 }
 
 .faturamento-chart-background {
@@ -360,7 +366,7 @@ textarea {
 .faturamento-chart-gridline text,
 .faturamento-chart-x-label {
   fill: #595959;
-  font-size: 18px;
+  font-size: 14px;
   font-family: Arial, sans-serif;
 }
 
@@ -379,9 +385,21 @@ textarea {
 
 .faturamento-chart-line {
   fill: none;
-  stroke-width: 3.2;
+  stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.faturamento-chart-point {
+  stroke: #ffffff;
+  stroke-width: 2;
+}
+
+.faturamento-chart-point-label {
+  font-family: Arial, sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  text-anchor: middle;
 }
 
 .faturamento-chart-legend {
@@ -1927,6 +1945,7 @@ th {
   }
 
   .metric-grid,
+  .dashboard-chart-grid,
   .content-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2607,6 +2626,10 @@ h1 {
 }
 
 @media (max-width: 680px) {
+  .dashboard-chart-grid {
+    grid-template-columns: 1fr;
+  }
+
   .app-shell {
     padding: 0 16px 20px;
   }

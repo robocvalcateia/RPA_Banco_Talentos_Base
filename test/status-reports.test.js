@@ -94,8 +94,8 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.match(indexSource, /<section class="view" id="statusReportManagement">/);
   assert.match(indexSource, /data-view="statusReportParameters"/);
   assert.match(indexSource, /data-view="statusReportManagement"/);
-  assert.match(indexSource, /app\.js\?v=20260813-faturamento-gross-margin-unidade/);
-  assert.match(indexSource, /styles\.css\?v=20260813-faturamento-gross-margin-unidade/);
+  assert.match(indexSource, /app\.js\?v=20260813-dashboard-graficos-duplos/);
+  assert.match(indexSource, /styles\.css\?v=20260813-dashboard-graficos-duplos/);
   assert.match(indexSource, /Status gravados/);
   assert.match(indexSource, /id="statusReportSavedTable"/);
   assert.match(indexSource, /Data de gera..o/);

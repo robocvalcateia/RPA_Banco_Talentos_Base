@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css?v=20260813-faturamento-gross-margin-unidade" />
+    <link rel="stylesheet" href="/styles.css?v=20260813-dashboard-graficos-duplos" />
   </head>
   <body class="auth-locked">
     <section class="auth-screen" id="authScreen">
@@ -192,41 +192,43 @@
             <div class="module-card-grid" id="moduleDrillCards" aria-live="polite"></div>
           </div>
         </section>
-        <section class="panel faturamento-chart-panel" aria-labelledby="faturamentoDashboardChartTitle">
-          <div class="panel-heading">
-            <div>
-              <h2 id="faturamentoDashboardChartTitle">Acompanhamento - Faturamento Mensal</h2>
-              <span id="faturamentoDashboardChartRange">Faturamento</span>
+        <div class="dashboard-chart-grid">
+          <section class="panel faturamento-chart-panel" aria-labelledby="grossMarginDashboardChartTitle">
+            <div class="panel-heading">
+              <div>
+                <h2 id="grossMarginDashboardChartTitle">Acompanhamento - Gross Margin</h2>
+                <span id="grossMarginDashboardChartRange">Gross Margin</span>
+              </div>
             </div>
-            <div class="panel-heading-actions">
-              <button class="secondary-action compact-action" id="exportFaturamentoDashboardCsvButton" type="button">Exportar CSV</button>
+            <div class="faturamento-chart-shell">
+              <div class="faturamento-chart-stage" id="grossMarginDashboardChart" role="img" aria-label="Gráfico de evolução do gross margin"></div>
+              <div class="faturamento-chart-legend" id="grossMarginDashboardChartLegend"></div>
+              <label class="faturamento-chart-scroll-label" for="grossMarginDashboardChartScroll">
+                <span>Meses</span>
+                <input id="grossMarginDashboardChartScroll" type="range" min="0" max="0" value="0" step="1" />
+              </label>
             </div>
-          </div>
-          <div class="faturamento-chart-shell">
-            <div class="faturamento-chart-stage" id="faturamentoDashboardChart" role="img" aria-label="Gráfico de acompanhamento de faturamento mensal"></div>
-            <div class="faturamento-chart-legend" id="faturamentoDashboardChartLegend"></div>
-            <label class="faturamento-chart-scroll-label" for="faturamentoDashboardChartScroll">
-              <span>Meses</span>
-              <input id="faturamentoDashboardChartScroll" type="range" min="0" max="0" value="0" step="1" />
-            </label>
-          </div>
-        </section>
-        <section class="panel faturamento-chart-panel" aria-labelledby="grossMarginDashboardChartTitle">
-          <div class="panel-heading">
-            <div>
-              <h2 id="grossMarginDashboardChartTitle">Acompanhamento - Gross Margin</h2>
-              <span id="grossMarginDashboardChartRange">Gross Margin</span>
+          </section>
+          <section class="panel faturamento-chart-panel" aria-labelledby="faturamentoDashboardChartTitle">
+            <div class="panel-heading">
+              <div>
+                <h2 id="faturamentoDashboardChartTitle">Acompanhamento - Faturamento Mensal</h2>
+                <span id="faturamentoDashboardChartRange">Faturamento</span>
+              </div>
+              <div class="panel-heading-actions">
+                <button class="secondary-action compact-action" id="exportFaturamentoDashboardCsvButton" type="button">Exportar CSV</button>
+              </div>
             </div>
-          </div>
-          <div class="faturamento-chart-shell">
-            <div class="faturamento-chart-stage" id="grossMarginDashboardChart" role="img" aria-label="Gráfico de evolução do gross margin"></div>
-            <div class="faturamento-chart-legend" id="grossMarginDashboardChartLegend"></div>
-            <label class="faturamento-chart-scroll-label" for="grossMarginDashboardChartScroll">
-              <span>Meses</span>
-              <input id="grossMarginDashboardChartScroll" type="range" min="0" max="0" value="0" step="1" />
-            </label>
-          </div>
-        </section>
+            <div class="faturamento-chart-shell">
+              <div class="faturamento-chart-stage" id="faturamentoDashboardChart" role="img" aria-label="Gráfico de acompanhamento de faturamento mensal"></div>
+              <div class="faturamento-chart-legend" id="faturamentoDashboardChartLegend"></div>
+              <label class="faturamento-chart-scroll-label" for="faturamentoDashboardChartScroll">
+                <span>Meses</span>
+                <input id="faturamentoDashboardChartScroll" type="range" min="0" max="0" value="0" step="1" />
+              </label>
+            </div>
+          </section>
+        </div>
         <section class="panel dashboard-filter-panel">
           <div class="panel-heading">
             <div>
@@ -2023,7 +2025,7 @@
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=20260813-faturamento-gross-margin-unidade"></script>
+    <script src="/app.js?v=20260813-dashboard-graficos-duplos"></script>
   </body>
 </html>
 

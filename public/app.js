@@ -1899,8 +1899,28 @@ function formatChartAxisValue(value) {
   return number.toLocaleString('pt-BR');
 }
 
+function formatChartThousandsValue(value) {
+  const number = Number(value || 0);
+  if (number >= 1000) {
+    return `${(number / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}M`;
+  }
+  return `${Math.round(number).toLocaleString('pt-BR')}k`;
+}
+
 function formatChartPercentAxisValue(value) {
   return `${Number(value || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
+}
+
+function formatChartRoundedPercentValue(value) {
+  return `${Math.round(Number(value || 0)).toLocaleString('pt-BR')}%`;
+}
+
+function formatMonthShortLabel(monthKey) {
+  const [year, month] = String(monthKey).split('-').map(Number);
+  if (!year || !month) return monthKey;
+  return new Date(year, month - 1, 1).toLocaleDateString('pt-BR', {
+    month: 'short'
+  }).replace('.', '');
 }
 
 function buildFaturamentoChartPath(rows, key, xForIndex, yForValue) {
@@ -1930,7 +1950,13 @@ function renderDashboardLineChart({
   series,
   offsetKey,
   emptyMessage,
-  axisFormatter = formatChartAxisValue
+  axisFormatter = formatChartAxisValue,
+  valueFormatter = axisFormatter,
+  axisMin = 0,
+  axisMax = null,
+  yTicks = null,
+  xLabelFormatter = formatMonthShortLabel,
+  showPointLabels = false
 }) {
   const chart = $(chartSelector);
   const legend = $(legendSelector);
@@ -1952,20 +1978,28 @@ function renderDashboardLineChart({
   const chartValues = visibleRows.flatMap((row) => series
     .map((series) => row[series.key])
     .filter((value) => value !== null && value !== undefined));
-  const yMax = chartAxisMax(Math.max(...chartValues, 1));
+  const numericChartValues = chartValues.map(Number).filter((value) => !Number.isNaN(value));
+  const yMin = Number.isFinite(Number(axisMin)) ? Number(axisMin) : 0;
+  const yMax = Number.isFinite(Number(axisMax)) ? Number(axisMax) : chartAxisMax(Math.max(...numericChartValues, 1));
+  const yRange = Math.max(1, yMax - yMin);
   const width = 960;
-  const height = 360;
-  const margin = { top: 26, right: 28, bottom: 52, left: 70 };
+  const height = 250;
+  const margin = { top: 28, right: 30, bottom: 40, left: 62 };
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
   const xForIndex = (index) => margin.left + (visibleRows.length === 1 ? plotWidth / 2 : (index / (visibleRows.length - 1)) * plotWidth);
-  const yForValue = (value) => margin.top + plotHeight - (value / yMax) * plotHeight;
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => Math.round(yMax * ratio));
+  const yForValue = (value) => {
+    const ratio = Math.min(1, Math.max(0, (Number(value) - yMin) / yRange));
+    return margin.top + plotHeight - ratio * plotHeight;
+  };
+  const ticks = Array.isArray(yTicks) && yTicks.length
+    ? yTicks
+    : [0, 0.25, 0.5, 0.75, 1].map((ratio) => Math.round(yMin + yRange * ratio));
 
   scroll.max = String(maxOffset);
   scroll.value = String(state[offsetKey]);
   scroll.disabled = maxOffset === 0;
-  rangeLabel.textContent = `${formatMonthLabel(visibleRows[0].monthYear)} ate ${formatMonthLabel(visibleRows[visibleRows.length - 1].monthYear)}`;
+  rangeLabel.textContent = `${formatMonthShortLabel(visibleRows[0].monthYear)} ate ${formatMonthShortLabel(visibleRows[visibleRows.length - 1].monthYear)}`;
   legend.innerHTML = series
     .map((series) => `
       <span class="faturamento-chart-legend-item">
@@ -1974,7 +2008,7 @@ function renderDashboardLineChart({
     `)
     .join('');
 
-  const gridLines = yTicks
+  const gridLines = ticks
     .map((tick) => {
       const y = yForValue(tick);
       return `
@@ -1987,7 +2021,7 @@ function renderDashboardLineChart({
     .join('');
   const xLabels = visibleRows
     .map((row, index) => `
-      <text class="faturamento-chart-x-label" x="${xForIndex(index).toFixed(2)}" y="${height - 18}">${escapeHtml(formatMonthLabel(row.monthYear))}</text>
+      <text class="faturamento-chart-x-label" x="${xForIndex(index).toFixed(2)}" y="${height - 16}">${escapeHtml(xLabelFormatter(row.monthYear))}</text>
     `)
     .join('');
   const paths = series
@@ -1995,6 +2029,21 @@ function renderDashboardLineChart({
       const path = buildFaturamentoChartPath(visibleRows, series.key, xForIndex, yForValue);
       return path ? `<path class="faturamento-chart-line" d="${path}" stroke="${series.color}"></path>` : '';
     })
+    .join('');
+  const points = series
+    .map((seriesItem, seriesIndex) => visibleRows
+      .map((row, index) => {
+        const value = row[seriesItem.key];
+        if (value === null || value === undefined || Number.isNaN(Number(value))) return '';
+        const x = xForIndex(index).toFixed(2);
+        const y = yForValue(Number(value)).toFixed(2);
+        const labelY = (yForValue(Number(value)) + (seriesIndex % 2 === 0 ? -9 : 17)).toFixed(2);
+        return `
+          <circle class="faturamento-chart-point" cx="${x}" cy="${y}" r="4" fill="${seriesItem.color}"></circle>
+          ${showPointLabels ? `<text class="faturamento-chart-point-label" x="${x}" y="${labelY}" fill="${seriesItem.color}">${escapeHtml(valueFormatter(value))}</text>` : ''}
+        `;
+      })
+      .join(''))
     .join('');
 
   chart.innerHTML = `
@@ -2004,6 +2053,7 @@ function renderDashboardLineChart({
       <line class="faturamento-chart-axis" x1="${margin.left}" x2="${width - margin.right}" y1="${height - margin.bottom}" y2="${height - margin.bottom}"></line>
       ${xLabels}
       ${paths}
+      ${points}
     </svg>
   `;
 }
@@ -2017,7 +2067,13 @@ function renderFaturamentoChart() {
     rows: faturamentoChartRows(),
     series: FATURAMENTO_DASHBOARD_CHART_SERIES,
     offsetKey: 'faturamentoChartOffset',
-    emptyMessage: 'Nenhum dado de faturamento carregado para montar o grafico.'
+    emptyMessage: 'Nenhum dado de faturamento carregado para montar o grafico.',
+    axisFormatter: formatChartThousandsValue,
+    valueFormatter: formatChartThousandsValue,
+    axisMin: 500,
+    axisMax: 1500,
+    yTicks: [500, 750, 1000, 1250, 1500],
+    showPointLabels: true
   });
 }
 
@@ -2031,7 +2087,12 @@ function renderGrossMarginChart() {
     series: GROSS_MARGIN_DASHBOARD_CHART_SERIES,
     offsetKey: 'grossMarginChartOffset',
     emptyMessage: 'Nenhum dado de Gross Margin carregado para montar o grafico.',
-    axisFormatter: formatChartPercentAxisValue
+    axisFormatter: formatChartRoundedPercentValue,
+    valueFormatter: formatChartRoundedPercentValue,
+    axisMin: 5,
+    axisMax: 30,
+    yTicks: [5, 10, 15, 20, 25, 30],
+    showPointLabels: true
   });
 }
 

@@ -48,9 +48,16 @@ test('dashboard e faturamento expõem gross margin e exportação completa', () 
 
   assert.match(indexSource, /id="exportFaturamentoDashboardCsvButton"/);
   assert.match(indexSource, /id="grossMarginDashboardChart"/);
+  assert.match(indexSource, /class="dashboard-chart-grid"/);
   assert.match(indexSource, /Resultado/);
   assert.match(indexSource, /Gross Margin/);
   assert.match(appSource, /function grossMarginChartRows\(\)/);
+  assert.match(appSource, /axisMin: 500/);
+  assert.match(appSource, /axisMax: 1500/);
+  assert.match(appSource, /axisMin: 5/);
+  assert.match(appSource, /axisMax: 30/);
+  assert.match(appSource, /formatMonthShortLabel/);
+  assert.match(appSource, /showPointLabels: true/);
   assert.match(appSource, /String\(item\.monthYear\)\.startsWith\(`\$\{currentYear\}-`\)/);
   assert.match(appSource, /downloadCsv\('faturamento', faturamentoCsvRows\(state\.faturamento\)\)/);
 });
