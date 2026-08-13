@@ -1347,16 +1347,38 @@ export function normalizeBusinessCalendarEntry(entry = {}) {
 }
 
 export function normalizeFaturamento(item) {
+  const realized = faturamentoNumber(item.realized ?? item.realizado ?? 0);
+  const result = faturamentoNumber(item.result ?? item.resultado ?? 0);
   return {
     ...item,
     id: String(item.id ?? createId('faturamento', item.monthYear ?? item.mesAno ?? item.month)).trim().replace(new RegExp(['^sa', 'le_'].join('')), 'faturamento_'),
     monthYear: String(item.monthYear ?? item.mesAno ?? item.month ?? '').trim(),
-    forecast: Number(item.forecast ?? item.previsto ?? 0),
-    realized: Number(item.realized ?? item.realizado ?? 0),
-    accumulatedGrowth: Number(item.accumulatedGrowth ?? item.acumuladoCrescimento ?? 0),
-    accumulatedRealized: Number(item.accumulatedRealized ?? item.acumuladoRealizado ?? 0),
+    forecast: faturamentoNumber(item.forecast ?? item.previsto ?? 0),
+    realized,
+    accumulatedGrowth: faturamentoNumber(item.accumulatedGrowth ?? item.acumuladoCrescimento ?? 0),
+    accumulatedRealized: faturamentoNumber(item.accumulatedRealized ?? item.acumuladoRealizado ?? 0),
+    result,
+    grossMargin: calculateFaturamentoGrossMargin(result, realized),
     createdAt: String(item.createdAt ?? toISODate()).trim()
   };
+}
+
+function faturamentoNumber(value) {
+  if (value === null || value === undefined || value === '') return 0;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const text = String(value).trim().replace(/\s/g, '').replace(/R\$/i, '');
+  const normalized = text.includes(',')
+    ? text.replace(/\./g, '').replace(',', '.')
+    : text;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+export function calculateFaturamentoGrossMargin(result, realized) {
+  const resultNumber = faturamentoNumber(result);
+  const realizedNumber = faturamentoNumber(realized);
+  if (!realizedNumber) return 0;
+  return Math.round(((resultNumber / realizedNumber) * 100 + Number.EPSILON) * 100) / 100;
 }
 
 export function recalculateFaturamentoAccumulatedRealized(faturamentoRows = [], targetYear = '') {
@@ -1367,6 +1389,7 @@ export function recalculateFaturamentoAccumulatedRealized(faturamentoRows = [], 
     const year = monthYear.slice(0, 4);
     if (targetYear && year !== String(targetYear)) return false;
     years.add(year);
+    item.grossMargin = calculateFaturamentoGrossMargin(item.result ?? item.resultado ?? 0, item.realized ?? item.realizado ?? 0);
     return true;
   });
 

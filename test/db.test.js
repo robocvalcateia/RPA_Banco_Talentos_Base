@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   calculateIndicators,
+  calculateFaturamentoGrossMargin,
   BRAZIL_UFS,
   CANDIDATE_STAGES,
   buildMongoAppBulkWrite,
@@ -491,16 +492,22 @@ test('apontamento de horas normaliza campos principais', () => {
 
 test('faturamento recalcula acumulado realizado por ano calendario', () => {
   const rows = recalculateFaturamentoAccumulatedRealized([
-    { id: 'fat_2025_12', monthYear: '2025-12', realized: 4978, accumulatedRealized: 4978 },
-    { id: 'fat_2026_01', monthYear: '2026-01', realized: 888, accumulatedRealized: 5866 },
-    { id: 'fat_2026_02', monthYear: '2026-02', realized: 854, accumulatedRealized: 6720 },
-    { id: 'fat_2027_01', monthYear: '2027-01', realized: 0, accumulatedRealized: 9258 }
+    { id: 'fat_2025_12', monthYear: '2025-12', realized: 4978, result: 1000, accumulatedRealized: 4978 },
+    { id: 'fat_2026_01', monthYear: '2026-01', realized: 888, result: 88.8, accumulatedRealized: 5866 },
+    { id: 'fat_2026_02', monthYear: '2026-02', realized: 854, result: 85.4, accumulatedRealized: 6720 },
+    { id: 'fat_2027_01', monthYear: '2027-01', realized: 0, result: 0, accumulatedRealized: 9258 }
   ]);
 
   assert.equal(rows.find((item) => item.id === 'fat_2025_12').accumulatedRealized, 4978);
   assert.equal(rows.find((item) => item.id === 'fat_2026_01').accumulatedRealized, 888);
   assert.equal(rows.find((item) => item.id === 'fat_2026_02').accumulatedRealized, 1742);
   assert.equal(rows.find((item) => item.id === 'fat_2027_01').accumulatedRealized, 0);
+  assert.equal(rows.find((item) => item.id === 'fat_2026_01').grossMargin, 10);
+});
+
+test('faturamento calcula gross margin pelo resultado sobre realizado', () => {
+  assert.equal(calculateFaturamentoGrossMargin(122315.33, 1174.5), 10414.25);
+  assert.equal(calculateFaturamentoGrossMargin(100, 0), 0);
 });
 
 test('fechamento mensal de horas preserva dias uteis faltantes', () => {

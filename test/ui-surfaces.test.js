@@ -41,3 +41,16 @@ test('cadastro de oportunidade gera Id_Oportunidade sem exigir digitacao', () =>
   assert.match(serverSource, /if \(!opportunity\.opportunityCode\) opportunity\.opportunityCode = nextOpportunityCode\(db\);/);
   assert.doesNotMatch(serverSource, /Informe o Id_Oportunidade/);
 });
+
+test('dashboard e faturamento expõem gross margin e exportação completa', () => {
+  const indexSource = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  const appSource = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+
+  assert.match(indexSource, /id="exportFaturamentoDashboardCsvButton"/);
+  assert.match(indexSource, /id="grossMarginDashboardChart"/);
+  assert.match(indexSource, /Resultado/);
+  assert.match(indexSource, /Gross Margin/);
+  assert.match(appSource, /function grossMarginChartRows\(\)/);
+  assert.match(appSource, /String\(item\.monthYear\)\.startsWith\(`\$\{currentYear\}-`\)/);
+  assert.match(appSource, /downloadCsv\('faturamento', faturamentoCsvRows\(state\.faturamento\)\)/);
+});

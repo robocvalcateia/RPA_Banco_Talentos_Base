@@ -37,6 +37,7 @@
   opportunityFilter: { type: '', value: '', status: '', closingMonth: '' },
   faturamentoFilter: { monthYear: '' },
   faturamentoChartOffset: 0,
+  grossMarginChartOffset: 0,
   dashboardMonth: '',
   dashboardModel: '',
   dashboardAnalyticsCsvUrl: '',
@@ -95,6 +96,10 @@ let initialRouteApplied = false;
 const FATURAMENTO_DASHBOARD_CHART_SERIES = [
   { key: 'forecast', label: 'Previsto', color: '#ed7d31' },
   { key: 'realized', label: 'Realizado', color: '#70ad47' }
+];
+
+const GROSS_MARGIN_DASHBOARD_CHART_SERIES = [
+  { key: 'grossMargin', label: 'Gross Margin', color: '#00b894' }
 ];
 function setCvSearchInlineStatus(message, statusClass = '') {
   const element = $('#cvSearchInlineStatus');
@@ -1834,9 +1839,11 @@ function renderDashboardFilters() {
 }
 
 function faturamentoChartRows() {
+  const currentYear = String(new Date().getFullYear());
   const rows = state.faturamento
     .slice()
     .filter((item) => item.monthYear)
+    .filter((item) => String(item.monthYear).startsWith(`${currentYear}-`))
     .sort((first, second) => String(first.monthYear).localeCompare(String(second.monthYear)));
   const lastRealizedIndex = rows.reduce((last, item, index) => (
     Number(item.realized || 0) > 0 ? index : last
@@ -1849,16 +1856,32 @@ function faturamentoChartRows() {
   }));
 }
 
+function grossMarginChartRows() {
+  const currentYear = String(new Date().getFullYear());
+  return state.faturamento
+    .slice()
+    .filter((item) => item.monthYear)
+    .filter((item) => String(item.monthYear).startsWith(`${currentYear}-`))
+    .sort((first, second) => String(first.monthYear).localeCompare(String(second.monthYear)))
+    .map((item) => {
+      const hasBase = Number(item.result || 0) !== 0 || Number(item.realized || 0) !== 0;
+      return {
+        monthYear: item.monthYear,
+        grossMargin: hasBase ? Number(item.grossMargin || 0) : null
+      };
+    });
+}
+
 function faturamentoChartWindowSize(total) {
   const width = window.innerWidth || 1280;
   if (width <= 680) return Math.min(total, 5);
   if (width <= 1024) return Math.min(total, 7);
-  return Math.min(total, 10);
+  return Math.min(total, 12);
 }
 
-function clampFaturamentoChartOffset(total, windowSize) {
+function clampDashboardChartOffset(total, windowSize, offsetKey) {
   const maxOffset = Math.max(0, total - windowSize);
-  state.faturamentoChartOffset = Math.min(Math.max(0, Number(state.faturamentoChartOffset || 0)), maxOffset);
+  state[offsetKey] = Math.min(Math.max(0, Number(state[offsetKey] || 0)), maxOffset);
   return maxOffset;
 }
 
@@ -1874,6 +1897,10 @@ function formatChartAxisValue(value) {
   const number = Number(value || 0);
   if (number >= 1000) return `${Math.round(number / 1000).toLocaleString('pt-BR')}K`;
   return number.toLocaleString('pt-BR');
+}
+
+function formatChartPercentAxisValue(value) {
+  return `${Number(value || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`;
 }
 
 function buildFaturamentoChartPath(rows, key, xForIndex, yForValue) {
@@ -1894,16 +1921,25 @@ function buildFaturamentoChartPath(rows, key, xForIndex, yForValue) {
     .join(' ');
 }
 
-function renderFaturamentoChart() {
-  const chart = $('#faturamentoDashboardChart');
-  const legend = $('#faturamentoDashboardChartLegend');
-  const scroll = $('#faturamentoDashboardChartScroll');
-  const rangeLabel = $('#faturamentoDashboardChartRange');
+function renderDashboardLineChart({
+  chartSelector,
+  legendSelector,
+  scrollSelector,
+  rangeSelector,
+  rows,
+  series,
+  offsetKey,
+  emptyMessage,
+  axisFormatter = formatChartAxisValue
+}) {
+  const chart = $(chartSelector);
+  const legend = $(legendSelector);
+  const scroll = $(scrollSelector);
+  const rangeLabel = $(rangeSelector);
   if (!chart || !legend || !scroll || !rangeLabel) return;
 
-  const rows = faturamentoChartRows();
   if (!rows.length) {
-    chart.innerHTML = '<div class="empty-state">Nenhum dado de faturamento carregado para montar o grafico.</div>';
+    chart.innerHTML = `<div class="empty-state">${emptyMessage}</div>`;
     legend.innerHTML = '';
     scroll.disabled = true;
     rangeLabel.textContent = 'Sem dados';
@@ -1911,9 +1947,9 @@ function renderFaturamentoChart() {
   }
 
   const windowSize = faturamentoChartWindowSize(rows.length);
-  const maxOffset = clampFaturamentoChartOffset(rows.length, windowSize);
-  const visibleRows = rows.slice(state.faturamentoChartOffset, state.faturamentoChartOffset + windowSize);
-  const chartValues = visibleRows.flatMap((row) => FATURAMENTO_DASHBOARD_CHART_SERIES
+  const maxOffset = clampDashboardChartOffset(rows.length, windowSize, offsetKey);
+  const visibleRows = rows.slice(state[offsetKey], state[offsetKey] + windowSize);
+  const chartValues = visibleRows.flatMap((row) => series
     .map((series) => row[series.key])
     .filter((value) => value !== null && value !== undefined));
   const yMax = chartAxisMax(Math.max(...chartValues, 1));
@@ -1927,10 +1963,10 @@ function renderFaturamentoChart() {
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((ratio) => Math.round(yMax * ratio));
 
   scroll.max = String(maxOffset);
-  scroll.value = String(state.faturamentoChartOffset);
+  scroll.value = String(state[offsetKey]);
   scroll.disabled = maxOffset === 0;
   rangeLabel.textContent = `${formatMonthLabel(visibleRows[0].monthYear)} ate ${formatMonthLabel(visibleRows[visibleRows.length - 1].monthYear)}`;
-  legend.innerHTML = FATURAMENTO_DASHBOARD_CHART_SERIES
+  legend.innerHTML = series
     .map((series) => `
       <span class="faturamento-chart-legend-item">
         <i style="background: ${series.color}"></i>${escapeHtml(series.label)}
@@ -1944,7 +1980,7 @@ function renderFaturamentoChart() {
       return `
         <g class="faturamento-chart-gridline">
           <line x1="${margin.left}" x2="${width - margin.right}" y1="${y.toFixed(2)}" y2="${y.toFixed(2)}"></line>
-          <text x="${margin.left - 12}" y="${(y + 4).toFixed(2)}">${formatChartAxisValue(tick)}</text>
+          <text x="${margin.left - 12}" y="${(y + 4).toFixed(2)}">${axisFormatter(tick)}</text>
         </g>
       `;
     })
@@ -1954,7 +1990,7 @@ function renderFaturamentoChart() {
       <text class="faturamento-chart-x-label" x="${xForIndex(index).toFixed(2)}" y="${height - 18}">${escapeHtml(formatMonthLabel(row.monthYear))}</text>
     `)
     .join('');
-  const paths = FATURAMENTO_DASHBOARD_CHART_SERIES
+  const paths = series
     .map((series) => {
       const path = buildFaturamentoChartPath(visibleRows, series.key, xForIndex, yForValue);
       return path ? `<path class="faturamento-chart-line" d="${path}" stroke="${series.color}"></path>` : '';
@@ -1970,6 +2006,33 @@ function renderFaturamentoChart() {
       ${paths}
     </svg>
   `;
+}
+
+function renderFaturamentoChart() {
+  renderDashboardLineChart({
+    chartSelector: '#faturamentoDashboardChart',
+    legendSelector: '#faturamentoDashboardChartLegend',
+    scrollSelector: '#faturamentoDashboardChartScroll',
+    rangeSelector: '#faturamentoDashboardChartRange',
+    rows: faturamentoChartRows(),
+    series: FATURAMENTO_DASHBOARD_CHART_SERIES,
+    offsetKey: 'faturamentoChartOffset',
+    emptyMessage: 'Nenhum dado de faturamento carregado para montar o grafico.'
+  });
+}
+
+function renderGrossMarginChart() {
+  renderDashboardLineChart({
+    chartSelector: '#grossMarginDashboardChart',
+    legendSelector: '#grossMarginDashboardChartLegend',
+    scrollSelector: '#grossMarginDashboardChartScroll',
+    rangeSelector: '#grossMarginDashboardChartRange',
+    rows: grossMarginChartRows(),
+    series: GROSS_MARGIN_DASHBOARD_CHART_SERIES,
+    offsetKey: 'grossMarginChartOffset',
+    emptyMessage: 'Nenhum dado de Gross Margin carregado para montar o grafico.',
+    axisFormatter: formatChartPercentAxisValue
+  });
 }
 
 function renderMetrics() {
@@ -2092,6 +2155,8 @@ function renderAllocatedPie() {
   const entries = Object.entries(values).filter(([, value]) => Number(value || 0) > 0);
   const total = entries.reduce((sum, [, value]) => sum + Number(value || 0), 0);
   const container = $('#allocatedPie');
+  const totalElement = $('#allocatedDashboardTotal');
+  if (totalElement) totalElement.textContent = `Total ${total}`;
 
   if (!entries.length || !total) {
     container.innerHTML = '<p class="empty-state">Sem alocados cadastrados.</p>';
@@ -2205,6 +2270,19 @@ function renderPieSvg(entries, total, colors) {
 function formatPercent(value, total) {
   if (!total) return '0%';
   return `${Math.round((value / total) * 100)}%`;
+}
+
+function calculateGrossMarginPercent(result, realized) {
+  const realizedNumber = Number(realized || 0);
+  if (!realizedNumber) return 0;
+  return Math.round(((Number(result || 0) / realizedNumber) * 100 + Number.EPSILON) * 100) / 100;
+}
+
+function formatGrossMargin(value) {
+  return `${Number(value || 0).toLocaleString('pt-BR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })}%`;
 }
 
 function renderAverageTable() {
@@ -2608,6 +2686,21 @@ function getFilteredFaturamento() {
   return state.faturamento.filter((item) => item.monthYear === monthYear);
 }
 
+function faturamentoCsvRows(rows = state.faturamento) {
+  return rows
+    .slice()
+    .sort((first, second) => String(first.monthYear).localeCompare(String(second.monthYear)))
+    .map((item) => ({
+      'Mes / Ano': formatFaturamentoMonth(item.monthYear),
+      Previsto: formatCurrency(item.forecast),
+      Realizado: formatCurrency(item.realized),
+      'Acumulado Crescimento': formatCurrency(item.accumulatedGrowth),
+      'Acumulado Realizado': formatCurrency(item.accumulatedRealized),
+      Resultado: formatCurrency(item.result),
+      'Gross Margin': formatGrossMargin(item.grossMargin)
+    }));
+}
+
 function renderFaturamento() {
   const monthFilter = $('#faturamentoMonthFilter');
   if (monthFilter) {
@@ -2628,6 +2721,8 @@ function renderFaturamento() {
         <td>${formatCurrency(item.realized)}</td>
         <td>${formatCurrency(item.accumulatedGrowth)}</td>
         <td>${formatCurrency(item.accumulatedRealized)}</td>
+        <td>${formatCurrency(item.result)}</td>
+        <td>${formatGrossMargin(item.grossMargin)}</td>
       </tr>
     `)
     .join('');
@@ -7642,6 +7737,7 @@ function render() {
   renderOptions();
   renderDashboardFilters();
   renderFaturamentoChart();
+  renderGrossMarginChart();
   renderMetrics();
   renderBars('stageBars', getDashboardCandidatesByStage(), 'candidateStage');
   renderBars('statusBars', getDashboardOpportunitiesByStatus(), 'opportunityStatus');
@@ -7841,6 +7937,16 @@ function loadContactClientForEdit(contact) {
   toast('Contato carregado para atualização.');
 }
 
+function updateFaturamentoGrossMarginInput() {
+  const form = $('#faturamentoForm');
+  if (!form) return;
+  const resultInput = form.elements.result;
+  const realizedInput = form.elements.realized;
+  const grossMarginInput = form.elements.grossMargin;
+  if (!grossMarginInput) return;
+  grossMarginInput.value = String(calculateGrossMarginPercent(resultInput?.value || 0, realizedInput?.value || 0));
+}
+
 function loadFaturamentoForEdit(item) {
   state.editing.faturamentoId = item.id;
   fillForm('#faturamentoForm', {
@@ -7848,8 +7954,11 @@ function loadFaturamentoForEdit(item) {
     forecast: item.forecast,
     realized: item.realized,
     accumulatedGrowth: item.accumulatedGrowth,
-    accumulatedRealized: item.accumulatedRealized
+    accumulatedRealized: item.accumulatedRealized,
+    result: item.result,
+    grossMargin: item.grossMargin
   }, 'Atualizar faturamento');
+  updateFaturamentoGrossMarginInput();
   toast('Faturamento carregado para atualização.');
 }
 
@@ -8754,6 +8863,7 @@ function bindForms() {
     const form = event.currentTarget;
     const submitButton = $('button[type="submit"]', form);
     const editingId = state.editing.faturamentoId;
+    updateFaturamentoGrossMarginInput();
     const payload = formPayload(form);
 
     if (!String(payload.monthYear || '').trim()) {
@@ -10307,8 +10417,23 @@ function bindDashboardFilters() {
     renderFaturamentoChart();
   });
 
+  $('#grossMarginDashboardChartScroll')?.addEventListener('input', (event) => {
+    state.grossMarginChartOffset = Number(event.currentTarget.value || 0);
+    renderGrossMarginChart();
+  });
+
+  $('#exportFaturamentoDashboardCsvButton')?.addEventListener('click', () => {
+    downloadCsv('faturamento', faturamentoCsvRows(state.faturamento));
+    toast('Base de faturamento exportada.');
+  });
+
   window.addEventListener('resize', () => {
     renderFaturamentoChart();
+    renderGrossMarginChart();
+  });
+
+  ['#faturamentoForm input[name="realized"]', '#faturamentoForm input[name="result"]'].forEach((selector) => {
+    $(selector)?.addEventListener('input', updateFaturamentoGrossMarginInput);
   });
 }
 

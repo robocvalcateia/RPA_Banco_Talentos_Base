@@ -548,6 +548,10 @@ textarea {
   margin-bottom: 16px;
 }
 
+.panel-heading > div:first-child {
+  min-width: 0;
+}
+
 .panel-heading span {
   color: var(--muted);
   font-size: 0.9rem;
@@ -620,6 +624,7 @@ textarea {
   flex-wrap: wrap;
   gap: 12px;
   justify-content: flex-end;
+  margin-left: auto;
 }
 
 .panel-heading-actions select {
