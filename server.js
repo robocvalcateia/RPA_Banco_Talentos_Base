@@ -105,7 +105,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260813-dashboard-graficos-fontes';
+const APP_VERSION = '20260814-mail-search-diagnostics';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -2285,6 +2285,75 @@ async function getMailFolderDiagnostics() {
   };
 }
 
+function escapeGraphSearchTerm(value = '') {
+  return String(value || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"').trim();
+}
+
+async function getMailSearchDiagnostics(query = '', options = {}) {
+  const accessToken = await getGraphAccessTokenForDiagnostics();
+  const mailbox = String(process.env.GRAPH_EMAIL || 'robocv@alcateiaconsulting.com.br').trim();
+  const graphBase = 'https://graph.microsoft.com/v1.0';
+  const term = escapeGraphSearchTerm(query);
+  const top = Math.max(1, Math.min(100, Number(options.top || 25)));
+
+  if (!term) {
+    throw new Error('Informe um termo para pesquisa.');
+  }
+
+  const rootFolders = await fetchGraphPages(
+    `${graphBase}/users/${encodeURIComponent(mailbox)}/mailFolders?$top=999&$select=id,displayName,totalItemCount,unreadItemCount`,
+    accessToken
+  );
+  const queue = rootFolders.map((folder) => ({
+    folder,
+    path: String(folder.displayName || '').trim()
+  }));
+  const visited = new Set();
+  const folderPaths = new Map();
+
+  while (queue.length) {
+    const current = queue.shift();
+    const folder = current.folder || {};
+    const folderId = folder.id;
+    if (!folderId || visited.has(folderId)) continue;
+    visited.add(folderId);
+
+    const folderPath = current.path || String(folder.displayName || '').trim();
+    folderPaths.set(folderId, folderPath);
+
+    const children = await fetchGraphPages(
+      `${graphBase}/users/${encodeURIComponent(mailbox)}/mailFolders/${encodeURIComponent(folderId)}/childFolders?$top=999&$select=id,displayName,totalItemCount,unreadItemCount`,
+      accessToken
+    );
+
+    for (const child of children) {
+      queue.push({
+        folder: child,
+        path: `${folderPath}/${String(child.displayName || '').trim()}`
+      });
+    }
+  }
+
+  const searchUrl = `${graphBase}/users/${encodeURIComponent(mailbox)}/messages?$top=${top}&$search="${encodeURIComponent(term)}"&$select=id,subject,from,receivedDateTime,lastModifiedDateTime,hasAttachments,parentFolderId,bodyPreview`;
+  const messages = await fetchGraphPages(searchUrl, accessToken);
+
+  return {
+    mailbox,
+    query: term,
+    checkedAt: new Date().toISOString(),
+    total: messages.length,
+    messages: messages.map((message) => ({
+      subject: message.subject || '',
+      from: message.from?.emailAddress?.address || '',
+      receivedDateTime: message.receivedDateTime || '',
+      lastModifiedDateTime: message.lastModifiedDateTime || '',
+      hasAttachments: Boolean(message.hasAttachments),
+      folder: folderPaths.get(message.parentFolderId) || message.parentFolderId || '',
+      bodyPreview: String(message.bodyPreview || '').slice(0, 500)
+    }))
+  };
+}
+
 function startLegacyEmailProcessing(options = {}) {
   const jobId = randomBytes(12).toString('hex');
   const subjectFilter = String(options.subjectFilter || options.query || '').trim();
@@ -3509,6 +3578,27 @@ async function handleApi(request, response) {
         getMailFolderDiagnostics(),
         120000,
         'Tempo esgotado ao consultar pastas do Outlook.'
+      );
+
+      sendJson(response, 200, {
+        ok: true,
+        diagnostics
+      });
+      return;
+    }
+
+    if (request.method === 'GET' && pathname === '/api/admin/mail-search') {
+      if (String(auth.user.role || '').toLowerCase() !== 'admin') {
+        sendError(response, 403, 'Apenas administradores podem consultar e-mails.');
+        return;
+      }
+
+      const diagnostics = await withTimeout(
+        getMailSearchDiagnostics(route.searchParams.get('query') || '', {
+          top: route.searchParams.get('top') || 25
+        }),
+        120000,
+        'Tempo esgotado ao pesquisar e-mails no Outlook.'
       );
 
       sendJson(response, 200, {

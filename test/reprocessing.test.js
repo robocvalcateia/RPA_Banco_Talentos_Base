@@ -50,6 +50,16 @@ test('production inbox processing is scheduled every six hours with log recipien
   assert.match(serverSource, /GRAPH_EMAIL_TO: buildGraphLogRecipients/);
 });
 
+test('admin mail search is read-only and uses Microsoft Graph diagnostics', () => {
+  const serverSource = readRepoFile('server.js');
+
+  assert.match(serverSource, /getMailSearchDiagnostics/);
+  assert.match(serverSource, /pathname === '\/api\/admin\/mail-search'/);
+  assert.match(serverSource, /request\.method === 'GET'/);
+  assert.match(serverSource, /\$search=/);
+  assert.doesNotMatch(serverSource, /mail-search'[\s\S]{0,800}startLegacyEmailProcessing/);
+});
+
 test('candidate reprocessing preserves existing non-empty data when extraction returns blanks', () => {
   const deduplicationSource = readRepoFile('legacy_banco_talentos/modules/deduplication.py');
   const updateCandidateSource = deduplicationSource.slice(deduplicationSource.indexOf('    def update_candidate'));
