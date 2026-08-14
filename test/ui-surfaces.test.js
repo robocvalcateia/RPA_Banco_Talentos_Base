@@ -61,3 +61,13 @@ test('dashboard e faturamento expõem gross margin e exportação completa', () 
   assert.match(appSource, /String\(item\.monthYear\)\.startsWith\(`\$\{currentYear\}-`\)/);
   assert.match(appSource, /downloadCsv\('faturamento', faturamentoCsvRows\(state\.faturamento\)\)/);
 });
+
+test('consulta de talentos busca por identidade completa do curriculo', () => {
+  const appSource = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+
+  assert.match(appSource, /function curriculumIdentityText\(curriculum = \{\}\)/);
+  assert.match(appSource, /curriculum\.email/);
+  assert.match(appSource, /curriculum\.id_controle/);
+  assert.match(appSource, /matchesEveryTerm\(curriculumIdentityText\(curriculum\), name\)/);
+  assert.doesNotMatch(appSource, /matchesEveryTerm\(curriculum\.nome, name\)/);
+});

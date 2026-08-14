@@ -476,6 +476,7 @@ function normalizeText(value) {
   return String(value || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
     .toLowerCase()
     .trim();
 }
@@ -958,9 +959,10 @@ function byCurriculumControl(first, second) {
 
 
 function normalizeSearchValue(value) {
-  return String(value ?? '')
+  return repairEncodingArtifacts(value)
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
     .toLowerCase();
 }
 
@@ -1002,6 +1004,23 @@ function searchableTextFromValue(value, seen = new WeakSet()) {
 
 function curriculumFullText(curriculum) {
   return searchableTextFromValue(curriculum);
+}
+
+function curriculumIdentityText(curriculum = {}) {
+  return [
+    curriculum.nome,
+    curriculum.Nome,
+    curriculum.name,
+    curriculum.email,
+    curriculum.Email,
+    curriculum.telefone,
+    curriculum.Telefone,
+    curriculum.id,
+    curriculum.id_controle,
+    curriculum.idControle,
+    curriculum.mongoId,
+    curriculum.linkedin
+  ].filter(Boolean).join(' ');
 }
 
 function matchesEveryTerm(text, rawQuery) {
@@ -3476,7 +3495,7 @@ function getFilteredCurriculums() {
   const curriculumKeyword = state.curriculumSearch.skills || '';
 
   return state.curriculums.filter((curriculum) => {
-    const matchesName = !name || matchesEveryTerm(curriculum.nome, name);
+    const matchesName = !name || matchesEveryTerm(curriculumIdentityText(curriculum), name);
     const matchesCurriculumKeyword = !curriculumKeyword || matchesEveryTerm(curriculumFullText(curriculum), curriculumKeyword);
     return matchesName && matchesCurriculumKeyword;
   });
