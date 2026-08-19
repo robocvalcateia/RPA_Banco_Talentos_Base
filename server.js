@@ -5039,7 +5039,7 @@ async function handleApi(request, response) {
         clientId: String(payload.clientId ?? ''),
         contactClientId: String(payload.contactClientId ?? '').trim(),
         opportunity: String(payload.opportunity ?? '').trim(),
-        opportunityCode: opportunity.opportunityCode,
+        opportunityCode: String(opportunity.opportunityCode ?? '').trim(),
         clientOpportunityCode: String(payload.clientOpportunityCode ?? '').trim(),
         status: nextStatus,
         openingDate,
@@ -5061,7 +5061,7 @@ async function handleApi(request, response) {
       opportunity.clientId = String(payload.clientId ?? '');
       opportunity.contactClientId = String(payload.contactClientId ?? '').trim();
       opportunity.opportunity = String(payload.opportunity ?? '').trim();
-      opportunity.opportunityCode = opportunity.opportunityCode;
+      opportunity.opportunityCode = nextOpportunity.opportunityCode;
       opportunity.clientOpportunityCode = nextOpportunity.clientOpportunityCode;
       opportunity.status = nextStatus;
       opportunity.openingDate = openingDate;
@@ -5357,7 +5357,7 @@ async function handleApi(request, response) {
           ? (
               search.linkedinError
                 ? ` Google/LinkedIn: ${search.linkedinError}`
-                : ` Google/LinkedIn via ${search.linkedinProvider}: consulta "${search.linkedinQuery}" retornou ${search.linkedinFound} perfil(is) para análise.`
+                : ` LinkedIn v2 via ${search.linkedinProvider}: ${search.linkedinStrategies?.length || 1} estrategia(s), ${search.linkedinFound} perfil(is) publico(s) para analise.`
             )
           : ' Google/LinkedIn desmarcado.';
 

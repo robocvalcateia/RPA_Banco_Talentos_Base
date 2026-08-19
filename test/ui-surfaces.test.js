@@ -39,6 +39,7 @@ test('cadastro de oportunidade gera Id_Oportunidade sem exigir digitacao', () =>
   assert.match(appSource, /form\.elements\.opportunityCode\.readOnly = true/);
   assert.match(serverSource, /function nextOpportunityCode\(db\)/);
   assert.match(serverSource, /if \(!opportunity\.opportunityCode\) opportunity\.opportunityCode = nextOpportunityCode\(db\);/);
+  assert.match(serverSource, /opportunity\.opportunityCode = nextOpportunity\.opportunityCode;/);
   assert.doesNotMatch(serverSource, /Informe o Id_Oportunidade/);
 });
 
