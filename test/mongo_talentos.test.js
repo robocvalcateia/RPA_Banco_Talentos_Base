@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { evaluateCandidateTextForFilter } from '../apinfo.js';
+import { buildLinkedinQueries, evaluateCandidateTextForFilter, evaluateLinkedinCandidateTextForFilter } from '../apinfo.js';
 import { __mongoTalentosTest } from '../mongo_talentos.js';
 
 function matchesQuery(doc, query) {
@@ -214,6 +214,62 @@ test('filtro de CV aceita listas em branco e cidades dentro do raio parametrizad
   ].join('\n');
 
   assert.equal(evaluateCandidateTextForFilter(text, filter).accepted, true);
+});
+
+test('busca LinkedIn v2 gera estrategias estruturadas por cargo skills e localidade', () => {
+  const filter = {
+    opportunity: 'Gerente de Projetos / PMO',
+    city: 'Sao Paulo',
+    state: 'SP',
+    mandatorySkills: 'SAP, PMO',
+    jobDescription: 'Gerente de projetos para rollout SAP e governanca PMO',
+    resultLimit: 10
+  };
+
+  const queries = buildLinkedinQueries(filter, 10);
+
+  assert.ok(queries.length >= 3);
+  assert.match(queries[0].query, /site:linkedin\.com\/in/);
+  assert.match(queries.map((item) => item.query).join('\n'), /SAP/);
+  assert.match(queries.map((item) => item.query).join('\n'), /PMO/);
+  assert.match(queries.map((item) => item.query).join('\n'), /Sao Paulo/);
+  assert.match(queries.map((item) => item.query).join('\n'), /-recruiter/);
+});
+
+test('LinkedIn v2 classifica evidencias publicas sem rejeitar por lacuna nao evidente', () => {
+  const filter = {
+    opportunity: 'Gerente de Projetos / PMO',
+    city: 'Sao Paulo',
+    state: 'SP',
+    englishLevel: 'Avancado',
+    mandatorySkills: 'SAP, PMO',
+    jobDescription: 'Gerente de projetos para rollout SAP e governanca PMO',
+    matchPercent: 60
+  };
+
+  const reviewText = [
+    'Pessoa Consultora',
+    'Experiencia com SAP e PMO em projetos corporativos.'
+  ].join('\n');
+  const review = evaluateLinkedinCandidateTextForFilter(reviewText, filter);
+  assert.equal(review.classification, 'review');
+  assert.equal(review.review, true);
+  assert.match(review.reason, /localidade nao evidente/);
+  assert.match(review.reason, /nivel de ingles nao evidente/);
+
+  const rejected = evaluateLinkedinCandidateTextForFilter('Gerente de Projetos em Sao Paulo com ingles avancado', filter);
+  assert.equal(rejected.classification, 'rejected');
+  assert.equal(rejected.accepted, false);
+  assert.match(rejected.reason, /habilidade obrigatoria ausente/);
+
+  const approvedText = [
+    'Gerente de Projetos PMO em Sao Paulo SP',
+    'Ingles avancado',
+    'Rollout SAP, governanca PMO e projetos corporativos.'
+  ].join('\n');
+  const approved = evaluateLinkedinCandidateTextForFilter(approvedText, filter);
+  assert.equal(approved.classification, 'approved');
+  assert.equal(approved.accepted, true);
 });
 
 test('candidato selecionado preserva campos estruturados quando vierem explicitamente do curriculo', () => {

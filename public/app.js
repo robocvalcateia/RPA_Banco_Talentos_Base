@@ -10,6 +10,8 @@
   selectedCandidates: [],
   curriculums: [],
   curriculumObservations: [],
+  recordObservations: [],
+  candidateMovements: [],
   curriculumTemplates: [],
   candidates: [],
   allocateds: [],
@@ -52,6 +54,7 @@
   selectedCandidateFilter: { type: '', value: '' },
   clientListFilter: '',
   whatsappQueue: [],
+  recordObservationTarget: null,
   allocatedFilter: { type: '', value: '', status: '' },
   workHourFilter: { allocatedId: '', clientId: '', dateFrom: '', dateTo: '' },
   billingReportFilter: { monthYear: '', clientId: '', allocatedId: '' },
@@ -90,6 +93,19 @@
   },
   indicators: null
 };
+
+const recordObservationConfigs = [
+  { form: '#clientForm', key: 'clientId', entityType: 'client' },
+  { form: '#opportunityForm', key: 'opportunityId', entityType: 'opportunity' },
+  { form: '#candidateForm', key: 'candidateId', entityType: 'candidate' },
+  { form: '#allocatedForm', key: 'allocatedId', entityType: 'allocated' },
+  { form: '#faturamentoForm', key: 'faturamentoId', entityType: 'faturamento' },
+  { form: '#userForm', key: 'userId', entityType: 'user' },
+  { form: '#cvFilterForm', key: 'cvFilterId', entityType: 'cvFilter' },
+  { form: '#candidatePoolForm', key: 'candidatePoolId', entityType: 'candidatePool' },
+  { form: '#huntingForm', key: 'huntingId', entityType: 'hunting' },
+  { form: '#rateCardForm', key: 'rateCardId', entityType: 'rateCard' }
+];
 
 let initialRouteApplied = false;
 
@@ -1074,6 +1090,13 @@ function renderOptions() {
   const emptyOption = '<option value="">Selecione</option>';
   const clientOptions = emptyOption + state.clients.map((client) => `<option value="${client.id}">${client.customerName}</option>`).join('');
   const opportunityOptions = emptyOption + state.opportunities
+    .slice()
+    .sort(byOpportunityCode)
+    .map((opportunity) => `<option value="${opportunity.id}">${opportunityLabel(opportunity)}</option>`)
+    .join('');
+  const openOpportunityOptions = emptyOption + state.opportunities
+    .slice()
+    .filter((opportunity) => opportunity.status === 'Open')
     .sort(byOpportunityCode)
     .map((opportunity) => `<option value="${opportunity.id}">${opportunityLabel(opportunity)}</option>`)
     .join('');
@@ -1112,7 +1135,7 @@ function renderOptions() {
   });
   $$('select[name="opportunityId"]').forEach((select) => {
     const currentValue = select.value;
-    select.innerHTML = opportunityOptions;
+    select.innerHTML = select.closest('#cvFilterForm') ? openOpportunityOptions : opportunityOptions;
     if (currentValue && [...select.options].some((option) => option.value === currentValue)) {
       select.value = currentValue;
     }
@@ -2878,6 +2901,11 @@ function getFilteredOpportunities() {
   const { type, value, status, closingMonth } = state.opportunityFilter;
   const normalizedValue = normalizeText(value);
   let opportunities = state.opportunities;
+  const hasUserFilter = Boolean((type && value) || status || closingMonth);
+
+  if (!hasUserFilter) {
+    return opportunities.filter((opportunity) => opportunity.status === 'Open');
+  }
 
   if (type === 'client') {
     opportunities = opportunities.filter((opportunity) => {
@@ -3218,7 +3246,8 @@ function huntingCsvRows() {
       Cliente: client?.customerName || '-',
       Salário: formatCurrency(candidate?.hourlyRate ?? 0),
       Faturamento: formatCurrency(opportunity.contractValue ?? 0),
-      Taxa: candidate?.huntingTax || '-',
+      Aprovado: candidate?.approved ? 'Sim' : 'Não',
+      'Data Aprovação': candidate?.approvalDate || candidate?.approvedAt?.slice?.(0, 10) || '-',
       Fonte: candidate?.source || opportunity.source || '-',
       Status: opportunity.status || '-'
     };
@@ -3227,20 +3256,6 @@ function huntingCsvRows() {
 
 function exportHuntingCsv() {
   downloadCsv('huntings', huntingCsvRows());
-}
-
-function calculateHuntingTax(candidate, opportunity) {
-  const salary = Number(candidate?.hourlyRate ?? 0);
-  const revenue = Number(opportunity?.contractValue ?? 0);
-  if (!salary || !revenue) return null;
-  return revenue - salary;
-}
-
-function formatHuntingTax(candidate, opportunity) {
-  const importedTax = String(candidate?.huntingTax ?? '').trim();
-  if (importedTax) return importedTax;
-  const calculatedTax = calculateHuntingTax(candidate, opportunity);
-  return calculatedTax === null ? '-' : formatCurrency(calculatedTax);
 }
 
 function renderHuntings() {
@@ -3261,7 +3276,8 @@ function renderHuntings() {
           <td>${client?.customerName || 'Cliente sem FK'}</td>
           <td>${candidate ? formatCurrency(candidate.hourlyRate) : '-'}</td>
           <td>${formatCurrency(opportunity.contractValue)}</td>
-          <td>${formatHuntingTax(candidate, opportunity)}</td>
+          <td>${candidate?.approved ? 'Sim' : 'Não'}</td>
+          <td>${candidate?.approvalDate || candidate?.approvedAt?.slice?.(0, 10) || '-'}</td>
           <td>${candidate?.source || '-'}</td>
         </tr>
       `;
@@ -3288,7 +3304,6 @@ function renderCvFilters() {
           <td>${filter.city || '-'}</td>
           <td>${filter.englishLevel || '-'}</td>
           <td>${filter.matchPercent ?? 0}%</td>
-          <td>${filter.resultLimit ?? 10}</td>
           <td>${enabledSourceLabels(filter).join(', ') || '-'}</td>
           <td><button class="ghost-action" type="button" data-delete-cv-filter="${filter.id}" aria-label="Excluir filtro">Excluir</button></td>
         </tr>
@@ -3464,7 +3479,9 @@ function renderCvSearchResults() {
   }
 
   status.textContent = filter.searchMessage || `Pronto para buscar em ${enabledSourceLabels(filter).join(', ') || 'nenhuma fonte'}`;
-  const results = Array.isArray(filter.searchResults) ? filter.searchResults : [];
+  const results = (Array.isArray(filter.searchResults) ? filter.searchResults : [])
+    .slice()
+    .sort((first, second) => Number(second.score ?? 0) - Number(first.score ?? 0));
   const rejectedResults = Array.isArray(filter.searchRejectedResults) ? filter.searchRejectedResults : [];
     if (filter.searchStatus === 'running') {
     setCvSearchInlineStatus('Busca de Candidatos em Andamento', 'running');
@@ -3483,16 +3500,20 @@ function renderCvSearchResults() {
 
   table.innerHTML = renderCvResultRows(results, 'Nenhum candidato aprovado pela regra.', 'resultado');
   if (rejectedStatus) {
-    rejectedStatus.textContent = rejectedResults.length ? `${rejectedResults.length} rejeitados analisados` : 'Nenhum rejeitado registrado';
+    rejectedStatus.textContent = '';
   }
   if (rejectedTable) {
-    rejectedTable.innerHTML = renderCvResultRows(rejectedResults, 'Nenhum candidato rejeitado registrado.', 'rejeitado');
+    rejectedTable.innerHTML = '';
   }
 }
 
 function getFilteredCurriculums() {
   const name = state.curriculumSearch.name || '';
   const curriculumKeyword = state.curriculumSearch.skills || '';
+
+  if (!state.curriculumSearch.hasSearched || (!name && !curriculumKeyword)) {
+    return [];
+  }
 
   return state.curriculums.filter((curriculum) => {
     const matchesName = !name || matchesEveryTerm(curriculumIdentityText(curriculum), name);
@@ -4380,7 +4401,7 @@ function renderCurriculums() {
         searchStatus.textContent = `Nenhum talento encontrado para os filtros informados. A base atual possui ${state.curriculums.length} talento(s).`;
       }
     } else {
-      searchStatus.textContent = `${state.curriculums.length} talento(s) disponível(is) para pesquisa.`;
+      searchStatus.textContent = `${state.curriculums.length} talento(s) disponível(is). Informe um filtro para pesquisar.`;
     }
   }
 
@@ -4428,11 +4449,40 @@ const curriculumRows = curriculums
 
 $('#curriculumTable').innerHTML = curriculumRows || `
   <tr>
-    <td colspan="3">Nenhum talento encontrado para os filtros informados.</td>
+    <td colspan="3">${state.curriculumSearch.hasSearched ? 'Nenhum talento encontrado para os filtros informados.' : 'Informe um filtro para consultar talentos.'}</td>
   </tr>
 `;
 
   renderCurriculumDetail();
+}
+
+function candidateMovementHistory(candidate) {
+  const candidateId = String(candidate?.id || '').trim();
+  const curriculumId = String(candidate?.curriculumId || '').trim();
+  const candidateName = normalizeText(candidate?.name || '');
+  const movements = (state.candidateMovements || []).filter((movement) => {
+    if (candidateId && movement.candidateId === candidateId) return true;
+    if (curriculumId && movement.curriculumId === curriculumId) return true;
+    return candidateName && normalizeText(movement.candidateName || '') === candidateName;
+  });
+  const stageHistory = (candidate?.stageHistory || []).map((history) => ({
+    date: history.date || history.enteredAt || history.createdAt || '',
+    action: 'Movimentação de etapa',
+    stage: history.stage || candidate.stage || '',
+    opportunityCode: candidate.opportunityCode || '',
+    opportunityName: candidate.opportunityName || '',
+    userName: history.userName || ''
+  }));
+  return [...movements, ...stageHistory]
+    .filter((movement) => movement.action || movement.stage || movement.opportunityName || movement.opportunityCode)
+    .sort((first, second) => String(second.date || second.createdAt || '').localeCompare(String(first.date || first.createdAt || '')));
+}
+
+function formatCandidateMovementAlert(movement) {
+  const date = movement.date || movement.createdAt || '-';
+  const opportunity = [movement.opportunityCode, movement.opportunityName].filter(Boolean).join(' - ') || '-';
+  const stage = movement.stage ? ` (${movement.stage})` : '';
+  return `${date}: ${movement.action || 'Movimentação'}${stage} | ${opportunity}`;
 }
 
 function formatCurrency(value) {
@@ -6936,7 +6986,10 @@ function allocatedCodeFromCandidate(candidate) {
 function getFilteredCandidates() {
   const type = $('#candidateFilterType')?.value;
   const value = $('#candidateFilterValue')?.value;
-  if (!type || !value) return state.candidates;
+  if (!type || !value) {
+    const openOpportunityIds = new Set(state.opportunities.filter((opportunity) => opportunity.status === 'Open').map((opportunity) => opportunity.id));
+    return state.candidates.filter((candidate) => openOpportunityIds.has(candidate.opportunityId));
+  }
 
   if (type === 'opportunity') {
     return state.candidates.filter((candidate) => candidate.opportunityId === value);
@@ -6991,10 +7044,10 @@ function getFilteredSelectedCandidates() {
   const normalizedValue = normalizeText(value);
 
   return state.selectedCandidates.filter((candidate) => {
-    if (!type || !value) return true;
-
     const opportunity = state.opportunities.find((item) => item.id === candidate.opportunityId);
     const client = state.clients.find((item) => item.id === opportunity?.clientId);
+
+    if (!type || !value) return opportunity?.status === 'Open';
 
     if (type === 'name') {
       return normalizeText(candidate.name).includes(normalizedValue);
@@ -7045,7 +7098,6 @@ function renderSelectedCandidates() {
   clientSelect.innerHTML = clientOptions;
   const opportunityOptions = '<option value="">Todos</option>' + state.opportunities
     .slice()
-    .filter((opportunity) => opportunity.status === 'Open')
     .sort(byOpportunityCode)
     .map((opportunity) => `<option value="${opportunity.id}">${escapeHtml(opportunityLabel(opportunity))}</option>`)
     .join('');
@@ -7807,6 +7859,140 @@ function renderCandidateStageActions(candidate) {
   `;
 }
 
+function recordObservationCount(entityType, entityId) {
+  return (state.recordObservations || []).filter((observation) => (
+    observation.entityType === entityType && observation.entityId === entityId
+  )).length;
+}
+
+function ensureRecordObservationModal() {
+  let modal = $('#recordObservationModal');
+  if (modal) return modal;
+
+  modal = document.createElement('div');
+  modal.id = 'recordObservationModal';
+  modal.className = 'modal-backdrop hidden';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.innerHTML = `
+    <section class="modal-card">
+      <div class="modal-heading">
+        <div>
+          <h2>Observações</h2>
+          <span id="recordObservationSummary">Histórico do registro</span>
+        </div>
+        <button class="surface-window-control surface-close-button" type="button" data-close-record-observation aria-label="Fechar painel" title="Fechar"></button>
+      </div>
+      <div id="recordObservationList" class="observation-list"></div>
+      <form id="recordObservationForm" class="form-grid" novalidate>
+        <label class="full">Nova observação<textarea name="observation" rows="4" required></textarea></label>
+        <button class="primary-action" type="submit">Salvar observação</button>
+      </form>
+    </section>
+  `;
+  document.body.appendChild(modal);
+
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal || event.target.closest('[data-close-record-observation]')) {
+      closeSurfaceDialog(modal);
+    }
+  });
+
+  $('#recordObservationForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const target = state.recordObservationTarget;
+    const form = event.currentTarget;
+    const text = String(form.elements.observation.value || '').trim();
+    if (!target?.entityType || !target?.entityId || !text) {
+      toast('Informe a observação.');
+      return;
+    }
+
+    try {
+      const observation = await api('/api/record-observations', {
+        method: 'POST',
+        body: JSON.stringify({
+          entityType: target.entityType,
+          entityId: target.entityId,
+          observation: text
+        })
+      });
+      state.recordObservations.push(observation);
+      form.reset();
+      renderRecordObservationModal();
+      updateRecordObservationButtons();
+      toast('Observação salva.');
+    } catch (error) {
+      toast(error.message || 'Não foi possível salvar a observação.');
+    }
+  });
+
+  return modal;
+}
+
+function renderRecordObservationModal() {
+  const target = state.recordObservationTarget;
+  const list = $('#recordObservationList');
+  const summary = $('#recordObservationSummary');
+  if (!target || !list) return;
+  const rows = (state.recordObservations || [])
+    .filter((observation) => observation.entityType === target.entityType && observation.entityId === target.entityId)
+    .sort((first, second) => String(second.date || '').localeCompare(String(first.date || '')));
+
+  if (summary) {
+    summary.textContent = `${target.entityType} / ${target.entityId}`;
+  }
+  list.innerHTML = rows.length
+    ? rows.map((observation) => `
+      <article class="observation-item">
+        <strong>${escapeHtml(observation.userName || observation.userEmail || 'Usuário')}</strong>
+        <span>${escapeHtml(observation.date || observation.createdAt || '')}</span>
+        <p>${escapeHtml(observation.observation || '')}</p>
+      </article>
+    `).join('')
+    : '<p class="helper-text">Nenhuma observação registrada.</p>';
+}
+
+function openRecordObservationModal(config) {
+  const entityId = state.editing[config.key] || '';
+  if (!entityId) {
+    toast('Carregue um registro antes de consultar observações.');
+    return;
+  }
+  state.recordObservationTarget = {
+    entityType: config.entityType,
+    entityId
+  };
+  ensureRecordObservationModal();
+  renderRecordObservationModal();
+  openSurfaceDialog('#recordObservationModal');
+}
+
+function ensureRecordObservationButtons() {
+  for (const config of recordObservationConfigs) {
+    const form = $(config.form);
+    if (!form || $(`[data-record-observation-key="${config.key}"]`, form)) continue;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'secondary-action';
+    button.dataset.recordObservationKey = config.key;
+    button.textContent = 'Observações';
+    button.addEventListener('click', () => openRecordObservationModal(config));
+    form.appendChild(button);
+  }
+}
+
+function updateRecordObservationButtons() {
+  for (const config of recordObservationConfigs) {
+    const button = $(`${config.form} [data-record-observation-key="${config.key}"]`);
+    if (!button) continue;
+    const entityId = state.editing[config.key] || '';
+    const count = entityId ? recordObservationCount(config.entityType, entityId) : 0;
+    button.disabled = !entityId;
+    button.textContent = count ? `Observações (${count})` : 'Observações';
+  }
+}
+
 function render() {
   applyRoleVisibility();
   renderFavoriteCards();
@@ -7853,6 +8039,8 @@ function render() {
   renderCandidatePool();
   renderUsers();
   renderFormsPanel();
+  ensureRecordObservationButtons();
+  updateRecordObservationButtons();
   bindCurrencyInputs();
   initResizableTables();
   compactTableCells();
@@ -8079,8 +8267,7 @@ async function loadCvFilterForEdit(filter, options = {}) {
     searchAlcateia: filter.searchAlcateia,
     state: filter.state,
     englishLevel: filter.englishLevel,
-    matchPercent: filter.matchPercent,
-    resultLimit: filter.resultLimit ?? 10
+    matchPercent: filter.matchPercent
   }, 'Atualizar filtro');
   await populateCityOptions(filter.state, filter.city);
   renderCvSearchResults();
@@ -8111,6 +8298,10 @@ function loadCandidateForEdit(candidate) {
     observationsButton.textContent = curriculumId && curriculumObservationCount(curriculumId)
       ? `Observações (${curriculumObservationCount(curriculumId)})`
       : 'Observações';
+  }
+  const historyRows = candidateMovementHistory(candidate);
+  if (historyRows.length) {
+    window.alert(`Histórico do candidato:\n${historyRows.map(formatCandidateMovementAlert).join('\n')}`);
   }
   toast('Candidato carregado para atualização.');
 }
@@ -8178,8 +8369,9 @@ function loadHuntingForEdit(opportunity, candidate = null) {
     clientId: opportunity.clientId,
     salary: candidate?.hourlyRate ?? 0,
     revenue: opportunity.contractValue,
-    tax: candidate?.huntingTax || '',
-    source: candidate?.source || opportunity.source || ''
+    source: candidate?.source || opportunity.source || '',
+    approved: candidate?.approved || false,
+    approvalDate: candidate?.approvalDate || candidate?.approvedAt?.slice?.(0, 10) || ''
   }, 'Atualizar hunting');
   toast('Hunting carregado para atualização.');
 }
@@ -9244,6 +9436,7 @@ function bindForms() {
     const submitButton = $('button[type="submit"]', form);
     const editingId = state.editing.huntingId;
     const payload = formPayload(form);
+    payload.approved = Boolean(form.elements.approved?.checked);
 
     if (!String(payload.candidateName || '').trim()) {
       toast('Informe o consultor do hunting.');
@@ -10606,6 +10799,7 @@ function bindCvSearch() {
       renderCvSearchResults();
       const completionMessage = updatedFilter.searchMessage || 'Busca concluída.';
       window.alert(completionMessage);
+      $('#cvSearchResultsPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       toast('Busca concluída.');
     } catch (error) {
       filter.searchStatus = 'error';
@@ -10637,6 +10831,15 @@ function bindSaveSelectedCandidates() {
     if (!candidates.length) {
       toast('Marque pelo menos um candidato para salvar.');
       return;
+    }
+
+    const candidatesWithHistory = candidates
+      .map((candidate) => ({ candidate, history: candidateMovementHistory(candidate) }))
+      .filter((item) => item.history.length);
+    if (candidatesWithHistory.length) {
+      window.alert(candidatesWithHistory.map(({ candidate, history }) => (
+        `${candidate.name || 'Candidato'} possui histórico:\n${history.map(formatCandidateMovementAlert).join('\n')}`
+      )).join('\n\n'));
     }
 
     const button = $('#saveSelectedCandidatesButton');

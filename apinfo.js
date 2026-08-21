@@ -142,8 +142,146 @@ function buildKeyword(filter) {
   return String(filter.mandatorySkills || '').trim();
 }
 
+function uniqueNonEmpty(values = []) {
+  return Array.from(new Set(
+    values
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+  ));
+}
+
+function quotedTerm(value = '') {
+  const text = String(value || '').trim().replace(/\s+/g, ' ');
+  if (!text) return '';
+  return /\s/.test(text) ? `"${text}"` : text;
+}
+
+function booleanOr(values = []) {
+  const terms = uniqueNonEmpty(values).map(quotedTerm).filter(Boolean);
+  if (!terms.length) return '';
+  return terms.length === 1 ? terms[0] : `(${terms.join(' OR ')})`;
+}
+
+function splitSearchPhrases(value = '') {
+  return String(value)
+    .split(/[,;\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function firstStrongTerms(value = '', limit = 6) {
+  return extractTerms(value)
+    .filter((term) => term.length >= 4)
+    .slice(0, limit);
+}
+
+function opportunitySearchTerms(filter = {}) {
+  const opportunityText = [
+    filter.opportunity,
+    filter.opportunityName,
+    filter.opportunityTitle,
+    filter.position,
+    filter.role,
+    filter.cargo,
+    filter.title
+  ].filter(Boolean).join(' ');
+
+  const jobTerms = firstStrongTerms(filter.jobDescription, 8);
+  const titlePatterns = [];
+  const normalizedOpportunity = normalizeText(opportunityText);
+  const normalizedJob = normalizeText(filter.jobDescription);
+  const context = `${normalizedOpportunity} ${normalizedJob}`;
+
+  if (/gerente|gestor|project manager|pmo/.test(context)) {
+    titlePatterns.push('Gerente de Projetos', 'Project Manager', 'PMO', 'Coordenador de Projetos');
+  }
+  if (/desenvolvedor|developer|programador|front|back|fullstack/.test(context)) {
+    titlePatterns.push('Desenvolvedor', 'Developer', 'Software Engineer', 'Programador');
+  }
+  if (/analista|consultor|consultant/.test(context)) {
+    titlePatterns.push('Consultor', 'Analista', 'Consultant');
+  }
+  if (/arquiteto|architect/.test(context)) {
+    titlePatterns.push('Arquiteto', 'Architect');
+  }
+
+  const opportunityPhrases = splitSearchPhrases(opportunityText)
+    .filter((item) => normalizeText(item).length >= 4)
+    .slice(0, 4);
+
+  return uniqueNonEmpty([
+    ...opportunityPhrases,
+    ...titlePatterns,
+    ...jobTerms.slice(0, 4)
+  ]).slice(0, 10);
+}
+
+function linkedinLocationTerms(filter = {}) {
+  const cities = Array.isArray(filter.cityRadiusCities) && filter.cityRadiusCities.length
+    ? filter.cityRadiusCities.slice(0, 8)
+    : [filter.city].filter(Boolean);
+
+  return uniqueNonEmpty([
+    ...cities,
+    filter.state
+  ]);
+}
+
+function linkedinSkillTerms(filter = {}) {
+  return uniqueNonEmpty([
+    ...splitMandatorySkills(filter.mandatorySkills),
+    ...firstStrongTerms(filter.jobDescription, 10)
+  ]).slice(0, 12);
+}
+
+function linkedinNegativeTerms() {
+  return ['vaga', 'jobs', 'job', 'recruiter', 'recrutador', 'curso', 'treinamento', 'professor', 'estagio', 'estagiario'];
+}
+
+export function buildLinkedinQueries(filter = {}, limit = 10) {
+  const requestedLimit = Math.max(1, Math.min(50, Number(filter.resultLimit || limit || 10)));
+  const titles = opportunitySearchTerms(filter);
+  const skills = linkedinSkillTerms(filter);
+  const mandatorySkills = splitMandatorySkills(filter.mandatorySkills);
+  const locations = linkedinLocationTerms(filter);
+  const negatives = linkedinNegativeTerms().map((term) => `-${term}`).join(' ');
+
+  const titleGroup = booleanOr(titles.slice(0, 5));
+  const skillGroup = booleanOr(skills.slice(0, 6));
+  const mandatoryGroup = booleanOr(mandatorySkills.slice(0, 6));
+  const locationGroup = booleanOr(locations.slice(0, 6));
+
+  const strategies = [
+    {
+      name: 'Restritiva',
+      query: ['site:linkedin.com/in', titleGroup, mandatoryGroup, locationGroup, negatives].filter(Boolean).join(' ')
+    },
+    {
+      name: 'Balanceada',
+      query: ['site:linkedin.com/in', titleGroup || skillGroup, skillGroup, locationGroup, negatives].filter(Boolean).join(' ')
+    },
+    {
+      name: 'Cargo e habilidades',
+      query: ['site:linkedin.com/in', titleGroup, mandatoryGroup || skillGroup, negatives].filter(Boolean).join(' ')
+    },
+    {
+      name: 'Habilidades obrigatorias',
+      query: ['site:linkedin.com/in', mandatoryGroup || skillGroup, locationGroup, negatives].filter(Boolean).join(' ')
+    },
+    {
+      name: 'Job description',
+      query: ['site:linkedin.com/in', booleanOr(firstStrongTerms(filter.jobDescription, 8)), locationGroup, negatives].filter(Boolean).join(' ')
+    }
+  ];
+
+  return strategies
+    .filter((strategy) => strategy.query.replace(/^site:linkedin\.com\/in\s*/i, '').trim())
+    .filter((strategy, index, array) => array.findIndex((item) => item.query === strategy.query) === index)
+    .slice(0, Math.max(1, Math.min(8, requestedLimit)));
+}
+
 function linkedinQuery(filter) {
-  return `site:linkedin.com/in ${String(filter.mandatorySkills || '').trim()}`.trim();
+  return buildLinkedinQueries(filter, 1)[0]?.query || `site:linkedin.com/in ${String(filter.mandatorySkills || '').trim()}`.trim();
 }
 
 function englishCode(level = '') {
@@ -370,14 +508,14 @@ function parseSerpApiLinkedinResults(payload) {
     }));
 }
 
-async function searchLinkedinCandidatesWithSerpApi(filter, limit) {
+async function searchLinkedinCandidatesWithSerpApi(filter, limit, queryOverride = '') {
   const apiKey = process.env.SERPAPI_KEY || process.env.SERPAPI_API_KEY || '';
   if (!apiKey) {
     throw new Error('SERPAPI_KEY nao configurada; Google direto retorna pagina de JavaScript.');
   }
 
   const requestedLimit = Math.max(1, Math.min(50, Number(filter.resultLimit || limit || 10)));
-  const query = linkedinQuery(filter);
+  const query = queryOverride || linkedinQuery(filter);
   const params = new URLSearchParams({
     engine: 'google',
     q: query,
@@ -404,9 +542,9 @@ async function searchLinkedinCandidatesWithSerpApi(filter, limit) {
   };
 }
 
-async function searchLinkedinCandidatesWithGoogle(filter, limit) {
+async function searchLinkedinCandidatesWithGoogle(filter, limit, queryOverride = '') {
   const requestedLimit = Math.max(1, Math.min(50, Number(filter.resultLimit || limit || 10)));
-  const query = linkedinQuery(filter);
+  const query = queryOverride || linkedinQuery(filter);
   const params = new URLSearchParams({
     q: query,
     num: String(Math.min(10, requestedLimit)),
@@ -426,60 +564,192 @@ async function searchLinkedinCandidatesWithGoogle(filter, limit) {
   };
 }
 
+function linkedinEvidence(profileText, filter) {
+  const normalizedText = normalizeText(profileText);
+  const titleHits = opportunitySearchTerms(filter).filter((term) => textContainsValue(normalizedText, term));
+  const locationHits = linkedinLocationTerms(filter).filter((term) => textContainsValue(normalizedText, term));
+  const englishHits = String(filter.englishLevel || '').trim() && textContainsValue(normalizedText, filter.englishLevel)
+    ? [filter.englishLevel]
+    : [];
+  const mandatory = evaluateMandatorySkills(profileText, filter.mandatorySkills);
+  const job = calculateJobMatch(profileText, filter.jobDescription);
+  const publicSignals = [
+    titleHits.length ? `cargo/contexto: ${titleHits.slice(0, 4).join(', ')}` : '',
+    mandatory.hits.length ? `skills obrigatorias: ${mandatory.hits.join(', ')}` : '',
+    locationHits.length ? `localidade: ${locationHits.slice(0, 4).join(', ')}` : '',
+    englishHits.length ? `ingles: ${englishHits.join(', ')}` : '',
+    job.hits.length ? `JD: ${job.hits.slice(0, 6).join(', ')}` : ''
+  ].filter(Boolean);
+  const publicGaps = [
+    mandatory.missing.length ? `skills obrigatorias nao evidentes: ${mandatory.missing.join(', ')}` : '',
+    String(filter.city || filter.state || '').trim() && !locationHits.length ? 'localidade nao evidente no perfil publico' : '',
+    String(filter.englishLevel || '').trim() && !englishHits.length ? 'nivel de ingles nao evidente no perfil publico' : '',
+    !titleHits.length ? 'cargo/contexto nao evidente no perfil publico' : ''
+  ].filter(Boolean);
+
+  const score = Math.min(100, Math.round(
+    (mandatory.required.length ? (mandatory.hits.length / mandatory.required.length) * 45 : 20)
+    + Math.min(25, titleHits.length * 8)
+    + Math.min(15, locationHits.length * 5)
+    + (job.score * 0.15)
+  ));
+
+  return {
+    score,
+    mandatory,
+    job,
+    titleHits,
+    englishHits,
+    locationHits,
+    publicSignals,
+    publicGaps
+  };
+}
+
+export function evaluateLinkedinCandidateTextForFilter(text, filter) {
+  const evidence = linkedinEvidence(text, filter);
+  const minimum = Number(filter.matchPercent || 0);
+  const reviewReasons = [];
+  const mandatoryFound = evidence.mandatory.hits.join(', ') || 'nenhuma habilidade obrigatoria informada';
+  const mandatoryMissing = evidence.mandatory.missing.join(', ') || 'nenhuma';
+
+  if (!evidence.mandatory.accepted) {
+    return {
+      ...evidence,
+      classification: 'rejected',
+      accepted: false,
+      review: false,
+      reason: `Rejeitado LinkedIn: habilidade obrigatoria ausente no perfil publico: ${mandatoryMissing}. Obrigatorias encontradas: ${mandatoryFound}. Aderencia da Job Description: ${evidence.job.score}%.`
+    };
+  }
+
+  if (evidence.job.score < minimum) {
+    reviewReasons.push(`aderencia da Job Description ${evidence.job.score}% abaixo do minimo ${minimum}%`);
+  }
+  if (String(filter.city || filter.state || '').trim() && !evidence.locationHits.length) {
+    reviewReasons.push('localidade nao evidente no perfil publico');
+  }
+  if (String(filter.englishLevel || '').trim() && !evidence.englishHits.length) {
+    reviewReasons.push('nivel de ingles nao evidente no perfil publico');
+  }
+  if (!evidence.titleHits.length) {
+    reviewReasons.push('cargo/contexto nao evidente no perfil publico');
+  }
+
+  if (reviewReasons.length) {
+    return {
+      ...evidence,
+      classification: 'review',
+      accepted: false,
+      review: true,
+      reason: `Revisar LinkedIn: habilidades obrigatorias atendidas (${mandatoryFound}), mas ${reviewReasons.join('; ')}.`
+    };
+  }
+
+  return {
+    ...evidence,
+    classification: 'approved',
+    accepted: true,
+    review: false,
+    observation: `LinkedIn aprovado: habilidades obrigatorias atendidas (${mandatoryFound}). Aderencia da Job Description: ${evidence.job.score}%.`
+  };
+}
+
+function linkedinResultRow(profile, filter, search, evaluation) {
+  const accepted = evaluation.classification === 'approved';
+  const review = evaluation.classification === 'review';
+  const strategy = profile.strategy ? `Estrategia: ${profile.strategy}.` : '';
+  const signals = evaluation.publicSignals.length
+    ? `Evidencias publicas: ${evaluation.publicSignals.join('; ')}.`
+    : 'Evidencias publicas insuficientes no resumo do LinkedIn.';
+  const gaps = evaluation.publicGaps.length
+    ? `Pontos pendentes: ${evaluation.publicGaps.join('; ')}.`
+    : 'Sem lacunas publicas relevantes.';
+  const profileStatus = accepted
+    ? 'Perfil LinkedIn aprovado pela regra publica.'
+    : review
+      ? 'Perfil LinkedIn exige revisao manual pela regra publica.'
+      : 'Perfil LinkedIn rejeitado pela regra publica.';
+
+  return {
+    name: profile.name,
+    source: accepted ? 'LinkedIn v2' : review ? 'Revisar LinkedIn' : 'LinkedIn v2 - rejeitado',
+    link: profile.link,
+    score: evaluation.classification === 'review' ? evaluation.job.score : evaluation.score,
+    sourceUpdatedAt: '',
+    sourceUpdatedAtTime: 0,
+    matchedMandatorySkills: evaluation.mandatory.hits,
+    missingMandatorySkills: evaluation.mandatory.missing,
+    jobDescriptionHits: evaluation.job.hits,
+    jobDescriptionMissing: evaluation.job.missing,
+    observation: `${profileStatus} ${evaluation.observation || evaluation.reason || ''} ${strategy} ${signals} ${gaps} Busca via ${search.provider}.`
+  };
+}
+
 export async function searchLinkedinCandidates(filter, limit = 10) {
   const requestedLimit = Math.max(1, Math.min(50, Number(filter.resultLimit || limit || 10)));
-  const search = await searchLinkedinCandidatesWithSerpApi(filter, requestedLimit);
+  const strategies = buildLinkedinQueries(filter, requestedLimit);
+  const profilesByLink = new Map();
+  const providers = new Set();
+  const queryErrors = [];
+
+  for (const strategy of strategies) {
+    try {
+      const search = (process.env.SERPAPI_KEY || process.env.SERPAPI_API_KEY)
+        ? await searchLinkedinCandidatesWithSerpApi(filter, requestedLimit, strategy.query)
+        : await searchLinkedinCandidatesWithGoogle(filter, requestedLimit, strategy.query);
+      providers.add(search.provider);
+      for (const profile of search.profiles) {
+        const key = String(profile.link || '').replace(/\/$/, '');
+        if (!key) continue;
+        if (!profilesByLink.has(key)) {
+          profilesByLink.set(key, {
+            ...profile,
+            link: key,
+            strategy: strategy.name,
+            query: strategy.query
+          });
+        }
+      }
+    } catch (error) {
+      queryErrors.push(`${strategy.name}: ${error.message || 'falha na busca'}`);
+    }
+  }
+
+  if (!profilesByLink.size && queryErrors.length === strategies.length && strategies.length) {
+    throw new Error(queryErrors.join(' | '));
+  }
+
+  const search = {
+    query: strategies.map((strategy) => `${strategy.name}: ${strategy.query}`).join(' || '),
+    profiles: Array.from(profilesByLink.values()).slice(0, Math.max(requestedLimit * 3, requestedLimit)),
+    provider: Array.from(providers).join(' + ') || ((process.env.SERPAPI_KEY || process.env.SERPAPI_API_KEY) ? 'SerpAPI' : 'Google direto'),
+    errors: queryErrors
+  };
   const results = [];
   const rejectedResults = [];
 
   for (const profile of search.profiles) {
     const fallbackText = `${profile.name}\n${profile.snippet}`;
     const profileText = await fetchLinkedinProfileText(profile.link, fallbackText);
-    const evaluation = filterAndScoreCandidate(
-      {
-        text: profileText,
-        name: profile.name,
-        link: profile.link,
-        lastUpdated: ''
-      },
-      filter
-    );
+    const evaluation = evaluateLinkedinCandidateTextForFilter(profileText, filter);
+    const row = linkedinResultRow(profile, filter, search, evaluation);
 
-    if (evaluation.accepted) {
-      results.push({
-        name: profile.name,
-        source: 'LinkedIn/Google',
-        link: profile.link,
-        score: evaluation.score,
-        sourceUpdatedAt: '',
-        sourceUpdatedAtTime: 0,
-        matchedMandatorySkills: evaluation.matchedMandatorySkills,
-        missingMandatorySkills: evaluation.missingMandatorySkills,
-        jobDescriptionHits: evaluation.jobDescriptionHits,
-        jobDescriptionMissing: evaluation.jobDescriptionMissing,
-        observation: `${evaluation.observation}. Analisado por busca ${search.provider}.`
-      });
+    if (evaluation.accepted || evaluation.review) {
+      results.push(row);
     } else {
-      rejectedResults.push({
-        name: profile.name,
-        source: 'LinkedIn/Google',
-        link: profile.link,
-        score: evaluation.score,
-        sourceUpdatedAt: '',
-        sourceUpdatedAtTime: 0,
-        matchedMandatorySkills: evaluation.matchedMandatorySkills,
-        missingMandatorySkills: evaluation.missingMandatorySkills,
-        jobDescriptionHits: evaluation.jobDescriptionHits,
-        jobDescriptionMissing: evaluation.jobDescriptionMissing,
-        observation: `${evaluation.reason || 'Reprovado pela regra de aderencia.'} Analisado por busca ${search.provider}.`
-      });
+      rejectedResults.push(row);
     }
+
+    if (results.length >= requestedLimit && rejectedResults.length >= requestedLimit) break;
   }
 
   return {
     query: search.query,
     totalFound: search.profiles.length,
     provider: search.provider,
+    strategies,
+    errors: search.errors,
     results,
     rejectedResults
   };
@@ -750,6 +1020,8 @@ export async function searchApinfoAndLinkedinCandidates(filter, credentials, lim
     linkedinFound: linkedin.totalFound,
     linkedinProvider: linkedin.provider || ((process.env.SERPAPI_KEY || process.env.SERPAPI_API_KEY) ? 'SerpAPI' : 'Google direto'),
     linkedinError: linkedin.error || '',
+    linkedinStrategies: Array.isArray(linkedin.strategies) ? linkedin.strategies : [],
+    linkedinErrors: Array.isArray(linkedin.errors) ? linkedin.errors : [],
     results: sortByFreshnessAndScore(mergeCandidateRows(apinfo.results, linkedin.results, requestedLimit)).slice(0, requestedLimit),
     rejectedResults: sortByFreshnessAndScore(mergeCandidateRows(apinfo.rejectedResults, linkedin.rejectedResults, requestedLimit)).slice(0, requestedLimit)
   };

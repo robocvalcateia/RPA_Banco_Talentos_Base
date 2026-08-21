@@ -26,7 +26,9 @@ import {
   normalizeContactClient,
   normalizeCurriculum,
   normalizeCurriculumObservation,
+  normalizeCandidateMovement,
   normalizeFormRequestObservation,
+  normalizeRecordObservation,
   normalizeCvFilter,
   normalizeCvSearchResult,
   normalizeSelectedCandidate,
@@ -1454,6 +1456,45 @@ function syncAllocatedConsultantUser(db, allocated) {
   }
   user.updatedAt = timestamp;
   return user;
+}
+
+function syncAllocatedConsultantUserAfterChange(db, allocated) {
+  const email = String(allocated?.consultantEmail || '').trim().toLowerCase();
+  const user = syncAllocatedConsultantUser(db, allocated);
+  if (!email) return user;
+  const currentUser = user || db.users?.find((item) => String(item.email || '').trim().toLowerCase() === email);
+  if (!currentUser) return null;
+  const hasActiveAllocation = (db.allocateds || []).some((item) => (
+    String(item.consultantEmail || '').trim().toLowerCase() === email
+    && item.active === true
+  ));
+  currentUser.active = hasActiveAllocation;
+  currentUser.updatedAt = toISODate();
+  return currentUser;
+}
+
+function appendCandidateMovement(db, candidate, action, user = {}, observation = '') {
+  if (!candidate) return null;
+  db.candidateMovements = Array.isArray(db.candidateMovements) ? db.candidateMovements : [];
+  const opportunity = db.opportunities?.find((item) => item.id === candidate.opportunityId);
+  const movement = normalizeCandidateMovement({
+    candidateId: candidate.id,
+    curriculumId: candidate.curriculumId || candidate.curriculumControlId || '',
+    candidateName: candidate.name || '',
+    opportunityId: candidate.opportunityId || '',
+    opportunityCode: candidate.opportunityCode || opportunity?.opportunityCode || '',
+    opportunityName: candidate.opportunityName || opportunity?.opportunity || '',
+    action,
+    stage: candidate.stage || candidate.status || '',
+    observation,
+    userId: user.id || '',
+    userName: user.name || '',
+    userEmail: user.email || '',
+    date: toISODate(),
+    createdAt: toISODate()
+  });
+  db.candidateMovements.push(movement);
+  return movement;
 }
 
 function visibleWorkHoursForUser(workHours = [], allocateds = [], user = {}) {
@@ -2960,6 +3001,8 @@ function buildHuntingOpportunity(payload, db, existing = null) {
 
 function buildHuntingCandidate(payload, opportunityId, existing = null) {
   const timestamp = toISODate();
+  const approved = isApprovedValue(payload.approved ?? existing?.approved ?? false);
+  const approvalDate = String(payload.approvalDate ?? existing?.approvalDate ?? '').trim();
   return normalizeCandidate({
     ...(existing ?? {}),
     id: existing?.id ?? createId('cand', payload.candidateName || payload.name || 'hunting'),
@@ -2968,18 +3011,20 @@ function buildHuntingCandidate(payload, opportunityId, existing = null) {
     opportunityId,
     hourlyRate: Number(payload.salary ?? payload.hourlyRate ?? 0),
     observation: String(payload.candidateObservation ?? existing?.observation ?? '').trim(),
-    approved: true,
-    stage: 'Aprovado',
+    approved,
+    stage: approved ? 'Aprovado' : 'Triagem',
     aderencia: existing?.aderencia ?? 50,
     source: String(payload.source ?? existing?.source ?? '').trim(),
     notes: String(payload.notes ?? existing?.notes ?? '').trim(),
-    status: 'Aprovado',
-    huntingTax: String(payload.tax ?? existing?.huntingTax ?? '').trim(),
+    status: approved ? 'Aprovado' : 'Em andamento',
+    approvalDate,
+    approvedAt: approved ? (approvalDate ? `${approvalDate}T00:00:00.000Z` : existing?.approvedAt ?? timestamp) : '',
+    huntingTax: '',
     substitution: existing?.substitution ?? false,
     stageEnteredAt: existing?.stageEnteredAt ?? timestamp,
     createdAt: existing?.createdAt ?? timestamp,
     updatedAt: timestamp,
-    stageHistory: existing?.stageHistory ?? [{ stage: 'Aprovado', enteredAt: timestamp, leftAt: '' }]
+    stageHistory: existing?.stageHistory ?? [{ stage: approved ? 'Aprovado' : 'Triagem', enteredAt: timestamp, leftAt: '' }]
   });
 }
 
@@ -4163,6 +4208,42 @@ async function handleApi(request, response) {
       return;
     }
 
+    if (request.method === 'GET' && pathname === '/api/record-observations') {
+      await ensureAuthDatabase(auth);
+      const entityType = String(route.searchParams.get('entityType') || '').trim();
+      const entityId = String(route.searchParams.get('entityId') || '').trim();
+      const observations = (auth.db.recordObservations || [])
+        .filter((observation) => (!entityType || observation.entityType === entityType) && (!entityId || observation.entityId === entityId))
+        .sort((first, second) => String(second.date || '').localeCompare(String(first.date || '')));
+      sendJson(response, 200, observations);
+      return;
+    }
+
+    if (request.method === 'POST' && pathname === '/api/record-observations') {
+      await ensureAuthDatabase(auth);
+      const payload = await readJsonBody(request);
+      const observation = normalizeRecordObservation({
+        entityType: payload.entityType,
+        entityId: payload.entityId,
+        observation: payload.observation,
+        date: toISODate(),
+        userId: auth.user.id,
+        userName: auth.user.name,
+        userEmail: auth.user.email,
+        createdAt: toISODate()
+      });
+
+      if (!observation.entityType || !observation.entityId || !observation.observation) {
+        sendError(response, 422, 'Informe tipo, registro e observacao.');
+        return;
+      }
+
+      auth.db.recordObservations.push(observation);
+      await writeDatabaseCollections(auth.db, ['recordObservations']);
+      sendJson(response, 201, observation);
+      return;
+    }
+
     if (request.method === 'PATCH' && /^\/api\/curriculums\/[^/]+$/.test(pathname)) {
       await ensureAuthDatabase(auth);
       const curriculumId = pathname.split('/').at(-1);
@@ -5179,7 +5260,8 @@ async function handleApi(request, response) {
 
       db.opportunities.push(opportunity);
       db.candidates.push(candidate);
-      await writeDatabaseCollections(db, ['opportunities', 'candidates']);
+      appendCandidateMovement(db, candidate, 'Cadastrado em Hunting', auth.user);
+      await writeDatabaseCollections(db, ['opportunities', 'candidates', 'candidateMovements']);
       sendJson(response, 201, { opportunity, candidate: enrichCandidate(candidate, db) });
       return;
     }
@@ -5215,8 +5297,9 @@ async function handleApi(request, response) {
       Object.assign(opportunity, updatedOpportunity);
       if (candidate) Object.assign(candidate, updatedCandidate);
       else db.candidates.push(updatedCandidate);
+      appendCandidateMovement(db, candidate ?? updatedCandidate, 'Atualizado em Hunting', auth.user);
 
-      await writeDatabaseCollections(db, ['opportunities', 'candidates']);
+      await writeDatabaseCollections(db, ['opportunities', 'candidates', 'candidateMovements']);
       sendJson(response, 200, {
         opportunity,
         candidate: enrichCandidate(candidate ?? updatedCandidate, db)
@@ -5294,7 +5377,7 @@ async function handleApi(request, response) {
         searchResponse.searchStatus = 'pending_credentials';
         searchResponse.searchMessage = `Busca real no APINFO pendente de usuario e senha. Regra: ${ruleSummary}.`;
       } else {
-        const requestedLimit = expandedRuntimeFilter.resultLimit || 10;
+        const requestedLimit = 1000;
 
         const shouldSearchApinfo = expandedRuntimeFilter.searchApinfo && credentials.configured;
         const apinfoBlocked = expandedRuntimeFilter.searchApinfo && !credentials.configured;
@@ -5344,6 +5427,8 @@ async function handleApi(request, response) {
         ].map((result) => enrichCvSearchResultWithCurriculum(result, db));
 
         searchResponse.searchStatus = 'completed';
+        const linkedinReviewCount = mergedResults.filter((result) => /revisar linkedin/i.test(result.source || '')).length;
+        const approvedResultCount = Math.max(0, mergedResults.length - linkedinReviewCount);
 
         const apinfoSummary = expandedRuntimeFilter.searchApinfo
           ? (
@@ -5368,7 +5453,8 @@ async function handleApi(request, response) {
         searchResponse.searchMessage = [
           'Busca concluída.',
           apinfoSummary,
-          `Resultados aprovados: ${mergedResults.length}.`,
+          `Resultados aprovados: ${approvedResultCount}.`,
+          linkedinReviewCount ? `Revisar LinkedIn: ${linkedinReviewCount}.` : '',
           `Rejeitados abaixo do percentual: ${mergedRejectedResults.length}.`,
           linkedinSummary,
           alcateiaSummary,
@@ -5376,8 +5462,10 @@ async function handleApi(request, response) {
           `Regra: ${ruleSummary}.`
         ].join(' ');
 
-        searchResponse.searchResults = sortCandidateRowsByFreshnessAndScore(mergedResults).slice(0, requestedLimit);
-        searchResponse.searchRejectedResults = sortCandidateRowsByFreshnessAndScore(mergedRejectedResults).slice(0, requestedLimit);
+        searchResponse.searchResults = sortCandidateRowsByFreshnessAndScore(mergedResults)
+          .sort((first, second) => Number(second.score ?? 0) - Number(first.score ?? 0))
+          .slice(0, requestedLimit);
+        searchResponse.searchRejectedResults = [];
       }
 
       sendJson(response, 200, searchResponse);
@@ -5563,10 +5651,11 @@ async function handleApi(request, response) {
 
     if (request.method === 'POST' && /^\/api\/selected-candidates\/[^/]+\/advance$/.test(pathname)) {
       const candidateId = pathname.split('/').at(-2);
-      const db = await readDatabaseCollections(['selectedCandidates', 'opportunities', 'candidates']);
+      const db = await readDatabaseCollections(['selectedCandidates', 'opportunities', 'candidates', 'candidateMovements']);
       const candidate = advanceSelectedCandidateToInterview(db, candidateId);
 
-      await writeDatabaseDocument('candidates', candidate);
+      appendCandidateMovement(db, candidate, 'Avançou para Candidatos Entrevistados', auth.user);
+      await writeDatabaseCollections(db, ['candidates', 'candidateMovements']);
       sendJson(response, 200, enrichCandidate(candidate, db));
       return;
     }
@@ -5733,6 +5822,10 @@ async function handleApi(request, response) {
         return;
       }
 
+      for (const candidate of saved) {
+        appendCandidateMovement(db, candidate, 'Selecionado para oportunidade', auth.user);
+      }
+
       let mongoSaved = [];
 
       if (isMongoTalentosConfigured()) {
@@ -5752,7 +5845,7 @@ async function handleApi(request, response) {
         }
       }
 
-      await writeDatabaseCollections(db, ['selectedCandidates']);
+      await writeDatabaseCollections(db, ['selectedCandidates', 'candidateMovements']);
 
       const responsePayload = saved.map((candidate, index) => {
         const enriched = enrichSelectedCandidate(candidate, db);
@@ -5896,8 +5989,9 @@ async function handleApi(request, response) {
 
       db.candidates.push(candidate);
       candidateDb.candidates = db.candidates;
+      appendCandidateMovement(db, candidate, 'Cadastrado em Candidatos Entrevistados', auth.user);
       const placement = syncApprovedCandidatePlacement(candidate, candidateDb);
-      await writeDatabaseCollections(db, ['candidates', 'allocateds', 'opportunities']);
+      await writeDatabaseCollections(db, ['candidates', 'allocateds', 'opportunities', 'candidateMovements']);
       sendJson(response, 201, {
         ...enrichCandidate(candidate, candidateDb),
         placement
@@ -5961,13 +6055,14 @@ async function handleApi(request, response) {
       candidate.approved = true;
       candidate.status = 'Aprovado';
       candidate.updatedAt = toISODate();
+      appendCandidateMovement(db, candidate, 'Aprovado e alocado', auth.user);
       if (validateActiveAllocatedPlacement(response, db, allocated)) {
         return;
       }
 
       db.allocateds.push(allocated);
-      syncAllocatedConsultantUser(db, allocated);
-      await writeDatabaseCollections(db, ['candidates', 'allocateds', 'users']);
+      syncAllocatedConsultantUserAfterChange(db, allocated);
+      await writeDatabaseCollections(db, ['candidates', 'allocateds', 'users', 'candidateMovements']);
       sendJson(response, 201, {
         candidate: enrichCandidate(candidate, db),
         allocated: enrichAllocated(allocated, db)
@@ -6004,7 +6099,7 @@ async function handleApi(request, response) {
       }
 
       db.allocateds.push(allocated);
-      syncAllocatedConsultantUser(db, allocated);
+      syncAllocatedConsultantUserAfterChange(db, allocated);
       await writeDatabaseCollections(db, ['allocateds', 'users']);
       sendJson(response, 201, enrichAllocated(allocated, db));
       return;
@@ -6050,7 +6145,7 @@ async function handleApi(request, response) {
       }
 
       Object.assign(allocated, updated);
-      syncAllocatedConsultantUser(db, allocated);
+      syncAllocatedConsultantUserAfterChange(db, allocated);
       await writeDatabaseCollections(db, ['allocateds', 'users']);
       sendJson(response, 200, enrichAllocated(allocated, db));
       return;
@@ -6682,6 +6777,7 @@ async function handleApi(request, response) {
       }
       if (payload.stage && payload.stage !== candidate.stage) {
         moveCandidateStage(candidate, payload.stage);
+        appendCandidateMovement(db, candidate, `Alterou etapa para ${candidate.stage}`, auth.user);
       }
       if (payload.aderencia !== undefined) {
         candidate.aderencia = normalizeAderencia(payload.aderencia);
@@ -6700,7 +6796,7 @@ async function handleApi(request, response) {
       candidateDb.candidates = db.candidates;
       const placement = syncApprovedCandidatePlacement(candidate, candidateDb);
 
-      await writeDatabaseCollections(db, ['candidates', 'allocateds', 'opportunities']);
+      await writeDatabaseCollections(db, ['candidates', 'allocateds', 'opportunities', 'candidateMovements']);
       sendJson(response, 200, {
         ...enrichCandidate(candidate, candidateDb),
         placement

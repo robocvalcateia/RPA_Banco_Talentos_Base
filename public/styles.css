@@ -1489,6 +1489,7 @@ label.full,
 table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
 }
 
 th,
@@ -1496,11 +1497,33 @@ td {
   text-align: left;
   border-bottom: 1px solid var(--line);
   padding: 12px 10px;
-  vertical-align: top;
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 tbody tr {
-  height: 58px;
+  height: 64px;
+  max-height: 64px;
+}
+
+.table-wrap th,
+.table-wrap td {
+  max-width: 180px;
+}
+
+.table-wrap td br {
+  display: none;
+}
+
+.table-wrap td:has(button),
+.table-wrap td:has(input),
+.table-wrap td:has(select),
+.table-wrap td:has(textarea),
+.table-wrap td .table-cell-actions,
+.table-wrap td .stage-actions {
+  white-space: normal;
 }
 
 .table-cell-clamp {
@@ -1510,6 +1533,7 @@ tbody tr {
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  white-space: normal;
 }
 
 .table-cell-actions {
@@ -1767,6 +1791,35 @@ th {
   max-height: 360px;
   overflow: auto;
   margin-bottom: 16px;
+}
+
+.observation-list {
+  display: grid;
+  gap: 10px;
+  max-height: 360px;
+  overflow: auto;
+  margin-bottom: 16px;
+}
+
+.observation-item {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.observation-item strong,
+.observation-item span {
+  display: block;
+}
+
+.observation-item span {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.observation-item p {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
 }
 
 .modal {

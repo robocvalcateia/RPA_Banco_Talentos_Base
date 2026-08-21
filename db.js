@@ -91,6 +91,8 @@ const REQUIRED_COLLECTIONS = [
   'contactClients',
   'cvFilters',
   'curriculumObservations',
+  'recordObservations',
+  'candidateMovements',
   'selectedCandidates'
 ];
 
@@ -569,6 +571,8 @@ export function normalizeDatabase(data = {}) {
   data.cvFilters = data.cvFilters.map((filter) => normalizeCvFilter(filter));
   data.curriculumObservations = data.curriculumObservations.map((observation) => normalizeCurriculumObservation(observation));
   data.formRequestObservations = data.formRequestObservations.map((observation) => normalizeFormRequestObservation(observation));
+  data.recordObservations = data.recordObservations.map((observation) => normalizeRecordObservation(observation));
+  data.candidateMovements = data.candidateMovements.map((movement) => normalizeCandidateMovement(movement));
   data.selectedCandidates = data.selectedCandidates.map((candidate) => normalizeSelectedCandidate(candidate));
   delete data.applications;
 
@@ -1199,6 +1203,55 @@ export function normalizeFormRequestObservation(observation = {}) {
     userEmail: String(observation.userEmail ?? observation.responsibleEmail ?? observation.responsavelEmail ?? '').trim(),
     action: String(observation.action ?? observation.status ?? '').trim(),
     createdAt: String(observation.createdAt ?? date).trim()
+  };
+}
+
+export function normalizeRecordObservation(observation = {}) {
+  const entityType = String(observation.entityType ?? observation.entidadeTipo ?? observation.type ?? '').trim();
+  const entityId = String(observation.entityId ?? observation.entidadeId ?? observation.recordId ?? '').trim();
+  const date = String(observation.date ?? observation.createdAt ?? observation.data ?? toISODate()).trim();
+  const text = String(
+    observation.observation
+    ?? observation.text
+    ?? observation.observacao
+    ?? observation.observacoes
+    ?? ''
+  ).trim();
+
+  return {
+    id: String(observation.id ?? createId('rec_obs', `${entityType}-${entityId}-${date}`)).trim(),
+    entityType,
+    entityId,
+    observation: text,
+    date,
+    userId: String(observation.userId ?? observation.usuarioId ?? '').trim(),
+    userName: String(observation.userName ?? observation.usuarioNome ?? '').trim(),
+    userEmail: String(observation.userEmail ?? observation.usuarioEmail ?? '').trim(),
+    createdAt: String(observation.createdAt ?? date).trim()
+  };
+}
+
+export function normalizeCandidateMovement(movement = {}) {
+  const candidateId = String(movement.candidateId ?? movement.candidatoId ?? '').trim();
+  const opportunityId = String(movement.opportunityId ?? movement.oportunidadeId ?? '').trim();
+  const date = String(movement.date ?? movement.createdAt ?? movement.data ?? toISODate()).trim();
+
+  return {
+    id: String(movement.id ?? createId('cand_mov', `${candidateId}-${opportunityId}-${date}`)).trim(),
+    candidateId,
+    curriculumId: String(movement.curriculumId ?? movement.curriculoId ?? '').trim(),
+    candidateName: String(movement.candidateName ?? movement.name ?? movement.nome ?? '').trim(),
+    opportunityId,
+    opportunityCode: String(movement.opportunityCode ?? movement.codigoOportunidade ?? '').trim(),
+    opportunityName: String(movement.opportunityName ?? movement.oportunidade ?? '').trim(),
+    action: String(movement.action ?? movement.acao ?? '').trim(),
+    stage: String(movement.stage ?? movement.etapa ?? movement.status ?? '').trim(),
+    observation: String(movement.observation ?? movement.observacao ?? movement.observacoes ?? '').trim(),
+    userId: String(movement.userId ?? movement.usuarioId ?? '').trim(),
+    userName: String(movement.userName ?? movement.usuarioNome ?? '').trim(),
+    userEmail: String(movement.userEmail ?? movement.usuarioEmail ?? '').trim(),
+    date,
+    createdAt: String(movement.createdAt ?? date).trim()
   };
 }
 

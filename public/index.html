@@ -944,8 +944,9 @@
             <label>Cliente<select name="clientId" required></select></label>
             <label>Salário<input name="salary" type="number" min="0" step="0.01" /></label>
             <label>Faturamento<input name="revenue" type="number" min="0" step="0.01" /></label>
-            <label>Taxa<input name="tax" /></label>
             <label>Fonte<input name="source" /></label>
+            <label class="checkbox-field"><input name="approved" type="checkbox" /> Aprovado</label>
+            <label>Data Aprovação<input name="approvalDate" type="date" /></label>
             <button class="primary-action" type="submit">Salvar hunting</button>
           </form>
         </section>
@@ -984,7 +985,8 @@
                   <th>Cliente</th>
                   <th>Salário</th>
                   <th>Faturamento</th>
-                  <th>Taxa</th>
+                  <th>Aprovado</th>
+                  <th>Data Aprovação</th>
                   <th>Fonte</th>
                 </tr>
               </thead>
@@ -1055,7 +1057,6 @@
               <option value="Fluente">Fluente</option>
             </select></label>
             <label>Percentual de Acerto<input name="matchPercent" type="number" min="0" max="100" step="1" /></label>
-            <label>Qtde de Retorno<input name="resultLimit" type="number" min="1" max="50" step="1" value="10" /></label>
             <label class="full">Habilidades Obrigatórias<textarea name="mandatorySkills" rows="2" placeholder="Ex.: PL SQL, UIPath, SAP"></textarea></label>
             <label class="full">Job_description<textarea name="jobDescription" rows="4" required></textarea></label>
             <fieldset class="full checkbox-group">
@@ -1086,7 +1087,6 @@
                   <th>Cidade</th>
                   <th>Inglês</th>
                   <th>% Acerto</th>
-                  <th>Qtde</th>
                   <th>Fontes</th>
                   <th>Ações</th>
                 </tr>
@@ -1095,7 +1095,7 @@
             </table>
           </div>
         </section>
-        <section class="panel">
+        <section class="panel" id="cvSearchResultsPanel">
           <div class="panel-heading">
             <h2>Resultados da busca</h2>
             <span id="cvSearchStatus">Selecione um filtro salvo</span>
@@ -1113,27 +1113,6 @@
                 </tr>
               </thead>
               <tbody id="cvSearchResultTable"></tbody>
-            </table>
-          </div>
-        </section>
-        <section class="panel">
-          <div class="panel-heading">
-            <h2>Rejeitados</h2>
-            <span id="cvRejectedStatus">Selecione um filtro salvo</span>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Selecionar</th>
-                  <th>Nome</th>
-                  <th>Fonte</th>
-                  <th>Link</th>
-                  <th>Score</th>
-                  <th>Observação</th>
-                </tr>
-              </thead>
-              <tbody id="cvRejectedResultTable"></tbody>
             </table>
           </div>
         </section>
