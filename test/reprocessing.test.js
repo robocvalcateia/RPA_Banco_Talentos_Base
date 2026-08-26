@@ -170,3 +170,12 @@ test('curriculum detail action buttons stay green except variable black flag', (
 
   assert.match(appSource, /blacklistButton\.classList\.add\(blacklisted \? 'danger-action' : 'primary-action'\)/);
 });
+
+test('selected candidate observation is persisted in immutable curriculum history', () => {
+  const serverSource = readRepoFile('server.js');
+
+  assert.match(serverSource, /appendCurriculumObservationOnce/);
+  assert.match(serverSource, /candidate\.observation/);
+  assert.match(serverSource, /Selecionado para oportunidade/);
+  assert.match(serverSource, /writeDatabaseCollections\(db, \['selectedCandidates', 'candidateMovements', 'curriculumObservations'\]\)/);
+});
