@@ -2809,6 +2809,31 @@ function appendCurriculumObservation(db, curriculum, text, user, idFallback = ''
   return observation;
 }
 
+function curriculumObservationAliasesFor(curriculum, idFallback = '') {
+  return new Set([
+    curriculum?.id_controle,
+    curriculum?.id,
+    curriculum?.mongoId,
+    idFallback
+  ].filter(Boolean).map((value) => String(value).trim()));
+}
+
+function hasCurriculumObservation(db, curriculum, text, idFallback = '') {
+  const observationText = repairEncodingArtifacts(text || '').trim();
+  if (!observationText) return false;
+  const aliases = curriculumObservationAliasesFor(curriculum, idFallback);
+  if (!aliases.size) return false;
+  return (db.curriculumObservations || []).some((observation) => (
+    aliases.has(String(observation.curriculumId || '').trim())
+    && repairEncodingArtifacts(observation.observation || '').trim() === observationText
+  ));
+}
+
+function appendCurriculumObservationOnce(db, curriculum, text, user, idFallback = '') {
+  if (hasCurriculumObservation(db, curriculum, text, idFallback)) return null;
+  return appendCurriculumObservation(db, curriculum, text, user, idFallback);
+}
+
 function appendRecordObservation(db, entityType, entityId, text, user) {
   const observationText = repairEncodingArtifacts(text || '').trim();
   const type = String(entityType || '').trim();
@@ -5932,6 +5957,23 @@ async function handleApi(request, response) {
 
       for (const candidate of saved) {
         appendCandidateMovement(db, candidate, 'Selecionado para oportunidade', auth.user);
+        if (candidate.observation) {
+          const curriculum = findCurriculumForCandidateResult(db, candidate)
+            || (candidate.curriculumId
+              ? {
+                  id: candidate.curriculumId,
+                  id_controle: candidate.curriculumId,
+                  nome: candidate.name || ''
+                }
+              : null);
+          appendCurriculumObservationOnce(
+            db,
+            curriculum,
+            candidate.observation,
+            auth.user,
+            candidate.curriculumId
+          );
+        }
       }
 
       let mongoSaved = [];
@@ -5953,7 +5995,7 @@ async function handleApi(request, response) {
         }
       }
 
-      await writeDatabaseCollections(db, ['selectedCandidates', 'candidateMovements']);
+      await writeDatabaseCollections(db, ['selectedCandidates', 'candidateMovements', 'curriculumObservations']);
 
       const responsePayload = saved.map((candidate, index) => {
         const enriched = enrichSelectedCandidate(candidate, db);
