@@ -3371,12 +3371,51 @@ function candidateCurriculumDisplay(curriculum, fallback = '') {
 function findCurriculumByIdentifier(curriculumId) {
   const id = String(curriculumId || '').trim();
   if (!id) return null;
-  return state.curriculums.find((curriculum) => (
+  const direct = state.curriculums.find((curriculum) => (
     curriculumIdentifier(curriculum) === id
     || curriculum.id === id
     || curriculum.id_controle === id
     || curriculum.mongoId === id
-  )) || null;
+  ));
+  if (direct) return direct;
+
+  const selectedCandidate = state.selectedCandidates.find((candidate) => (
+    candidate.id === id
+    || candidate.curriculumId === id
+    || candidate.curriculumControlId === id
+  ));
+  if (selectedCandidate) {
+    const curriculum = findCurriculumForCandidate(selectedCandidate);
+    if (curriculum) return curriculum;
+  }
+
+  const interviewedCandidate = state.candidates.find((candidate) => (
+    candidate.id === id
+    || candidate.curriculumId === id
+    || candidate.curriculumControlId === id
+  ));
+  if (interviewedCandidate) {
+    const curriculum = findCurriculumForCandidate(interviewedCandidate);
+    if (curriculum) return curriculum;
+  }
+
+  const allocated = state.allocateds.find((item) => (
+    item.id === id
+    || item.curriculumId === id
+    || item.candidateId === id
+    || item.externalId === id
+  ));
+  if (allocated) {
+    return state.curriculums.find((curriculum) => (
+      curriculumIdentifier(curriculum) === allocated.curriculumId
+      || curriculum.id === allocated.curriculumId
+      || curriculum.id_controle === allocated.curriculumId
+      || curriculum.mongoId === allocated.curriculumId
+      || normalizeText(curriculum.nome) === normalizeText(allocated.consultant)
+    )) || null;
+  }
+
+  return null;
 }
 
 function curriculumObservationAliases(curriculumOrId) {

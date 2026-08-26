@@ -2711,6 +2711,126 @@ function findLocalCurriculum(db, identifier) {
   )) || null;
 }
 
+function findLocalCurriculumForObservation(db, identifier) {
+  const value = String(identifier || '').trim();
+  if (!value) return null;
+
+  const direct = findLocalCurriculum(db, value);
+  if (direct) return direct;
+
+  const selected = db.selectedCandidates?.find((item) => (
+    item.id === value
+    || item.curriculumId === value
+    || item.curriculumControlId === value
+  ));
+  if (selected) {
+    return findLocalCurriculum(db, selected.curriculumId || selected.curriculumControlId)
+      || db.curriculums.find((item) => normalizeSearchText(item.nome) === normalizeSearchText(selected.name))
+      || (selected.curriculumId || selected.curriculumControlId
+        ? {
+            id: selected.curriculumId || selected.curriculumControlId,
+            id_controle: selected.curriculumId || selected.curriculumControlId,
+            nome: selected.name || ''
+          }
+        : null)
+      || null;
+  }
+
+  const interviewed = db.candidates?.find((item) => (
+    item.id === value
+    || item.curriculumId === value
+    || item.curriculumControlId === value
+  ));
+  if (interviewed) {
+    return findLocalCurriculum(db, interviewed.curriculumId || interviewed.curriculumControlId)
+      || db.curriculums.find((item) => normalizeSearchText(item.nome) === normalizeSearchText(interviewed.name))
+      || (interviewed.curriculumId || interviewed.curriculumControlId
+        ? {
+            id: interviewed.curriculumId || interviewed.curriculumControlId,
+            id_controle: interviewed.curriculumId || interviewed.curriculumControlId,
+            nome: interviewed.name || ''
+          }
+        : null)
+      || null;
+  }
+
+  const allocated = db.allocateds?.find((item) => (
+    item.id === value
+    || item.curriculumId === value
+    || item.candidateId === value
+    || item.externalId === value
+  ));
+  if (allocated) {
+    return findLocalCurriculum(db, allocated.curriculumId || allocated.externalId)
+      || db.curriculums.find((item) => normalizeSearchText(item.nome) === normalizeSearchText(allocated.consultant))
+      || (allocated.curriculumId || allocated.externalId
+        ? {
+            id: allocated.curriculumId || allocated.externalId,
+            id_controle: allocated.curriculumId || allocated.externalId,
+            nome: allocated.consultant || ''
+          }
+        : null)
+      || null;
+  }
+
+  return null;
+}
+
+async function getCurriculumForObservation(db, identifier) {
+  const local = findLocalCurriculumForObservation(db, identifier);
+  if (local) return local;
+  return getCurriculumByIdentifier(db, identifier);
+}
+
+function appendCurriculumObservation(db, curriculum, text, user, idFallback = '') {
+  const observationText = repairEncodingArtifacts(text || '').trim();
+  if (!curriculum || !observationText) return null;
+  db.curriculumObservations = Array.isArray(db.curriculumObservations) ? db.curriculumObservations : [];
+  const canonicalCurriculumId = String(
+    curriculum.id_controle
+    || curriculum.id
+    || curriculum.mongoId
+    || idFallback
+    || ''
+  ).trim();
+  if (!canonicalCurriculumId) return null;
+  const timestamp = toISODate();
+  const observation = normalizeCurriculumObservation({
+    id: createId('curr_obs', `${canonicalCurriculumId}-${user?.id || user?.email || 'usuario'}-${timestamp}`),
+    curriculumId: canonicalCurriculumId,
+    observation: observationText,
+    date: timestamp,
+    userId: user?.id || '',
+    userName: user?.name || '',
+    userEmail: user?.email || '',
+    createdAt: timestamp
+  });
+  db.curriculumObservations.push(observation);
+  return observation;
+}
+
+function appendRecordObservation(db, entityType, entityId, text, user) {
+  const observationText = repairEncodingArtifacts(text || '').trim();
+  const type = String(entityType || '').trim();
+  const id = String(entityId || '').trim();
+  if (!type || !id || !observationText) return null;
+  db.recordObservations = Array.isArray(db.recordObservations) ? db.recordObservations : [];
+  const timestamp = toISODate();
+  const observation = normalizeRecordObservation({
+    id: createId('rec_obs', `${type}-${id}-${user?.id || user?.email || 'usuario'}-${timestamp}`),
+    entityType: type,
+    entityId: id,
+    observation: observationText,
+    date: timestamp,
+    userId: user?.id || '',
+    userName: user?.name || '',
+    userEmail: user?.email || '',
+    createdAt: timestamp
+  });
+  db.recordObservations.push(observation);
+  return observation;
+}
+
 export function buildCurriculumPayload(payload = {}) {
   return normalizeCurriculum({
     id: payload.id,
@@ -4150,7 +4270,7 @@ async function handleApi(request, response) {
     if (request.method === 'GET' && /^\/api\/curriculums\/[^/]+\/observations$/.test(pathname)) {
       await ensureAuthDatabase(auth);
       const curriculumId = decodeURIComponent(pathname.split('/').at(-2));
-      const curriculum = await getCurriculumByIdentifier(auth.db, curriculumId).catch(() => null);
+      const curriculum = await getCurriculumForObservation(auth.db, curriculumId).catch(() => null);
       const curriculumAliases = new Set([
         curriculumId,
         curriculum?.id,
@@ -4184,25 +4304,17 @@ async function handleApi(request, response) {
         return;
       }
 
-      const curriculum = await getCurriculumByIdentifier(auth.db, curriculumId);
+      const curriculum = await getCurriculumForObservation(auth.db, curriculumId);
       if (!curriculum) {
         sendError(response, 404, 'Curriculo nao encontrado.');
         return;
       }
 
-      const canonicalCurriculumId = String(curriculum.id_controle || curriculum.id || curriculum.mongoId || curriculumId).trim();
-      const observation = normalizeCurriculumObservation({
-        id: createId('curr_obs', canonicalCurriculumId),
-        curriculumId: canonicalCurriculumId,
-        observation: observationText,
-        date: toISODate(),
-        userId: auth.user.id,
-        userName: auth.user.name,
-        userEmail: auth.user.email,
-        createdAt: toISODate()
-      });
-
-      auth.db.curriculumObservations.push(observation);
+      const observation = appendCurriculumObservation(auth.db, curriculum, observationText, auth.user, curriculumId);
+      if (!observation) {
+        sendError(response, 422, 'Nao foi possivel vincular a observacao ao curriculo.');
+        return;
+      }
       await writeDatabaseCollections(auth.db, ['curriculumObservations']);
       sendJson(response, 201, observation);
       return;
@@ -4222,23 +4334,19 @@ async function handleApi(request, response) {
     if (request.method === 'POST' && pathname === '/api/record-observations') {
       await ensureAuthDatabase(auth);
       const payload = await readJsonBody(request);
-      const observation = normalizeRecordObservation({
-        entityType: payload.entityType,
-        entityId: payload.entityId,
-        observation: payload.observation,
-        date: toISODate(),
-        userId: auth.user.id,
-        userName: auth.user.name,
-        userEmail: auth.user.email,
-        createdAt: toISODate()
-      });
+      const observation = appendRecordObservation(
+        auth.db,
+        payload.entityType,
+        payload.entityId,
+        payload.observation,
+        auth.user
+      );
 
-      if (!observation.entityType || !observation.entityId || !observation.observation) {
+      if (!observation) {
         sendError(response, 422, 'Informe tipo, registro e observacao.');
         return;
       }
 
-      auth.db.recordObservations.push(observation);
       await writeDatabaseCollections(auth.db, ['recordObservations']);
       sendJson(response, 201, observation);
       return;
@@ -5990,8 +6098,16 @@ async function handleApi(request, response) {
       db.candidates.push(candidate);
       candidateDb.candidates = db.candidates;
       appendCandidateMovement(db, candidate, 'Cadastrado em Candidatos Entrevistados', auth.user);
+      const initialObservation = String(payload.observation ?? '').trim();
+      if (initialObservation) {
+        if (curriculum) {
+          appendCurriculumObservation(db, curriculum, initialObservation, auth.user, candidate.curriculumId);
+        } else {
+          appendRecordObservation(db, 'candidate', candidate.id, initialObservation, auth.user);
+        }
+      }
       const placement = syncApprovedCandidatePlacement(candidate, candidateDb);
-      await writeDatabaseCollections(db, ['candidates', 'allocateds', 'opportunities', 'candidateMovements']);
+      await writeDatabaseCollections(db, ['candidates', 'allocateds', 'opportunities', 'candidateMovements', 'curriculumObservations', 'recordObservations']);
       sendJson(response, 201, {
         ...enrichCandidate(candidate, candidateDb),
         placement
@@ -6746,6 +6862,8 @@ async function handleApi(request, response) {
       }
 
       let candidateDb = db;
+      let resolvedCurriculum = null;
+      const previousObservation = String(candidate.observation || '').trim();
       if (payload.curriculumId !== undefined && String(payload.curriculumId ?? '').trim()) {
         const curriculumId = String(payload.curriculumId ?? '').trim();
         const curriculum = await resolveCandidateCurriculum(db, curriculumId);
@@ -6753,6 +6871,7 @@ async function handleApi(request, response) {
           sendError(response, 422, 'Selecione um curriculo valido.');
           return;
         }
+        resolvedCurriculum = curriculum;
         candidateDb = databaseWithResolvedCurriculum(db, curriculum);
         candidate.curriculumId = curriculumIdentifierForCandidate(curriculum, curriculumId);
         candidate.name = String(payload.name ?? curriculum?.nome ?? candidate.name).trim();
@@ -6794,9 +6913,18 @@ async function handleApi(request, response) {
       }
       candidate.updatedAt = toISODate();
       candidateDb.candidates = db.candidates;
+      const updatedObservation = String(candidate.observation || '').trim();
+      if (payload.observation !== undefined && updatedObservation && updatedObservation !== previousObservation) {
+        const observationCurriculum = resolvedCurriculum || await resolveCandidateCurriculum(db, candidate.curriculumId);
+        if (observationCurriculum) {
+          appendCurriculumObservation(db, observationCurriculum, updatedObservation, auth.user, candidate.curriculumId);
+        } else {
+          appendRecordObservation(db, 'candidate', candidate.id, updatedObservation, auth.user);
+        }
+      }
       const placement = syncApprovedCandidatePlacement(candidate, candidateDb);
 
-      await writeDatabaseCollections(db, ['candidates', 'allocateds', 'opportunities', 'candidateMovements']);
+      await writeDatabaseCollections(db, ['candidates', 'allocateds', 'opportunities', 'candidateMovements', 'curriculumObservations', 'recordObservations']);
       sendJson(response, 200, {
         ...enrichCandidate(candidate, candidateDb),
         placement
