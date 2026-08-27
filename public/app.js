@@ -3618,7 +3618,7 @@ function renderEmailProcessingStatus() {
 }
 
 function curriculumIdentifier(curriculum) {
-  return String(curriculum?.id || curriculum?.mongoId || curriculum?.id_controle || '').trim();
+  return String(curriculum?.id_controle || curriculum?.idControle || curriculum?.mongoId || curriculum?.id || '').trim();
 }
 
 function selectedCurriculum() {

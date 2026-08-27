@@ -138,6 +138,33 @@ test('busca do CV original tolera acentos e arquivo sem vinculo direto', () => {
   assert.equal(__mongoTalentosTest.originalFileMatchesCandidate(otherFile, 'Rogério Batista Da Cruz'), false);
 });
 
+test('busca de curriculo por identificador prioriza id_controle antes de id legado', async () => {
+  const queries = __mongoTalentosTest.buildCandidateIdentifierQueries('1952');
+  assert.deepEqual(queries, [
+    { id_controle: '1952' },
+    { idControle: '1952' },
+    { id: '1952' }
+  ]);
+
+  const collection = createFakeCollection([
+    {
+      _id: 'doc_lucas',
+      id: '1952',
+      id_controle: '9999',
+      nome: 'Lucas André Nobre Luz'
+    },
+    {
+      _id: 'doc_hernandez',
+      id: 'legacy-hernandez',
+      id_controle: '1952',
+      nome: 'Hernandez Bianch de Aquino'
+    }
+  ]);
+
+  const doc = await __mongoTalentosTest.findCurriculumDocumentByIdentifier(collection, '1952');
+  assert.equal(doc.nome, 'Hernandez Bianch de Aquino');
+});
+
 test('candidato selecionado nao usa observacao como experiencia ou conhecimento tecnico', () => {
   const payload = __mongoTalentosTest.selectedCandidateToMongoPayload(
     {

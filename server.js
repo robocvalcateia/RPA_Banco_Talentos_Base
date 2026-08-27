@@ -4475,7 +4475,7 @@ async function handleApi(request, response) {
     if (request.method === 'POST' && /^\/api\/curriculums\/[^/]+\/export-template$/.test(pathname)) {
       await ensureAuthDatabase(auth);
       const parts = pathname.split('/');
-      const curriculumId = parts.at(-2);
+      const curriculumId = decodeURIComponent(parts.at(-2));
       const payload = await readJsonBody(request);
       const templateId = String(payload.templateId || payload.template_id || '').trim();
 
@@ -4485,9 +4485,17 @@ async function handleApi(request, response) {
       }
 
       const baseCurriculum = await getCurriculumByIdentifier(auth.db, curriculumId);
-      const curriculumPayload = payload.curriculum && typeof payload.curriculum === 'object'
-        ? buildCurriculumPayload({ ...(baseCurriculum || {}), ...payload.curriculum })
-        : baseCurriculum;
+      let curriculumPayload = baseCurriculum;
+      if (payload.curriculum && typeof payload.curriculum === 'object') {
+        const mergedCurriculumPayload = { ...(baseCurriculum || {}), ...payload.curriculum };
+        if (baseCurriculum) {
+          mergedCurriculumPayload.id = baseCurriculum.id;
+          mergedCurriculumPayload.id_controle = baseCurriculum.id_controle;
+          mergedCurriculumPayload.idControle = baseCurriculum.idControle;
+          mergedCurriculumPayload.mongoId = baseCurriculum.mongoId;
+        }
+        curriculumPayload = buildCurriculumPayload(mergedCurriculumPayload);
+      }
 
       if (!curriculumPayload) {
         sendError(response, 404, 'Candidato nao encontrado para exportacao.');

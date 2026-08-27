@@ -570,6 +570,8 @@ export const __mongoTalentosTest = {
   removeConflictingLegacyIdentityFields,
   writeLegacySyncUpdate,
   curriculumPayloadToMongoUpdate,
+  buildCandidateIdentifierQueries,
+  findCurriculumDocumentByIdentifier,
   duplicateKeyQueryFromError,
   selectedCandidateToMongoPayload,
   searchableTextFromValue,
@@ -578,35 +580,40 @@ export const __mongoTalentosTest = {
   originalFileMatchesCandidate
 };
 
-function buildCandidateIdentifierQuery(identifier) {
+function buildCandidateIdentifierQueries(identifier) {
   const value = String(identifier || '').trim();
-  if (!value) return null;
+  if (!value) return [];
 
-  const or = [
-    { id_controle: value },
-    { idControle: value },
-    { id: value }
-  ];
-
+  const queries = [];
   const cleanMongoId = value.replace(/^mongo_/, '');
   if (ObjectIdCtor && /^[0-9a-fA-F]{24}$/.test(cleanMongoId)) {
     try {
-      or.unshift({ _id: new ObjectIdCtor(cleanMongoId) });
+      queries.push({ _id: new ObjectIdCtor(cleanMongoId) });
     } catch {
       // Ignore invalid ObjectId conversion.
     }
   }
 
-  return { $or: or };
+  queries.push({ id_controle: value });
+  queries.push({ idControle: value });
+  queries.push({ id: value });
+  return queries;
+}
+
+async function findCurriculumDocumentByIdentifier(collection, identifier, options = undefined) {
+  const queries = buildCandidateIdentifierQueries(identifier);
+  for (const query of queries) {
+    const doc = await collection.findOne(query, options);
+    if (doc) return doc;
+  }
+  return null;
 }
 
 export async function getCurriculumFromMongo(identifier) {
   await loadMongoDriver();
   const collection = await getMongoTalentosCollection();
-  const query = buildCandidateIdentifierQuery(identifier);
-  if (!query) return null;
 
-  const doc = await collection.findOne(query);
+  const doc = await findCurriculumDocumentByIdentifier(collection, identifier);
   return doc ? mongoCandidateToCurriculum(doc) : null;
 }
 
@@ -692,10 +699,8 @@ export async function getOriginalCurriculumFileFromMongo(identifier) {
   const client = await getMongoClient(config);
   const db = client.db(config.dbName);
   const collection = await getMongoTalentosCollection();
-  const query = buildCandidateIdentifierQuery(identifier);
-  if (!query) return null;
 
-  const doc = await collection.findOne(query, {
+  const doc = await findCurriculumDocumentByIdentifier(collection, identifier, {
     projection: {
       _id: 1,
       id: 1,
@@ -841,8 +846,6 @@ async function getMongoTalentosCollectionsForWrite() {
 export async function updateCurriculumInMongo(identifier, payload = {}) {
   await loadMongoDriver();
   const collections = await getMongoTalentosCollectionsForWrite();
-  const query = buildCandidateIdentifierQuery(identifier);
-  if (!query) return null;
 
   const update = curriculumPayloadToMongoUpdate(payload);
   if (!update.nome) {
@@ -851,7 +854,7 @@ export async function updateCurriculumInMongo(identifier, payload = {}) {
 
   let updatedDoc = null;
   for (const collection of collections) {
-    const existing = await collection.findOne(query);
+    const existing = await findCurriculumDocumentByIdentifier(collection, identifier);
     if (!existing) continue;
     const result = await collection.findOneAndUpdate(
       { _id: existing._id },
@@ -867,10 +870,11 @@ export async function updateCurriculumInMongo(identifier, payload = {}) {
 export async function deleteCurriculumFromMongo(identifier) {
   await loadMongoDriver();
   const collection = await getMongoTalentosCollection();
-  const query = buildCandidateIdentifierQuery(identifier);
-  if (!query) return null;
 
-  const result = await collection.findOneAndDelete(query);
+  const existing = await findCurriculumDocumentByIdentifier(collection, identifier);
+  if (!existing) return null;
+
+  const result = await collection.findOneAndDelete({ _id: existing._id });
   const doc = result?.value || result;
   return doc ? mongoCandidateToCurriculum(doc) : null;
 }

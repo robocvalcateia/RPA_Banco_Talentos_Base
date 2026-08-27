@@ -126,8 +126,12 @@ test('curriculum detail exposes original CV download from GridFS without bootstr
   assert.match(indexSource, /CV Original/);
   assert.match(appSource, /hasOriginalCurriculumFile/);
   assert.match(appSource, /originalButton\.disabled = false/);
+  assert.match(appSource, /curriculum\?\.id_controle \|\| curriculum\?\.idControle \|\| curriculum\?\.mongoId \|\| curriculum\?\.id/);
   assert.match(appSource, /apiDownload\(`\/api\/curriculums\/\$\{encodeURIComponent\(curriculumIdentifier\(current\)\)\}\/original-file`/);
   assert.match(serverSource, /original-file\$\//);
+  assert.match(serverSource, /const curriculumId = decodeURIComponent\(parts\.at\(-2\)\)/);
+  assert.match(serverSource, /mergedCurriculumPayload\.id_controle = baseCurriculum\.id_controle/);
+  assert.match(serverSource, /mergedCurriculumPayload\.mongoId = baseCurriculum\.mongoId/);
   assert.match(serverSource, /sendStreamDownload/);
   assert.match(mongoSource, /GridFSBucket/);
   assert.match(mongoSource, /getOriginalCurriculumFileFromMongo/);
