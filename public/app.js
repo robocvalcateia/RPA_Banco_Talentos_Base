@@ -3325,6 +3325,7 @@ function selectedCvFilter() {
 }
 
 function candidateLinkHtml(candidate) {
+  const source = normalizeText(candidate?.source || '');
   const curriculum = findCurriculumForCandidate(candidate);
   const curriculumId = String(
     curriculumIdentifier(curriculum)
@@ -3333,6 +3334,14 @@ function candidateLinkHtml(candidate) {
     || ''
   ).trim();
   const externalLink = String(candidate.link || '').trim();
+
+  if (source.includes('alcateia') && curriculumId) {
+    return `<button class="link-action" type="button" data-open-curriculum="${escapeHtml(curriculumId)}">Abrir</button>`;
+  }
+
+  if ((source.includes('apinfo') || source.includes('linkedin')) && externalLink) {
+    return `<a href="${escapeHtml(externalLink)}" target="_blank" rel="noopener">Abrir</a>`;
+  }
 
   if (curriculumId) {
     return `<button class="link-action" type="button" data-open-curriculum="${escapeHtml(curriculumId)}">Abrir</button>`;
