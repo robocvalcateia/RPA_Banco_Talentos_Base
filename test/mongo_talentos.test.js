@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { buildLinkedinQueries, evaluateCandidateTextForFilter, evaluateLinkedinCandidateTextForFilter } from '../apinfo.js';
+import {
+  buildLinkedinQueries,
+  evaluateCandidateTextForFilter,
+  evaluateInternalCandidateForFilter,
+  evaluateLinkedinCandidateTextForFilter
+} from '../apinfo.js';
 import { __mongoTalentosTest } from '../mongo_talentos.js';
 
 function matchesQuery(doc, query) {
@@ -241,6 +246,37 @@ test('filtro de CV aceita listas em branco e cidades dentro do raio parametrizad
   ].join('\n');
 
   assert.equal(evaluateCandidateTextForFilter(text, filter).accepted, true);
+});
+
+test('filtro interno compara localizacao estruturada e aceita ingles acima do minimo', () => {
+  const evaluation = evaluateInternalCandidateForFilter({
+    nome: 'Pessoa Candidata',
+    endereco: 'São Paulo, SP',
+    nivel_ingles: 'C1 Advanced',
+    skills: 'SAP S/4HANA e Project Management Professional',
+    experiencia_profissional: 'Gerente de projetos SAP Activate'
+  }, {
+    state: 'SP',
+    city: 'Sao Paulo',
+    englishLevel: 'Intermediário',
+    mandatorySkills: 'SAP S4HANA, PMP',
+    jobDescription: 'Gerente de projetos SAP Activate',
+    matchPercent: 75
+  });
+
+  assert.equal(evaluation.accepted, true);
+});
+
+test('filtro de ingles usa nivel minimo e rejeita nivel inferior', () => {
+  const filter = {
+    englishLevel: 'Avançado',
+    mandatorySkills: '',
+    jobDescription: 'Desenvolvedor Java',
+    matchPercent: 50
+  };
+
+  assert.equal(evaluateCandidateTextForFilter('Desenvolvedor Java com inglês C1', filter).accepted, true);
+  assert.equal(evaluateCandidateTextForFilter('Desenvolvedor Java com inglês B1', filter).accepted, false);
 });
 
 test('busca LinkedIn v2 gera estrategias estruturadas por cargo skills e localidade', () => {
