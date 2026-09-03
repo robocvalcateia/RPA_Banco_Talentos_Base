@@ -1,10 +1,54 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { screenCandidate, coreKeyword, englishEvidence, hasSkill, screeningStats } from '../candidate-screening.js';
-import { evaluateInternalCandidateForFilter, evaluateLinkedinCandidateTextForFilter, buildLinkedinQueries, searchApinfoAndLinkedinCandidates } from '../apinfo.js';
+import { screenCandidate, coreKeyword, englishEvidence, hasSkill, screeningStats, experienceEvidence } from '../candidate-screening.js';
+import { evaluateInternalCandidateForFilter, evaluateLinkedinCandidateTextForFilter, buildLinkedinQueries, searchApinfoAndLinkedinCandidates, searchApinfoCandidates, apinfoNextPage } from '../apinfo.js';
 import { normalizeCvFilter, normalizeCvSearchResult } from '../db.js';
 const filter = { coreSkill: 'SAP MM', mandatorySkills: 'SAP MM', technicalSkills: 'J1BTAX, TAXBRA, revisão de faturas', desirableSkills: 'SAP Activate, debug', englishLevel: 'Avançado', locations: 'São Paulo/SP; Rio de Janeiro/RJ', matchPercent: 60 };
+test('technical gaps cannot be offset by location English and every desirable', () => {
+  const result = screenCandidate('SAP MM Activate debug', filter, { city: 'São Paulo', state: 'SP', englishLevel: 'Fluente' });
+  assert.ok(result.score < 50); assert.equal(result.technicalScore, 0); assert.equal(result.classification, 'review');
+  assert.notEqual(result.triageGroup, 'prioridade de entrevista');
+  assert.equal(result.evidence[0].found, false);
+});
+test('FI AP AR GL aliases match real accounting terms without treating AP as arbitrary abbreviation', () => {
+  assert.equal(hasSkill('contas a pagar', 'SAP AP'), true);
+  assert.equal(hasSkill('accounts receivable', 'SAP AR'), true);
+  assert.equal(hasSkill('general ledger', 'SAP GL'), true);
+  assert.equal(hasSkill('endereço AP 42', 'SAP AP'), false);
+});
+test('current junior headline fails senior role but historical junior experience does not', () => {
+  const senior = { ...filter, jobDescription: 'Consultor SAP MM Sênior, mínimo 6 anos' };
+  assert.equal(evaluateLinkedinCandidateTextForFilter('Consultor SAP MM Junior\nJ1BTAX TAXBRA', senior).classification, 'rejected');
+  assert.notEqual(screenCandidate('SAP MM J1BTAX TAXBRA. Em 2010 trabalhou como junior.', senior).classification, 'rejected');
+});
+test('English basic is not overwritten by Spanish fluent on the same line', () => {
+  assert.equal(englishEvidence('Inglês básico e espanhol fluente'), 1);
+});
+test('module experience merges overlaps and excludes unrelated module date ranges', () => {
+  const text = 'SAP MM 01/2020 - 12/2022\n\nSAP MM 01/2022 - 12/2023\n\nSAP FI 01/2010 - 12/2019';
+  assert.equal(experienceEvidence(text, 'SAP MM').months, 48);
+  assert.equal(experienceEvidence('SAP MM 01/2024 - atual', 'SAP MM', new Date('2024-12-01')).months, 12);
+});
+test('APINFO follows actual next-page links and refuses external URLs', () => {
+  assert.match(apinfoNextPage('<a href="pesq9b.cfm?start=21&amp;keyw=SAP">2</a>').url, /start=21&keyw=SAP/);
+  assert.equal(apinfoNextPage('<a href="https://example.com/next">Próxima</a>'), null);
+});
+test('APINFO retains successful CVs after detail failures and detects repeated pagination', async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = async url => {
+    const value = String(url);
+    if (value.includes('pesqentra')) return new Response('form-busca Palavras-chave');
+    if (value.includes('roteador2.cfm?prof=2')) return new Response('failure', {status:503});
+    if (value.includes('roteador2')) return new Response('<p>Teste</p><p>Consultor SAP MM</p><p>Codigo APinfo</p><p>SAP MM J1BTAX TAXBRA invoice verification SAP Activate debug Inglês avançado experiencia profissional</p>');
+    return new Response('Encontrados: 50 curriculos <a href="roteador2.cfm?prof=1">1</a><a href="roteador2.cfm?prof=2">2</a><a href="pesq9b.cfm?start=21">Próxima</a>');
+  };
+  try {
+    const result = await searchApinfoCandidates(filter, {user:'test',password:'test'});
+    assert.equal(result.stats.evaluated, 1); assert.equal(result.failedDetails.length, 1);
+    assert.ok(result.warnings.some(s => /parcial/.test(s))); assert.equal(result.results.length, 1);
+  } finally {globalThis.fetch = original;}
+});
 test('retrieval uses only the core, with a broad LinkedIn strategy', () => {
   assert.equal(coreKeyword({ mandatorySkills: 'SAP FI, localização Brasil' }), 'SAP FI');
   const query = buildLinkedinQueries({ ...filter, mandatorySkills: 'SAP MM, localização Brasil' })[0].query;

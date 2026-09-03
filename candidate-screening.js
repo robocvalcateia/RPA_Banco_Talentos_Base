@@ -3,6 +3,9 @@ export const normalize = (value = '') => String(value).normalize('NFD').replace(
 export const phrases = (value = '') => [...new Set(String(value).split(/[,;\n]+/).map(s => s.trim()).filter(Boolean))];
 const aliases = {
   'sap fi': ['sap fico', 'fi co', 'fi ap', 'fi ar', 'fi gl'],
+  'sap ap': ['fi ap', 'accounts payable', 'contas a pagar'],
+  'sap ar': ['fi ar', 'accounts receivable', 'contas a receber'],
+  'sap gl': ['fi gl', 'general ledger', 'razao geral'],
   'sap mm': ['mm sap', 'mm wm', 'sap materials management'],
   'localizacao brasil': ['localizacao brasileira', 'brazil localization', 'brazilian localization'],
   'pl sql': ['plsql'], 'sap s4hana': ['s4hana', 's 4hana', 's4 hana', 's 4 hana'],
@@ -41,7 +44,7 @@ function technicalTerms(filter) {
 export function englishEvidence(text = '', structured = '') {
   // Do not confuse Spanish fluency, an advanced technical course, or the job description with English.
   const fragments = structured ? [structured] : (String(text).match(/(?:ingl[eê]s|english)[^\n.;]{0,65}|(?:fluent|advanced|basic|intermediate)\s+english/gi) || []);
-  const normalized = normalize(fragments.join(' '));
+  const normalized = normalize(fragments.map(fragment => fragment.split(/espanhol|spanish|franc[eê]s|french|alem[aã]o|german/i)[0]).join(' '));
   const patterns = [[4, /\b(fluente|fluent|native|nativo|c2)\b/], [3, /\b(avancado|advanced|c1|upper intermediate)\b/], [2, /\b(intermediario|intermediate|b1|b2)\b/], [1, /\b(basico|basic|tecnico|elementary|a1|a2)\b/]];
   return patterns.find(([, pattern]) => pattern.test(normalized))?.[0] || 0;
 }
@@ -67,6 +70,32 @@ function scoreGroup(text, terms) {
   const hits = terms.filter(term => hasSkill(text, term));
   return { required: terms, hits, missing: terms.filter(term => !hits.includes(term)), score: terms.length ? Math.round(100 * hits.length / terms.length) : 0 };
 }
+export function evidenceExcerpt(text, term) {
+  const lines = String(text).split(/\n|(?<=[.;])\s+/).map(s => s.trim()).filter(Boolean);
+  return lines.find(line => hasSkill(line, term))?.slice(0, 400) || '';
+}
+// Month ranges are evidence only when explicitly attached to the relevant module.
+// An incomplete chronology is never evidence of insufficient experience.
+export function experienceEvidence(text, core, now = new Date()) {
+  const ranges = [];
+  const current = now.getUTCFullYear() * 12 + now.getUTCMonth();
+  for (const block of String(text).split(/\n\s*\n/)) {
+    if (!core || !hasSkill(block, core) || block.length > 1600) continue;
+    for (const match of block.matchAll(/\b(0?[1-9]|1[0-2])[\/-](19\d{2}|20\d{2})\s*(?:a|at[eé]|[-–—])\s*(?:(0?[1-9]|1[0-2])[\/-](19\d{2}|20\d{2})|(atual|presente|present|current))\b/gi)) {
+      const start = Number(match[2]) * 12 + Number(match[1]) - 1;
+      const end = match[5] ? current : Number(match[4]) * 12 + Number(match[3]) - 1;
+      if (start <= end && end <= current) ranges.push([start, end + 1]);
+    }
+  }
+  ranges.sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  for (const range of ranges) {
+    const last = merged.at(-1);
+    if (last && range[0] <= last[1]) last[1] = Math.max(last[1], range[1]);
+    else merged.push([...range]);
+  }
+  return { months: merged.reduce((sum, [start, end]) => sum + end - start, 0), ranges: merged, basis: 'períodos explícitos vinculados ao módulo; sem sobreposição' };
+}
 export function screenCandidate(text, filter, candidate = {}, publicSummary = false) {
   const core = coreKeyword(filter);
   const mandatory = scoreGroup(text, phrases(filter.mandatorySkills));
@@ -87,13 +116,22 @@ export function screenCandidate(text, filter, candidate = {}, publicSummary = fa
   const english = englishEvidence(text, candidate.englishLevel || '');
   if (englishRequired && !english) pending.push('nivel de ingles nao evidente; confirmar conversação');
   if (englishRequired && english && english < englishRequired) failed.push(`filtro obrigatorio: inglês informado abaixo de ${filter.englishLevel}`);
-  const groups = [[40, coreMet ? 100 : 0], [25, technical.score]];
-  if (location !== 'not_required') groups.push([15, location === 'met' ? 100 : 0]);
+  const groups = [[20, coreMet ? 100 : 0], [60, technical.score]];
+  if (location !== 'not_required') groups.push([5, location === 'met' ? 100 : 0]);
   if (englishRequired) groups.push([10, english >= englishRequired ? 100 : 0]);
-  if (desirable.required.length) groups.push([10, desirable.score]);
-  const score = Math.round(groups.reduce((sum, [weight, value]) => sum + weight * value, 0) / groups.reduce((sum, [weight]) => sum + weight, 0));
+  if (desirable.required.length) groups.push([5, desirable.score]);
+  const weightedScore = Math.round(groups.reduce((sum, [weight, value]) => sum + weight * value, 0) / groups.reduce((sum, [weight]) => sum + weight, 0));
+  const criticalTerms = normalize(core) === 'sap fi' ? ['SAP AP', 'SAP AR', 'SAP GL'] : normalize(core) === 'sap mm' ? ['J1BTAX', 'revisão de faturas'] : [];
+  const criticalMissing = criticalTerms.filter(term => technical.required.some(required => normalize(required) === normalize(term)) && !hasSkill(text, term));
+  const technicalMet = technical.required.length > 0 && technical.score >= 60 && !criticalMissing.length;
+  const score = technicalMet ? weightedScore : Math.min(weightedScore, 49);
+  if (!technicalMet) pending.push('requisitos técnicos centrais insuficientemente evidenciados; não priorizar por diferenciais');
+  if (criticalMissing.length) pending.push(`confirmar requisitos centrais: ${criticalMissing.join(', ')}`);
+  const currentTitle = String(candidate.currentTitle || (publicSummary ? String(text).split('\n')[0] : ''));
+  if (/s[eê]nior|\bsr\b/i.test(filter.jobDescription || '') && /\bj[uú]nior\b|\bjr\b|\btrainee\b|\bestagi[aá]ri/i.test(currentTitle)) failed.push('senioridade atual declarada incompatível com a vaga sênior');
+  const experience = experienceEvidence(text, core);
   // The score describes evidence, not a hiring approval. Years, travel and exclusive availability need validation.
-  if (/\b\d+\s*(?:\+\s*)?anos\b/i.test(filter.jobDescription || '')) pending.push('confirmar tempo de experiência exigido por projetos e datas');
+  if (/\b\d+\s*(?:\+\s*)?anos\b/i.test(filter.jobDescription || '')) pending.push(`confirmar experiência total e no módulo separadamente; ${experience.months} meses evidenciados no módulo por datas sem sobreposição (cronologia pode estar incompleta)`);
   if (/viagens|exclusiv|presencial|h[ií]brid/i.test(filter.jobDescription || '')) pending.push('confirmar viagens, regime presencial e disponibilidade exigidos pela vaga');
   if (publicSummary) pending.push('resumo público: obter CV completo antes de validar aderência');
   if (!publicSummary && score < Number(filter.matchPercent || 0)) pending.push(`evidência ${score}% abaixo do mínimo ${filter.matchPercent}%; revisar lacunas no currículo`);
@@ -101,6 +139,10 @@ export function screenCandidate(text, filter, candidate = {}, publicSummary = fa
   const explanation = [...failed, ...pending].join('; ');
   return {
     score, classification, accepted: classification === 'approved', review: classification === 'review',
+    technicalScore: technical.score,
+    triageGroup: failed.length ? 'não aderente' : technicalMet && !mandatory.missing.length && !publicSummary ? 'prioridade de entrevista' : 'validação documental pendente',
+    evidence: technical.required.map(term => ({ requirement: term, found: technical.hits.includes(term), excerpt: evidenceExcerpt(text, term) })),
+    experience,
     scoreType: publicSummary ? 'evidência pública parcial' : 'evidência do currículo',
     matchedMandatorySkills: mandatory.hits, missingMandatorySkills: mandatory.missing,
     jobDescriptionHits: technical.hits, jobDescriptionMissing: technical.missing,

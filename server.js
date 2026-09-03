@@ -5418,6 +5418,7 @@ async function handleApi(request, response) {
       const credentials = getApinfoCredentials();
       const ruleSummary = [
         `competência principal da busca: ${coreKeyword(expandedRuntimeFilter) || 'não informada'}`,
+        `localidades alternativas: ${expandedRuntimeFilter.locations || 'não informadas'}`,
         `estado: ${expandedRuntimeFilter.state || 'nao informado'}`,
         `cidade: ${expandedRuntimeFilter.city || 'nao informada'}`,
         expandedRuntimeFilter.cityRadiusCities?.length ? `cidades no raio: ${expandedRuntimeFilter.cityRadiusCities.join(', ')}` : '',
@@ -5521,7 +5522,8 @@ async function handleApi(request, response) {
           `Não compatíveis exibidos: ${mergedRejectedResults.length}.`,
           linkedinSummary,
           alcateiaSummary,
-          expandedRuntimeFilter.cityRadiusMessage,
+          expandedRuntimeFilter.locations ? `Localidades alternativas consideradas: ${expandedRuntimeFilter.locations}.` : expandedRuntimeFilter.cityRadiusMessage,
+          ...(search.sourceStats?.APINFO?.warnings || []),
           `Regra: ${ruleSummary}.`
         ].join(' ');
 

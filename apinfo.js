@@ -443,7 +443,7 @@ function extractDetail(html, result) {
 }
 
 function filterAndScoreCandidate(detail, filter, candidate = {}) {
-  return screenCandidate(detail.text, filter, candidate);
+  return screenCandidate(detail.text, filter, { currentTitle: detail.role || '', ...candidate });
 }
 
 function extractGoogleLinkedinResults(html = '') {
@@ -637,6 +637,7 @@ function linkedinResultRow(profile, filter, search, evaluation) {
       : 'Perfil LinkedIn rejeitado pela regra publica.';
 
   return {
+    ...evidenceFields(evaluation),
     name: profile.name,
     source: accepted ? 'LinkedIn v2' : review ? 'Revisar LinkedIn' : 'LinkedIn v2 - rejeitado',
     link: profile.link,
@@ -758,6 +759,26 @@ function sortByFreshnessAndScore(rows) {
     });
 }
 
+function evidenceFields(evaluation) {
+  return { technicalScore: evaluation.technicalScore, triageGroup: evaluation.triageGroup, evidence: evaluation.evidence, experience: evaluation.experience };
+}
+
+export function apinfoNextPage(html, currentPage = 1) {
+  const options = [];
+  for (const match of String(html).matchAll(/<a\b([^>]*?)href\s*=\s*["']([^"']+)["']([^>]*)>([\s\S]*?)<\/a>/gi)) {
+    const label = htmlToText(match[4]).trim();
+    const next = /pr[oó]xim|seguinte|next/i.test(label + match[1] + match[3]);
+    const page = /^\d+$/.test(label) ? Number(label) : 0;
+    if (!next && page !== currentPage + 1) continue;
+    try {
+      const url = new URL(decodeEntities(match[2]), APINFO_SEARCH_URL);
+      if (url.origin !== new URL(APINFO_BASE).origin || !url.pathname.startsWith('/apinfo/inc/') || /roteador|logout/i.test(url.pathname)) continue;
+      options.push({ url: url.href, page: page || currentPage + 1 });
+    } catch { /* Ignore non-URL controls; report incomplete coverage rather than invent a request. */ }
+  }
+  return options[0] || null;
+}
+
 class ApinfoSession {
   constructor(credentials) {
     this.credentials = credentials;
@@ -780,6 +801,18 @@ class ApinfoSession {
   }
 
   async request(url, options = {}) {
+    let lastError;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try { return await this.requestOnce(url, options); }
+      catch (error) {
+        lastError = error;
+        if (/HTTP 4\d\d/.test(error.message)) throw error;
+      }
+    }
+    throw lastError;
+  }
+
+  async requestOnce(url, options = {}) {
     const response = await fetch(url, {
       signal: AbortSignal.timeout(20000),
       redirect: 'follow',
@@ -852,7 +885,9 @@ export async function searchApinfoCandidates(filter, credentials, limit = 10) {
   await session.login();
   const requestedLimit = Math.max(1, Math.min(50, Number(filter.resultLimit || limit || 10)));
   const targetScan = Math.min(Math.max(requestedLimit * 4, 20), 100);
-  const maxPages = Math.ceil(targetScan / 20);
+  const maxPages = 10;
+  const warnings = [];
+  const failedDetails = [];
   const extraFields = {};
   const retrievalFilter = { ...filter, state: '', city: '' };
 
@@ -862,20 +897,40 @@ export async function searchApinfoCandidates(filter, credentials, limit = 10) {
 
   let links = parseResultLinks(firstHtml);
 
-  for (let page = 2; page <= maxPages && links.length < targetScan; page += 1) {
-    const pageSearch = await session.search(retrievalFilter, extraFields, page);
-    const pageLinks = parseResultLinks(pageSearch.html);
-    if (!pageLinks.length) break;
-    links.push(...pageLinks);
+  let pageHtml = firstHtml, pagesRead = 1;
+  const visited = new Set();
+  for (let page = 1; page < maxPages && links.length < targetScan; page += 1) {
+    const next = apinfoNextPage(pageHtml, page);
+    if (!next || visited.has(next.url)) break;
+    visited.add(next.url);
+    try {
+      const pageSearch = await session.request(next.url);
+      const pageLinks = parseResultLinks(pageSearch.html);
+      const known = new Set(links.map(item => item.code || item.link));
+      const fresh = pageLinks.filter(item => !known.has(item.code || item.link));
+      if (!fresh.length) { warnings.push('Paginação retornou página repetida ou sem novos currículos.'); break; }
+      links.push(...fresh); pageHtml = pageSearch.html; pagesRead += 1;
+    } catch (error) { warnings.push(`Paginação interrompida: ${error.message}`); break; }
   }
 
   const uniqueLinks = Array.from(new Map(links.map((link) => [link.code || link.link, link])).values()).slice(0, targetScan);
   const details = [];
 
-  for (const link of uniqueLinks) {
-    const detailResponse = await session.getDetail(link.link);
-    details.push(extractDetail(detailResponse.html, link));
-  }
+  let cursor = 0;
+  await Promise.all(Array.from({ length: Math.min(3, uniqueLinks.length) }, async () => {
+    while (cursor < uniqueLinks.length) {
+      const link = uniqueLinks[cursor++];
+      try {
+        const detailResponse = await session.getDetail(link.link);
+        const detail = extractDetail(detailResponse.html, link);
+        if (!detail.name || !detail.text || detail.text.length < 80) throw new Error('CV incompleto ou resposta de autenticação');
+        details.push(detail);
+      } catch (error) { failedDetails.push({ code: link.code, reason: error.message }); }
+    }
+  }));
+  const found = extractCount(firstHtml);
+  if (details.length < found) warnings.push(`Cobertura parcial: ${details.length} de ${found} resultados analisados; limite por execução ${targetScan}.`);
+  if (failedDetails.length) warnings.push(`${failedDetails.length} currículos não puderam ser lidos após nova tentativa.`);
 
   details.sort((first, second) => second.lastUpdatedTime - first.lastUpdatedTime);
 
@@ -889,6 +944,7 @@ export async function searchApinfoCandidates(filter, credentials, limit = 10) {
 
     if (evaluation.accepted || evaluation.review) {
       results.push({
+        ...evidenceFields(evaluation),
         classification: evaluation.classification,
         scoreType: evaluation.scoreType,
         pendingChecks: evaluation.pendingChecks,
@@ -906,6 +962,7 @@ export async function searchApinfoCandidates(filter, credentials, limit = 10) {
       });
     } else {
       rejectedResults.push({
+        ...evidenceFields(evaluation),
         classification: 'rejected',
         name: detail.name,
         source: 'APINFO',
@@ -927,6 +984,7 @@ export async function searchApinfoCandidates(filter, credentials, limit = 10) {
     keyword: buildKeyword(filter),
     totalFound: extractCount(firstHtml),
     inspected,
+    warnings, pagesRead, failedDetails,
     stats: screeningStats([...results, ...rejectedResults], extractCount(firstHtml)),
     results: results.sort((a, b) => b.score - a.score).slice(0, requestedLimit),
     rejectedResults: rejectedResults.slice(0, requestedLimit)
@@ -951,7 +1009,7 @@ export async function searchApinfoAndLinkedinCandidates(filter, credentials, lim
   const requestedLimit = Math.max(1, Math.min(50, Number(filter.resultLimit || limit || 50)));
   const safeSearch = async (enabled, run) => {
     if (!enabled) return { totalFound: 0, results: [], rejectedResults: [], stats: screeningStats([], 0), status: 'disabled' };
-    try { return { ...await run(), status: 'completed' }; }
+    try { const result = await run(); return { ...result, status: result.warnings?.length ? 'partial' : 'completed' }; }
     catch (error) { return { totalFound: 0, results: [], rejectedResults: [], stats: screeningStats([], 0), status: 'error', error: error.message || 'Falha na fonte' }; }
   };
   const [apinfo, linkedin] = await Promise.all([
@@ -963,7 +1021,7 @@ export async function searchApinfoAndLinkedinCandidates(filter, credentials, lim
     apinfoError: apinfo.error || '', linkedinQuery: linkedin.query || '', linkedinFound: linkedin.totalFound,
     linkedinProvider: linkedin.provider || '', linkedinError: linkedin.error || '',
     linkedinStrategies: linkedin.strategies || [], linkedinErrors: linkedin.errors || [],
-    sourceStats: { APINFO: { ...apinfo.stats, status: apinfo.status, error: apinfo.error || '' }, LINKEDIN: { ...linkedin.stats, status: linkedin.status, error: linkedin.error || '', warnings: linkedin.errors || [] } },
+    sourceStats: { APINFO: { ...apinfo.stats, status: apinfo.status, error: apinfo.error || '', warnings: apinfo.warnings || [], pagesRead: apinfo.pagesRead || 0, failedDetails: apinfo.failedDetails || [] }, LINKEDIN: { ...linkedin.stats, status: linkedin.status, error: linkedin.error || '', warnings: linkedin.errors || [] } },
     results: [...apinfo.results, ...linkedin.results].sort((a, b) => b.score - a.score),
     rejectedResults: [...apinfo.rejectedResults, ...linkedin.rejectedResults].sort((a, b) => b.score - a.score)
   };
@@ -999,6 +1057,7 @@ export function evaluateInternalCandidateForFilter(curriculum, filter) {
   const addressParts = address.split(/[,/\-]+/).map((part) => part.trim()).filter(Boolean);
   const stateMatch = address.match(/(?:^|[,/\s-])(AC|AL|AP|AM|BA|CE|DF|ES|GO|MA|MT|MS|MG|PA|PB|PR|PE|PI|RJ|RN|RS|RO|RR|SC|SP|SE|TO)(?:$|[,/\s-])/);
   const structuredCandidate = {
+    currentTitle: curriculum.cargo_atual || curriculum.currentTitle || '',
     city: curriculum.cidade || (addressParts.length === 2 && /^[A-Z]{2}$/.test(addressParts[1]) ? addressParts[0] : ''),
     state: curriculum.estado || stateMatch?.[1] || '',
     englishLevel: curriculum.nivel_ingles || ''
@@ -1010,6 +1069,7 @@ export function evaluateInternalCandidateForFilter(curriculum, filter) {
     accepted: evaluation.accepted,
     review: evaluation.review,
     row: {
+      ...evidenceFields(evaluation),
       id: `alcateia_${curriculum.id || curriculum.id_controle || curriculum.mongoId || curriculum.nome}`,
       name: curriculum.nome,
       curriculumId: curriculum.id_controle || curriculum.id || curriculum.mongoId || '',
