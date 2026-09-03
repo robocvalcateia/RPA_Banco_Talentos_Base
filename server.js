@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { coreKeyword, screeningStats } from './candidate-screening.js';
 import { promises as fs } from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -1931,7 +1932,7 @@ function haversineKm([lat1, lon1], [lat2, lon2]) {
   return 2 * radius * Math.asin(Math.sqrt(a));
 }
 
-function expandCityRadiusFilter(filter, radiusKm = 100) {
+function expandCityRadiusFilter(filter, radiusKm = 0) {
   const city = String(filter.city || '').trim();
   const uf = String(filter.state || '').trim().toUpperCase();
   if (!city) {
@@ -1965,7 +1966,7 @@ function expandCityRadiusFilter(filter, radiusKm = 100) {
     ...filter,
     cityRadiusCities: cityRadiusCities.length ? cityRadiusCities : [city],
     cityRadiusKm: radiusKm,
-    cityRadiusMessage: `Cidade ${city}/${uf || '-'} expandida para ${cityRadiusCities.length || 1} cidade(s) em ate ${radiusKm} km.`
+    cityRadiusMessage: `Localidade solicitada: ${filter.locations || `${city}/${uf || '-'}`}. Sem raio presumido; disponibilidade presencial deve ser confirmada.`
   };
 }
 
@@ -2013,100 +2014,19 @@ function evaluateAlcateiaCurriculum(curriculum, filter) {
   return evaluateInternalCandidateForFilter(curriculum, filter);
 }
 
-async function searchAlcateiaCandidates(filter, limit = 10) {
-  const requestedLimit = Math.max(1, Math.min(50, Number(filter.resultLimit || limit || 10)));
-  const minimum = Number(filter.matchPercent || 0);
-
-  if (!isMongoTalentosConfigured()) {
-    return {
-      totalFound: 0,
-      results: [],
-      rejectedResults: [],
-      message: 'ALCATEIA marcada, mas MongoDB não está configurado no ambiente.'
-    };
-  }
-
+async function searchAlcateiaCandidates(filter, limit = 50) {
+  const requestedLimit = Math.max(1, Math.min(50, Number(filter.resultLimit || limit || 50)));
+  if (!isMongoTalentosConfigured()) return { totalFound: 0, results: [], rejectedResults: [], error: 'MongoDB não configurado', message: 'ALCATEIA: MongoDB não configurado.' };
   const mongoResponse = await getCurriculumsFromMongo();
   const curriculums = Array.isArray(mongoResponse.curriculums) ? mongoResponse.curriculums : [];
-
-  const evaluated = curriculums
-    .map((curriculum) => {
-      const evaluation = evaluateAlcateiaCurriculum(curriculum, filter);
-      const accepted = Boolean(evaluation.accepted);
-
-      const found = evaluation.jobDescriptionHits?.slice(0, 10).join(', ') || 'nenhum termo forte encontrado';
-      const missing = evaluation.jobDescriptionMissing?.slice(0, 10).join(', ') || 'sem lacunas relevantes';
-      const mandatoryFound = evaluation.matchedMandatorySkills?.join(', ') || 'nenhuma habilidade obrigatoria informada';
-      const mandatoryMissing = evaluation.missingMandatorySkills?.join(', ') || 'nenhuma';
-      const listMissing = evaluation.missingListFilters?.join(', ') || 'nenhum';
-
-      return {
-        curriculum,
-        accepted,
-        score: evaluation.score,
-        found,
-        missing,
-        mandatoryFound,
-        mandatoryMissing,
-        listMissing,
-        reason: evaluation.reason || ''
-      };
-    })
-    .sort((first, second) => {
-      if (second.score !== first.score) {
-        return second.score - first.score;
-      }
-
-      const firstDate = new Date(first.curriculum.data_atualizacao || first.curriculum.data_criacao || 0).getTime();
-      const secondDate = new Date(second.curriculum.data_atualizacao || second.curriculum.data_criacao || 0).getTime();
-
-      return secondDate - firstDate;
-    });
-
-  const acceptedRows = evaluated
-    .filter((item) => item.accepted)
-    .slice(0, requestedLimit)
-    .map(({ curriculum, score, found, missing, mandatoryFound }) => ({
-      id: `alcateia_${curriculum.id || curriculum.id_controle || curriculum.mongoId}`,
-      name: curriculum.nome || '-',
-      source: 'ALCATEIA',
-      curriculumId: curriculum.id_controle || curriculum.id || curriculum.mongoId || '',
-      link: curriculum.linkedin || '',
-      linkedinLink: curriculum.linkedin || '',
-      score,
-      observation: [
-        `ID Controle: ${curriculum.id_controle || '-'}`,
-        `Aderência MongoDB: ${score}%`,
-        `Encontrado: ${found}`,
-        `Pontos não evidentes: ${missing}`,
-        `Skills: ${shortSearchText(curriculum.skills || curriculum.conhecimento_tecnico || '-')}`
-      ].join(' | ')
-    }));
-
-  const rejectedRows = evaluated
-    .filter((item) => !item.accepted)
-    .slice(0, requestedLimit)
-    .map(({ curriculum, score, found, missing, mandatoryMissing, listMissing, reason }) => ({
-      id: `alcateia_rej_${curriculum.id || curriculum.id_controle || curriculum.mongoId}`,
-      name: curriculum.nome || '-',
-      source: 'ALCATEIA',
-      curriculumId: curriculum.id_controle || curriculum.id || curriculum.mongoId || '',
-      link: curriculum.linkedin || '',
-      linkedinLink: curriculum.linkedin || '',
-      score,
-      observation: [
-        `Reprovado pela regra de aderência mínima ${minimum}%`,
-        `Aderência MongoDB: ${score}%`,
-        `Encontrado: ${found}`,
-        `Faltando: ${missing}`
-      ].join(' | ')
-    }));
-
+  const rows = curriculums.map(curriculum => evaluateAlcateiaCurriculum(curriculum, filter).row)
+    .sort((a, b) => b.score - a.score || b.sourceUpdatedAtTime - a.sourceUpdatedAtTime);
+  const stats = screeningStats(rows, mongoResponse.total ?? curriculums.length);
   return {
-    totalFound: curriculums.length,
-    results: acceptedRows,
-    rejectedResults: rejectedRows,
-    message: `ALCATEIA/MongoDB analisou ${curriculums.length} currículo(s), aprovados: ${acceptedRows.length}, rejeitados: ${rejectedRows.length}.`
+    totalFound: mongoResponse.total ?? curriculums.length, stats,
+    results: rows.filter(row => row.classification !== 'rejected').slice(0, requestedLimit),
+    rejectedResults: rows.filter(row => row.classification === 'rejected').slice(0, requestedLimit),
+    message: `ALCATEIA/MongoDB: ${stats.evaluated} currículos avaliados; ${stats.compatible} compatíveis, ${stats.pending} a confirmar e ${stats.rejected} não compatíveis. Exibição limitada a ${requestedLimit} por grupo.`
   };
 }
 
@@ -5490,15 +5410,19 @@ async function handleApi(request, response) {
         createdAt: filter.createdAt
       });
       const expandedRuntimeFilter = expandCityRadiusFilter(runtimeFilter);
+      if (!coreKeyword(expandedRuntimeFilter) && (expandedRuntimeFilter.searchApinfo || expandedRuntimeFilter.searchLinkedin)) {
+        sendError(response, 422, 'Informe a competência principal ou a primeira habilidade obrigatória para orientar a busca externa.');
+        return;
+      }
 
       const credentials = getApinfoCredentials();
       const ruleSummary = [
-        `palavras-chave APINFO: ${expandedRuntimeFilter.mandatorySkills || 'nao informadas'}`,
+        `competência principal da busca: ${coreKeyword(expandedRuntimeFilter) || 'não informada'}`,
         `estado: ${expandedRuntimeFilter.state || 'nao informado'}`,
         `cidade: ${expandedRuntimeFilter.city || 'nao informada'}`,
         expandedRuntimeFilter.cityRadiusCities?.length ? `cidades no raio: ${expandedRuntimeFilter.cityRadiusCities.join(', ')}` : '',
         `nivel de ingles: ${expandedRuntimeFilter.englishLevel || 'nao informado'}`,
-        `Job Description com aderencia minima de ${expandedRuntimeFilter.matchPercent || 0}%`,
+        `mínimo de evidência no CV: ${expandedRuntimeFilter.matchPercent || 0}%; resumos públicos permanecem a confirmar`,
         `habilidades obrigatorias: ${expandedRuntimeFilter.mandatorySkills || 'nao informadas'} precisam constar no CV`,
         `fontes: ${enabledSearchSources(expandedRuntimeFilter).join(', ') || 'nenhuma'}`
       ].filter(Boolean).join('; ');
@@ -5515,9 +5439,6 @@ async function handleApi(request, response) {
       if (!enabledSearchSources(expandedRuntimeFilter).length) {
         searchResponse.searchStatus = 'no_sources';
         searchResponse.searchMessage = `Nenhuma fonte de busca selecionada. Regra: ${ruleSummary}.`;
-      } else if (expandedRuntimeFilter.searchApinfo && !credentials.configured) {
-        searchResponse.searchStatus = 'pending_credentials';
-        searchResponse.searchMessage = `Busca real no APINFO pendente de usuario e senha. Regra: ${ruleSummary}.`;
       } else {
         const requestedLimit = 1000;
 
@@ -5550,7 +5471,7 @@ async function handleApi(request, response) {
         }
 
         const alcateiaSearch = expandedRuntimeFilter.searchAlcateia
-          ? await searchAlcateiaCandidates(expandedRuntimeFilter, requestedLimit)
+          ? await searchAlcateiaCandidates(expandedRuntimeFilter, requestedLimit).catch(error => ({ totalFound: 0, results: [], rejectedResults: [], error: error.message, message: `ALCATEIA: falha na consulta (${error.message}).` }))
           : {
               totalFound: 0,
               results: [],
@@ -5569,14 +5490,14 @@ async function handleApi(request, response) {
         ].map((result) => enrichCvSearchResultWithCurriculum(result, db));
 
         searchResponse.searchStatus = 'completed';
-        const linkedinReviewCount = mergedResults.filter((result) => /revisar linkedin/i.test(result.source || '')).length;
+        const linkedinReviewCount = mergedResults.filter((result) => result.classification === 'review').length;
         const approvedResultCount = Math.max(0, mergedResults.length - linkedinReviewCount);
 
         const apinfoSummary = expandedRuntimeFilter.searchApinfo
           ? (
               apinfoBlocked
                 ? 'APINFO marcado, mas credenciais não configuradas.'
-                : `APINFO chave "${search.keyword}", encontrados: ${search.totalFound}.`
+                : search.apinfoError ? `APINFO: falha na consulta (${search.apinfoError}).` : `APINFO chave "${search.keyword}", encontrados: ${search.totalFound}.`
             )
           : 'APINFO desmarcado.';
 
@@ -5595,9 +5516,9 @@ async function handleApi(request, response) {
         searchResponse.searchMessage = [
           'Busca concluída.',
           apinfoSummary,
-          `Resultados aprovados: ${approvedResultCount}.`,
-          linkedinReviewCount ? `Revisar LinkedIn: ${linkedinReviewCount}.` : '',
-          `Rejeitados abaixo do percentual: ${mergedRejectedResults.length}.`,
+          `Compatíveis exibidos: ${approvedResultCount}.`,
+          linkedinReviewCount ? `A confirmar exibidos: ${linkedinReviewCount}.` : '',
+          `Não compatíveis exibidos: ${mergedRejectedResults.length}.`,
           linkedinSummary,
           alcateiaSummary,
           expandedRuntimeFilter.cityRadiusMessage,
@@ -5607,7 +5528,17 @@ async function handleApi(request, response) {
         searchResponse.searchResults = sortCandidateRowsByFreshnessAndScore(mergedResults)
           .sort((first, second) => Number(second.score ?? 0) - Number(first.score ?? 0))
           .slice(0, requestedLimit);
-        searchResponse.searchRejectedResults = [];
+        searchResponse.searchRejectedResults = mergedRejectedResults.slice(0, requestedLimit);
+        searchResponse.searchSourceStats = {
+          ...(search.sourceStats || {}),
+          ...(apinfoBlocked ? { APINFO: { status: 'error', error: 'Credenciais não configuradas', ...screeningStats([]) } } : {}),
+          ALCATEIA: { ...(alcateiaSearch.stats || screeningStats([])), status: expandedRuntimeFilter.searchAlcateia ? (alcateiaSearch.error ? 'error' : 'completed') : 'disabled', error: alcateiaSearch.error || '' }
+        };
+        searchResponse.searchStats = Object.values(searchResponse.searchSourceStats).reduce((total, item) => {
+          for (const key of ['found', 'evaluated', 'compatible', 'pending', 'rejected']) total[key] += Number(item[key] || 0);
+          return total;
+        }, { found: 0, evaluated: 0, compatible: 0, pending: 0, rejected: 0 });
+        if (Object.values(searchResponse.searchSourceStats).some(item => item.status === 'error' || item.warnings?.length)) searchResponse.searchStatus = 'partial';
       }
 
       sendJson(response, 200, searchResponse);

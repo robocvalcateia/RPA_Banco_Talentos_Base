@@ -1,3 +1,5 @@
+import { screenCandidate, coreKeyword, skillAlternatives, screeningStats } from './candidate-screening.js';
+
 const APINFO_BASE = 'https://www.apinfo2.com/apinfo/inc/';
 const APINFO_LOGIN_URL = new URL('pesqentra2.cfm', APINFO_BASE).href;
 const APINFO_SEARCH_URL = new URL('pesq9b.cfm', APINFO_BASE).href;
@@ -163,7 +165,7 @@ function extractCityCodes(html, city) {
 }
 
 function buildKeyword(filter) {
-  return String(filter.mandatorySkills || '').trim();
+  return coreKeyword(filter);
 }
 
 function requestedEnglishRank(value = '') {
@@ -292,6 +294,7 @@ export function buildLinkedinQueries(filter = {}, limit = 10) {
   const locationGroup = booleanOr(locations.slice(0, 6));
 
   const strategies = [
+    { name: 'Competência principal', query: ['site:linkedin.com/in', booleanOr(skillAlternatives(coreKeyword(filter))), negatives].filter(Boolean).join(' ') },
     {
       name: 'Restritiva',
       query: ['site:linkedin.com/in', titleGroup, mandatoryGroup, locationGroup, negatives].filter(Boolean).join(' ')
@@ -440,54 +443,7 @@ function extractDetail(html, result) {
 }
 
 function filterAndScoreCandidate(detail, filter, candidate = {}) {
-  const listFilters = evaluateRequiredListFilters(detail.text, filter, candidate);
-  const mandatory = evaluateMandatorySkills(detail.text, filter.mandatorySkills);
-  const match = calculateJobMatch(detail.text, filter.jobDescription);
-  const jobScore = match.score;
-  const minimum = Number(filter.matchPercent || 0);
-  const found = match.hits.slice(0, 8).join(', ') || 'nenhum termo forte encontrado';
-  const missing = match.missing.slice(0, 8).join(', ') || 'sem lacunas relevantes';
-  const mandatoryFound = mandatory.hits.join(', ') || 'nenhuma habilidade obrigatoria informada';
-  const mandatoryMissing = mandatory.missing.join(', ') || 'nenhuma';
-
-  const base = {
-    score: jobScore,
-    matchedMandatorySkills: mandatory.hits,
-    missingMandatorySkills: mandatory.missing,
-    jobDescriptionHits: match.hits,
-    jobDescriptionMissing: match.missing,
-    missingListFilters: listFilters.missing
-  };
-
-  if (!listFilters.accepted) {
-    return {
-      ...base,
-      accepted: false,
-      reason: `Reprovado por filtro obrigatorio nao atendido: ${listFilters.missing.join(', ')}. Aderencia da Job Description: ${jobScore}%.`
-    };
-  }
-
-  if (!mandatory.accepted) {
-    return {
-      ...base,
-      accepted: false,
-      reason: `Reprovado por habilidade obrigatoria ausente: ${mandatoryMissing}. Obrigatorias encontradas: ${mandatoryFound}. Aderencia da Job Description: ${jobScore}%.`
-    };
-  }
-
-  if (jobScore < minimum) {
-    return {
-      ...base,
-      accepted: false,
-      reason: `Habilidades obrigatorias atendidas: ${mandatoryFound}. Aderencia da Job Description ${jobScore}% abaixo do minimo ${minimum}%. Ficou de fora: ${missing}. Encontrado no CV: ${found}.`
-    };
-  }
-
-  return {
-    ...base,
-    accepted: true,
-    observation: `Habilidades obrigatorias atendidas: ${mandatoryFound}. Aderencia da Job Description: ${jobScore}%. Encontrado no CV: ${found}. Pontos nao evidentes: ${missing}.`
-  };
+  return screenCandidate(detail.text, filter, candidate);
 }
 
 function extractGoogleLinkedinResults(html = '') {
@@ -661,52 +617,7 @@ function linkedinEvidence(profileText, filter) {
 }
 
 export function evaluateLinkedinCandidateTextForFilter(text, filter) {
-  const evidence = linkedinEvidence(text, filter);
-  const minimum = Number(filter.matchPercent || 0);
-  const reviewReasons = [];
-  const mandatoryFound = evidence.mandatory.hits.join(', ') || 'nenhuma habilidade obrigatoria informada';
-  const mandatoryMissing = evidence.mandatory.missing.join(', ') || 'nenhuma';
-
-  if (!evidence.mandatory.accepted) {
-    return {
-      ...evidence,
-      classification: 'rejected',
-      accepted: false,
-      review: false,
-      reason: `Rejeitado LinkedIn: habilidade obrigatoria ausente no perfil publico: ${mandatoryMissing}. Obrigatorias encontradas: ${mandatoryFound}. Aderencia da Job Description: ${evidence.job.score}%.`
-    };
-  }
-
-  if (evidence.job.score < minimum) {
-    reviewReasons.push(`aderencia da Job Description ${evidence.job.score}% abaixo do minimo ${minimum}%`);
-  }
-  if (String(filter.city || filter.state || '').trim() && !evidence.locationHits.length) {
-    reviewReasons.push('localidade nao evidente no perfil publico');
-  }
-  if (String(filter.englishLevel || '').trim() && !evidence.englishHits.length) {
-    reviewReasons.push('nivel de ingles nao evidente no perfil publico');
-  }
-  if (!evidence.titleHits.length) {
-    reviewReasons.push('cargo/contexto nao evidente no perfil publico');
-  }
-
-  if (reviewReasons.length) {
-    return {
-      ...evidence,
-      classification: 'review',
-      accepted: false,
-      review: true,
-      reason: `Revisar LinkedIn: habilidades obrigatorias atendidas (${mandatoryFound}), mas ${reviewReasons.join('; ')}.`
-    };
-  }
-
-  return {
-    ...evidence,
-    classification: 'approved',
-    accepted: true,
-    review: false,
-    observation: `LinkedIn aprovado: habilidades obrigatorias atendidas (${mandatoryFound}). Aderencia da Job Description: ${evidence.job.score}%.`
-  };
+  return screenCandidate(text, filter, {}, true);
 }
 
 function linkedinResultRow(profile, filter, search, evaluation) {
@@ -729,7 +640,10 @@ function linkedinResultRow(profile, filter, search, evaluation) {
     name: profile.name,
     source: accepted ? 'LinkedIn v2' : review ? 'Revisar LinkedIn' : 'LinkedIn v2 - rejeitado',
     link: profile.link,
-    score: evaluation.classification === 'review' ? evaluation.job.score : evaluation.score,
+    score: evaluation.score,
+    classification: evaluation.classification,
+    scoreType: evaluation.scoreType,
+    pendingChecks: evaluation.pendingChecks,
     sourceUpdatedAt: '',
     sourceUpdatedAtTime: 0,
     matchedMandatorySkills: evaluation.mandatory.hits,
@@ -785,7 +699,7 @@ export async function searchLinkedinCandidates(filter, limit = 10) {
 
   for (const profile of search.profiles) {
     const fallbackText = `${profile.name}\n${profile.snippet}`;
-    const profileText = await fetchLinkedinProfileText(profile.link, fallbackText);
+    const profileText = fallbackText; // Public summaries are partial evidence, never a complete CV.
     const evaluation = evaluateLinkedinCandidateTextForFilter(profileText, filter);
     const row = linkedinResultRow(profile, filter, search, evaluation);
 
@@ -795,12 +709,12 @@ export async function searchLinkedinCandidates(filter, limit = 10) {
       rejectedResults.push(row);
     }
 
-    if (results.length >= requestedLimit && rejectedResults.length >= requestedLimit) break;
   }
 
   return {
     query: search.query,
-    totalFound: search.profiles.length,
+    totalFound: profilesByLink.size,
+    stats: screeningStats([...results, ...rejectedResults], profilesByLink.size),
     provider: search.provider,
     strategies,
     errors: search.errors,
@@ -867,6 +781,7 @@ class ApinfoSession {
 
   async request(url, options = {}) {
     const response = await fetch(url, {
+      signal: AbortSignal.timeout(20000),
       redirect: 'follow',
       ...options,
       headers: {
@@ -876,6 +791,7 @@ class ApinfoSession {
       }
     });
 
+    if (!response.ok) throw new Error(`APINFO respondeu HTTP ${response.status}`);
     this.storeCookies(response);
     const buffer = await response.arrayBuffer();
     const html = new TextDecoder('windows-1252').decode(buffer);
@@ -938,27 +854,16 @@ export async function searchApinfoCandidates(filter, credentials, limit = 10) {
   const targetScan = Math.min(Math.max(requestedLimit * 4, 20), 100);
   const maxPages = Math.ceil(targetScan / 20);
   const extraFields = {};
-  const level = englishCode(filter.englishLevel);
+  const retrievalFilter = { ...filter, state: '', city: '' };
 
-  if (level) extraFields['ingles[]'] = level;
-
-  const firstSearch = await session.search(filter, extraFields);
+  const firstSearch = await session.search(retrievalFilter, extraFields);
   let firstHtml = firstSearch.html;
-  const cityCodes = Array.from(new Set((Array.isArray(filter.cityRadiusCities) && filter.cityRadiusCities.length
-    ? filter.cityRadiusCities
-    : [filter.city]
-  ).flatMap((city) => extractCityCodes(firstHtml, city))));
-
-  if (cityCodes.length) {
-    extraFields['cod_cidade[]'] = cityCodes;
-    const citySearch = await session.search(filter, extraFields);
-    firstHtml = citySearch.html;
-  }
+  // Missing language and residence fields must not suppress initial retrieval.
 
   let links = parseResultLinks(firstHtml);
 
   for (let page = 2; page <= maxPages && links.length < targetScan; page += 1) {
-    const pageSearch = await session.search(filter, extraFields, page);
+    const pageSearch = await session.search(retrievalFilter, extraFields, page);
     const pageLinks = parseResultLinks(pageSearch.html);
     if (!pageLinks.length) break;
     links.push(...pageLinks);
@@ -982,8 +887,11 @@ export async function searchApinfoCandidates(filter, credentials, limit = 10) {
     const evaluation = filterAndScoreCandidate(detail, filter);
     inspected.push({ code: detail.code, accepted: evaluation.accepted, reason: evaluation.reason, lastUpdated: detail.lastUpdated });
 
-    if (evaluation.accepted) {
+    if (evaluation.accepted || evaluation.review) {
       results.push({
+        classification: evaluation.classification,
+        scoreType: evaluation.scoreType,
+        pendingChecks: evaluation.pendingChecks,
         name: detail.name,
         source: 'APINFO',
         link: detail.link,
@@ -998,6 +906,7 @@ export async function searchApinfoCandidates(filter, credentials, limit = 10) {
       });
     } else {
       rejectedResults.push({
+        classification: 'rejected',
         name: detail.name,
         source: 'APINFO',
         link: detail.link,
@@ -1012,14 +921,14 @@ export async function searchApinfoCandidates(filter, credentials, limit = 10) {
       });
     }
 
-    if (results.length >= requestedLimit && rejectedResults.length >= requestedLimit) break;
   }
 
   return {
     keyword: buildKeyword(filter),
     totalFound: extractCount(firstHtml),
     inspected,
-    results: results.slice(0, requestedLimit),
+    stats: screeningStats([...results, ...rejectedResults], extractCount(firstHtml)),
+    results: results.sort((a, b) => b.score - a.score).slice(0, requestedLimit),
     rejectedResults: rejectedResults.slice(0, requestedLimit)
   };
 }
@@ -1038,46 +947,25 @@ export async function extractApinfoCandidateText(credentials, link) {
   return htmlToText(detailResponse.html);
 }
 
-export async function searchApinfoAndLinkedinCandidates(filter, credentials, limit = 10) {
-  const requestedLimit = Math.max(1, Math.min(50, Number(filter.resultLimit || limit || 10)));
-  const apinfo = filter.searchApinfo
-    ? await searchApinfoCandidates(filter, credentials, requestedLimit)
-    : {
-        keyword: buildKeyword(filter),
-        totalFound: 0,
-        inspected: [],
-        results: [],
-        rejectedResults: []
-      };
-  let linkedin = {
-    query: linkedinQuery(filter),
-    totalFound: 0,
-    results: [],
-    rejectedResults: [],
-    provider: (process.env.SERPAPI_KEY || process.env.SERPAPI_API_KEY) ? 'SerpAPI' : 'Google direto',
-    error: ''
+export async function searchApinfoAndLinkedinCandidates(filter, credentials, limit = 50) {
+  const requestedLimit = Math.max(1, Math.min(50, Number(filter.resultLimit || limit || 50)));
+  const safeSearch = async (enabled, run) => {
+    if (!enabled) return { totalFound: 0, results: [], rejectedResults: [], stats: screeningStats([], 0), status: 'disabled' };
+    try { return { ...await run(), status: 'completed' }; }
+    catch (error) { return { totalFound: 0, results: [], rejectedResults: [], stats: screeningStats([], 0), status: 'error', error: error.message || 'Falha na fonte' }; }
   };
-
-  try {
-    if (filter.searchLinkedin) {
-      linkedin = await searchLinkedinCandidates(filter, requestedLimit);
-    }
-  } catch (error) {
-    linkedin.error = error.message || 'Nao foi possivel consultar Google/LinkedIn.';
-  }
-
+  const [apinfo, linkedin] = await Promise.all([
+    safeSearch(filter.searchApinfo, () => searchApinfoCandidates(filter, credentials, requestedLimit)),
+    safeSearch(filter.searchLinkedin, () => searchLinkedinCandidates(filter, requestedLimit))
+  ]);
   return {
-    keyword: apinfo.keyword,
-    totalFound: apinfo.totalFound,
-    inspected: apinfo.inspected,
-    linkedinQuery: linkedin.query,
-    linkedinFound: linkedin.totalFound,
-    linkedinProvider: linkedin.provider || ((process.env.SERPAPI_KEY || process.env.SERPAPI_API_KEY) ? 'SerpAPI' : 'Google direto'),
-    linkedinError: linkedin.error || '',
-    linkedinStrategies: Array.isArray(linkedin.strategies) ? linkedin.strategies : [],
-    linkedinErrors: Array.isArray(linkedin.errors) ? linkedin.errors : [],
-    results: sortByFreshnessAndScore(mergeCandidateRows(apinfo.results, linkedin.results, requestedLimit)).slice(0, requestedLimit),
-    rejectedResults: sortByFreshnessAndScore(mergeCandidateRows(apinfo.rejectedResults, linkedin.rejectedResults, requestedLimit)).slice(0, requestedLimit)
+    keyword: coreKeyword(filter), totalFound: apinfo.totalFound, inspected: apinfo.inspected || [],
+    apinfoError: apinfo.error || '', linkedinQuery: linkedin.query || '', linkedinFound: linkedin.totalFound,
+    linkedinProvider: linkedin.provider || '', linkedinError: linkedin.error || '',
+    linkedinStrategies: linkedin.strategies || [], linkedinErrors: linkedin.errors || [],
+    sourceStats: { APINFO: { ...apinfo.stats, status: apinfo.status, error: apinfo.error || '' }, LINKEDIN: { ...linkedin.stats, status: linkedin.status, error: linkedin.error || '', warnings: linkedin.errors || [] } },
+    results: [...apinfo.results, ...linkedin.results].sort((a, b) => b.score - a.score),
+    rejectedResults: [...apinfo.rejectedResults, ...linkedin.rejectedResults].sort((a, b) => b.score - a.score)
   };
 }
 
@@ -1099,6 +987,9 @@ export function evaluateInternalCandidateForFilter(curriculum, filter) {
     curriculum.cursos_certificacoes,
     curriculum.conhecimento_tecnico,
     curriculum.experiencia_profissional,
+    curriculum.search_text_all,
+    curriculum.texto_integral,
+    curriculum.resumo,
     curriculum.cargo_alvo,
     curriculum.observacoes_entrevista,
     curriculum.fonte,
@@ -1106,9 +997,9 @@ export function evaluateInternalCandidateForFilter(curriculum, filter) {
   ].filter(Boolean).join('\n');
   const address = String(curriculum.endereco || curriculum.localizacao || '').trim();
   const addressParts = address.split(/[,/\-]+/).map((part) => part.trim()).filter(Boolean);
-  const stateMatch = address.match(/(?:^|[,/\s-])([A-Z]{2})(?:$|[,/\s-])/i);
+  const stateMatch = address.match(/(?:^|[,/\s-])(AC|AL|AP|AM|BA|CE|DF|ES|GO|MA|MT|MS|MG|PA|PB|PR|PE|PI|RJ|RN|RS|RO|RR|SC|SP|SE|TO)(?:$|[,/\s-])/);
   const structuredCandidate = {
-    city: curriculum.cidade || (addressParts.length > 1 ? addressParts[0] : ''),
+    city: curriculum.cidade || (addressParts.length === 2 && /^[A-Z]{2}$/.test(addressParts[1]) ? addressParts[0] : ''),
     state: curriculum.estado || stateMatch?.[1] || '',
     englishLevel: curriculum.nivel_ingles || ''
   };
@@ -1117,9 +1008,14 @@ export function evaluateInternalCandidateForFilter(curriculum, filter) {
 
   return {
     accepted: evaluation.accepted,
+    review: evaluation.review,
     row: {
       id: `alcateia_${curriculum.id || curriculum.id_controle || curriculum.mongoId || curriculum.nome}`,
       name: curriculum.nome,
+      curriculumId: curriculum.id_controle || curriculum.id || curriculum.mongoId || '',
+      classification: evaluation.classification,
+      scoreType: evaluation.scoreType,
+      pendingChecks: evaluation.pendingChecks,
       source: 'ALCATEIA',
       link: curriculum.linkedin || '',
       score: evaluation.score,
@@ -1129,7 +1025,7 @@ export function evaluateInternalCandidateForFilter(curriculum, filter) {
       missingMandatorySkills: evaluation.missingMandatorySkills,
       jobDescriptionHits: evaluation.jobDescriptionHits,
       jobDescriptionMissing: evaluation.jobDescriptionMissing,
-      observation: evaluation.accepted
+      observation: (evaluation.accepted || evaluation.review)
         ? `${evaluation.observation}. Banco interno atualizado em ${sourceUpdatedAt || 'data nao informada'}.`
         : `${evaluation.reason || 'Reprovado pela regra de aderencia.'} Banco interno atualizado em ${sourceUpdatedAt || 'data nao informada'}.`
     }

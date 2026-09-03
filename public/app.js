@@ -1181,7 +1181,9 @@ function renderOptions() {
     select.innerHTML = aderenciaOptions;
   });
   $$('select[name="state"]').forEach((select) => {
+    const currentValue = select.value;
     select.innerHTML = ufOptions;
+    select.value = currentValue;
   });
 
   updateOpportunityContactOptions();
@@ -3285,33 +3287,6 @@ function renderHuntings() {
     .join('');
 }
 
-function shortText(value, maxLength = 90) {
-  const text = String(value || '').trim();
-  return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
-}
-
-function renderCvFilters() {
-  $('#cvFilterCount').textContent = state.cvFilters.length;
-  $('#cvFilterTable').innerHTML = state.cvFilters
-    .map((filter) => {
-      const opportunity = state.opportunities.find((item) => item.id === filter.opportunityId);
-      return `
-        <tr class="clickable-row" data-edit-cv-filter="${filter.id}">
-          <td><strong>${filter.opportunityCode || opportunity?.opportunityCode || '-'}</strong><br>${filter.opportunityName || opportunity?.opportunity || '-'}</td>
-          <td>${shortText(filter.jobDescription)}</td>
-          <td>${shortText(filter.mandatorySkills)}</td>
-          <td>${filter.state || '-'}</td>
-          <td>${filter.city || '-'}</td>
-          <td>${filter.englishLevel || '-'}</td>
-          <td>${filter.matchPercent ?? 0}%</td>
-          <td>${enabledSourceLabels(filter).join(', ') || '-'}</td>
-          <td><button class="ghost-action" type="button" data-delete-cv-filter="${filter.id}" aria-label="Excluir filtro">Excluir</button></td>
-        </tr>
-      `;
-    })
-    .join('');
-}
-
 function enabledSourceLabels(filter) {
   return [
     filter.searchApinfo ? 'APINFO' : '',
@@ -3490,9 +3465,9 @@ function renderCvResultRows(results, emptyMessage, group) {
       <tr>
         <td><input type="checkbox" data-select-cv-result="${result.id}" data-result-group="${group}" aria-label="Selecionar ${result.name || 'candidato'}" /></td>
         <td><strong>${renderBlackflagName(result.name, curriculum || result)}</strong></td>
-        <td>${result.source || 'APINFO'}</td>
+        <td>${escapeHtml(result.source || 'APINFO')}<br>${result.classification === 'review' ? 'A confirmar' : result.classification === 'rejected' ? 'Não compatível' : 'Compatível'}</td>
         <td>${candidateLinkHtml(result)}</td>
-        <td>${result.score ?? 0}</td>
+        <td>${result.score ?? 0}%<br>${escapeHtml(result.scoreType || 'Evidência')}</td>
         <td>${result.observation || '-'}</td>
       </tr>
     `;
@@ -3518,8 +3493,8 @@ function renderCvSearchResults() {
   if (!status || !table) return;
 
   if (!filter) {
-    status.textContent = 'Selecione um filtro salvo';
-    table.innerHTML = '<tr><td colspan="6">Salve ou clique em um filtro para buscar candidatos.</td></tr>';
+    status.textContent = 'Preencha e salve os critérios';
+    table.innerHTML = '<tr><td colspan="6">Preencha os critérios e salve para buscar candidatos.</td></tr>';
     if (rejectedStatus) rejectedStatus.textContent = 'Selecione um filtro salvo';
     if (rejectedTable) rejectedTable.innerHTML = '<tr><td colspan="6">Salve ou clique em um filtro para visualizar rejeitados.</td></tr>';
     setCvSearchInlineStatus('Nenhuma busca executada.');
@@ -3533,9 +3508,10 @@ function renderCvSearchResults() {
   const rejectedResults = Array.isArray(filter.searchRejectedResults) ? filter.searchRejectedResults : [];
     if (filter.searchStatus === 'running') {
     setCvSearchInlineStatus('Busca de Candidatos em Andamento', 'running');
-  } else if (filter.searchStatus === 'completed') {
+  } else if (filter.searchStatus === 'completed' || filter.searchStatus === 'partial') {
+    const counts = filter.searchStats;
     setCvSearchInlineStatus(
-      `Busca finalizada. Aprovados: ${results.length}; Rejeitados: ${rejectedResults.length}; Total analisado: ${results.length + rejectedResults.length}.`,
+      counts ? `${filter.searchStatus === 'partial' ? 'Busca parcial (consulte falhas por fonte)' : 'Busca finalizada'}. Encontrados: ${counts.found}; Avaliados: ${counts.evaluated}; Compatíveis: ${counts.compatible}; A confirmar: ${counts.pending}; Não compatíveis: ${counts.rejected}. Exibidos: ${results.length + rejectedResults.length}. Totais por fonte, antes de deduplicar pessoas.` : 'Busca anterior sem métricas detalhadas. Execute novamente para obter contadores confiáveis.',
       'done'
     );
   } else if (filter.searchStatus === 'no_sources') {
@@ -3546,12 +3522,12 @@ function renderCvSearchResults() {
     setCvSearchInlineStatus('Pronto para buscar candidatos.');
   }
 
-  table.innerHTML = renderCvResultRows(results, 'Nenhum candidato aprovado pela regra.', 'resultado');
+  table.innerHTML = renderCvResultRows(results, 'Nenhum candidato compatível ou pendente neste recorte. Confira as fontes e os motivos abaixo.', 'resultado');
   if (rejectedStatus) {
-    rejectedStatus.textContent = '';
+    rejectedStatus.textContent = `${rejectedResults.length} registros exibidos; os totais da avaliação são apresentados acima.`;
   }
   if (rejectedTable) {
-    rejectedTable.innerHTML = '';
+    rejectedTable.innerHTML = renderCvResultRows(rejectedResults, 'Nenhum registro neste grupo.', 'rejeitado');
   }
 }
 
@@ -8064,7 +8040,6 @@ function render() {
   renderOpportunities();
   renderHuntingFilters();
   renderHuntings();
-  renderCvFilters();
   renderCvSearchResults();
   renderCurriculums();
   renderCandidateFilters();
@@ -8310,6 +8285,10 @@ async function loadCvFilterForEdit(filter, options = {}) {
     opportunityId: filter.opportunityId,
     jobDescription: filter.jobDescription,
     mandatorySkills: filter.mandatorySkills,
+    coreSkill: filter.coreSkill || '',
+    technicalSkills: filter.technicalSkills || '',
+    desirableSkills: filter.desirableSkills || '',
+    locations: filter.locations || '',
     searchApinfo: filter.searchApinfo,
     searchLinkedin: filter.searchLinkedin,
     searchAlcateia: filter.searchAlcateia,
@@ -10798,6 +10777,8 @@ function updateSaveSelectedCandidatesState() {
 function currentCvSearchSourcePayload() {
   const form = $('#cvFilterForm');
   return {
+    ...formPayload(form),
+    resultLimit: 50,
     searchApinfo: Boolean(form?.elements.searchApinfo?.checked),
     searchLinkedin: Boolean(form?.elements.searchLinkedin?.checked),
     searchAlcateia: Boolean(form?.elements.searchAlcateia?.checked)
@@ -10805,6 +10786,12 @@ function currentCvSearchSourcePayload() {
 }
 
 function bindCvSearch() {
+  $('#newCvFilterButton')?.addEventListener('click', () => {
+    if (selectedCvFilter()?.searchStatus === 'running') return;
+    clearEditing($('#cvFilterForm'), 'cvFilterId', 'Salvar filtro');
+    populateCityOptions('');
+    renderCvSearchResults();
+  });
   $('#cvSearchButton')?.addEventListener('click', async () => {
     const filter = selectedCvFilter();
     if (!filter) {
@@ -11260,28 +11247,6 @@ function bindEditableRows() {
         ?? state.candidates.find((item) => item.opportunityId === opportunity.id);
       loadHuntingForEdit(opportunity, candidate);
     }
-  });
-
-  $('#cvFilterTable').addEventListener('click', (event) => {
-    const deleteButton = event.target.closest('[data-delete-cv-filter]');
-    if (deleteButton) {
-      const filter = state.cvFilters.find((item) => item.id === deleteButton.dataset.deleteCvFilter);
-      if (!filter) return;
-      if (!window.confirm('Apagar este filtro de CV?')) return;
-      api(`/api/cv-filters/${filter.id}`, { method: 'DELETE' })
-        .then(() => {
-          if (state.editing.cvFilterId === filter.id) state.editing.cvFilterId = '';
-          removeStateItem('cvFilters', filter.id);
-          toast('Filtro de CV apagado.');
-          render();
-        })
-        .catch((error) => toast(error.message || 'Não foi possível apagar o filtro.'));
-      return;
-    }
-    if (event.target.closest('button, a, input, select, textarea')) return;
-    const row = event.target.closest('[data-edit-cv-filter]');
-    const filter = state.cvFilters.find((item) => item.id === row?.dataset.editCvFilter);
-    if (filter) loadCvFilterForEdit(filter);
   });
 
   $('#candidateTable').addEventListener('click', (event) => {

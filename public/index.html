@@ -1058,8 +1058,13 @@
               <option value="Avançado">Avançado</option>
               <option value="Fluente">Fluente</option>
             </select></label>
-            <label>Percentual de Acerto<input name="matchPercent" type="number" min="0" max="100" step="1" /></label>
+            <label>Evidência mínima no CV (%)<input name="matchPercent" type="number" min="0" max="100" step="1" value="60" /></label>
+            <label>Competência principal<input name="coreSkill" placeholder="Ex.: SAP FI ou SAP MM" /></label>
+            <label>Localidades alternativas (substituem Estado/Cidade)<input name="locations" placeholder="São Paulo/SP; Rio de Janeiro/RJ" /></label>
             <label class="full">Habilidades Obrigatórias<textarea name="mandatorySkills" rows="2" placeholder="Ex.: PL SQL, UIPath, SAP"></textarea></label>
+            <label class="full">Critérios técnicos para pontuação<textarea name="technicalSkills" rows="2" placeholder="Separe por vírgula: J1BTAX, TAXBRA, revisão de faturas"></textarea></label>
+            <label class="full">Diferenciais (não eliminatórios)<textarea name="desirableSkills" rows="2" placeholder="Separe por vírgula: SAP Activate, rollout, debug"></textarea></label>
+            <p class="full">A busca inicial usa a competência principal (ou a primeira habilidade obrigatória). Inglês e localidade não informados ficam a confirmar. Resumos públicos não equivalem a currículos completos. A pontuação não substitui entrevista, comprovação de experiência ou teste de inglês.</p>
             <label class="full">Job_description<textarea name="jobDescription" rows="4" required></textarea></label>
             <fieldset class="full checkbox-group">
               <legend>Fontes de busca</legend>
@@ -1068,39 +1073,16 @@
               <label class="checkbox-field"><input name="searchAlcateia" type="checkbox" checked /> ALCATEIA</label>
             </fieldset>
             <button class="primary-action" type="submit">Salvar filtro</button>
+            <button class="ghost-action" id="newCvFilterButton" type="button">Nova busca</button>
             <button class="primary-action full" id="cvSearchButton" type="button" disabled>Buscar Candidatos</button>
             <button class="primary-action full" id="saveSelectedCandidatesButton" type="button" disabled>Salvar Selecionados</button>
             <p id="cvSearchInlineStatus" class="search-inline-status full">Nenhuma busca executada.</p>
           </form>
         </section>
-        <section class="panel">
-          <div class="panel-heading">
-            <h2>Filtros de CVs</h2>
-            <span id="cvFilterCount">0</span>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Oportunidade</th>
-                  <th>Job_description</th>
-                  <th>Habilidades Obrigatórias</th>
-                  <th>Estado</th>
-                  <th>Cidade</th>
-                  <th>Inglês</th>
-                  <th>% Acerto</th>
-                  <th>Fontes</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody id="cvFilterTable"></tbody>
-            </table>
-          </div>
-        </section>
         <section class="panel" id="cvSearchResultsPanel">
           <div class="panel-heading">
             <h2>Resultados da busca</h2>
-            <span id="cvSearchStatus">Selecione um filtro salvo</span>
+            <span id="cvSearchStatus">Preencha e salve os critérios</span>
           </div>
           <div class="table-wrap">
             <table>
@@ -1117,6 +1099,11 @@
               <tbody id="cvSearchResultTable"></tbody>
             </table>
           </div>
+          <details>
+            <summary>Não compatíveis com os critérios documentados</summary>
+            <p id="cvRejectedStatus"></p>
+            <div class="table-wrap"><table><thead><tr><th>Selecionar</th><th>Nome</th><th>Fonte</th><th>Link</th><th>Evidência</th><th>Motivo</th></tr></thead><tbody id="cvRejectedResultTable"></tbody></table></div>
+          </details>
         </section>
       </section>
 

@@ -220,13 +220,13 @@ test('filtro de CV exige listas preenchidas, skills obrigatorias e percentual mi
     'Gerente de projetos Activate'
   ].join('\n');
 
-  assert.equal(evaluateCandidateTextForFilter(acceptedText, filter).accepted, true);
+  assert.equal(evaluateCandidateTextForFilter(acceptedText, filter).review, true); // Unstructured city mentions are not proof of residence.
   assert.equal(evaluateCandidateTextForFilter(missingMandatoryText, filter).accepted, false);
   assert.match(evaluateCandidateTextForFilter(missingMandatoryText, filter).reason, /habilidade obrigatoria/i);
   assert.equal(evaluateCandidateTextForFilter(lowScoreText, filter).accepted, false);
-  assert.match(evaluateCandidateTextForFilter(lowScoreText, filter).reason, /abaixo do minimo/i);
+  assert.match(evaluateCandidateTextForFilter(lowScoreText, filter).reason, /abaixo do mínimo/i);
   assert.equal(evaluateCandidateTextForFilter(missingListText, filter).accepted, false);
-  assert.match(evaluateCandidateTextForFilter(missingListText, filter).reason, /filtro obrigatorio/i);
+  assert.match(evaluateCandidateTextForFilter(missingListText, filter).reason, /localidade nao evidente/i);
 });
 
 test('filtro de CV aceita listas em branco e cidades dentro do raio parametrizado', () => {
@@ -245,7 +245,7 @@ test('filtro de CV aceita listas em branco e cidades dentro do raio parametrizad
     'Gerente de projetos Activate'
   ].join('\n');
 
-  assert.equal(evaluateCandidateTextForFilter(text, filter).accepted, true);
+  assert.equal(evaluateCandidateTextForFilter(text, filter).review, true);
 });
 
 test('filtro interno compara localizacao estruturada e aceita ingles acima do minimo', () => {
@@ -331,8 +331,8 @@ test('LinkedIn v2 classifica evidencias publicas sem rejeitar por lacuna nao evi
     'Rollout SAP, governanca PMO e projetos corporativos.'
   ].join('\n');
   const approved = evaluateLinkedinCandidateTextForFilter(approvedText, filter);
-  assert.equal(approved.classification, 'approved');
-  assert.equal(approved.accepted, true);
+  assert.equal(approved.classification, 'review');
+  assert.equal(approved.accepted, false); // A public summary still requires a full CV.
 });
 
 test('candidato selecionado preserva campos estruturados quando vierem explicitamente do curriculo', () => {
