@@ -73,6 +73,7 @@ import {
   extractApinfoCandidateText,
   extractEmailsFromText,
   evaluateCandidateTextForFilter,
+  evaluateInternalCandidateForFilter,
   searchApinfoAndLinkedinCandidates,
   sortCandidateRowsByFreshnessAndScore
 } from './apinfo.js';
@@ -2009,7 +2010,7 @@ function shortSearchText(value = '', maxLength = 180) {
 }
 
 function evaluateAlcateiaCurriculum(curriculum, filter) {
-  return evaluateCandidateTextForFilter(curriculumTextForAlcateia(curriculum), filter);
+  return evaluateInternalCandidateForFilter(curriculum, filter);
 }
 
 async function searchAlcateiaCandidates(filter, limit = 10) {

@@ -11,10 +11,31 @@ const STOPWORDS = new Set([
 ]);
 
 const ENGLISH_LEVELS = {
+  basico: '1',
   tecnico: '1',
   intermediario: '2',
+  avancado: '3',
   fluente: '3'
 };
+
+const ENGLISH_RANKS = Object.freeze({ basico: 1, tecnico: 1, intermediario: 2, avancado: 3, fluente: 4 });
+const ENGLISH_PATTERNS = Object.freeze([
+  ['fluente', 4, /\b(fluente|fluent|fluency|full professional|native|nativo|c2)\b/],
+  ['avancado', 3, /\b(avancad[oa]|advanced|professional working|upper intermediate|c1)\b/],
+  ['intermediario', 2, /\b(intermediari[oa]|intermediate|b1|b2|regular)\b/],
+  ['tecnico', 1, /\b(tecnic[oa]|technical reading|leitura tecnica)\b/],
+  ['basico', 1, /\b(basic[oa]?|elementary|a1|a2)\b/]
+]);
+
+const SKILL_ALIASES = Object.freeze({
+  'pl sql': ['pl/sql', 'plsql'],
+  'pl/sql': ['pl sql', 'plsql'],
+  '.net': ['dotnet', 'asp.net', 'c#'],
+  dotnet: ['.net', 'asp.net', 'c#'],
+  pmp: ['project management professional'],
+  'sap s/4hana': ['sap s4hana', 's/4 hana', 's4 hana'],
+  'sap s4hana': ['sap s/4hana', 's/4 hana', 's4 hana']
+});
 
 function normalizeText(value = '') {
   return String(value)
@@ -86,12 +107,15 @@ function textContainsSkill(normalizedText, compactText, skill) {
   const normalizedSkill = normalizeText(skill);
   if (!normalizedSkill) return true;
 
-  if (/^[a-z0-9]+$/.test(normalizedSkill)) {
-    return new RegExp(`(^| )${escapeRegex(normalizedSkill)}( |$)`).test(normalizedText);
-  }
+  const alternatives = [normalizedSkill, ...(SKILL_ALIASES[normalizedSkill] || []).map(normalizeText)];
+  return alternatives.some((alternative) => {
+    if (/^[a-z0-9]+$/.test(alternative)) {
+      return new RegExp(`(^| )${escapeRegex(alternative)}( |$)`).test(normalizedText);
+    }
 
-  const compactSkill = compactSkillText(skill);
-  return normalizedText.includes(normalizedSkill) || (compactSkill && compactText.includes(compactSkill));
+    const compactSkill = compactSkillText(alternative);
+    return normalizedText.includes(alternative) || (compactSkill && compactText.includes(compactSkill));
+  });
 }
 
 function evaluateMandatorySkills(text, mandatorySkills) {
@@ -140,6 +164,22 @@ function extractCityCodes(html, city) {
 
 function buildKeyword(filter) {
   return String(filter.mandatorySkills || '').trim();
+}
+
+function requestedEnglishRank(value = '') {
+  const normalized = normalizeText(value);
+  if (!normalized) return 0;
+  const direct = ENGLISH_RANKS[normalized];
+  if (direct) return direct;
+  return ENGLISH_PATTERNS.find(([, , pattern]) => pattern.test(normalized))?.[1] || 0;
+}
+
+function detectedEnglishLevel(value = '') {
+  const normalized = normalizeText(value);
+  const matches = ENGLISH_PATTERNS.filter(([, , pattern]) => pattern.test(normalized));
+  if (!matches.length) return { rank: 0, level: '', evident: false };
+  const [level, rank] = matches.sort((first, second) => second[1] - first[1])[0];
+  return { rank, level, evident: true };
 }
 
 function uniqueNonEmpty(values = []) {
@@ -299,21 +339,35 @@ function textContainsValue(normalizedText, value) {
   return normalizedText.includes(normalizedValue);
 }
 
-function evaluateRequiredListFilters(text, filter) {
+function evaluateRequiredListFilters(text, filter, candidate = {}) {
   const normalizedText = normalizeText(text);
   const cityValues = Array.isArray(filter.cityRadiusCities) && filter.cityRadiusCities.length
     ? filter.cityRadiusCities
     : [filter.city].filter(Boolean);
-  const checks = [
-    ['estado', filter.state],
-    ['nivel de ingles', filter.englishLevel]
-  ].filter(([, value]) => String(value || '').trim());
+  const missing = [];
+  const candidateState = String(candidate.state || candidate.estado || '').trim();
+  const candidateCity = String(candidate.city || candidate.cidade || '').trim();
+  const candidateEnglish = String(candidate.englishLevel || candidate.nivel_ingles || '').trim();
 
-  const missing = checks
-    .filter(([, value]) => !textContainsValue(normalizedText, value))
-    .map(([label, value]) => `${label}: ${value}`);
+  if (String(filter.state || '').trim()) {
+    const stateMatches = candidateState
+      ? normalizeText(candidateState) === normalizeText(filter.state)
+      : textContainsValue(normalizedText, filter.state);
+    if (!stateMatches) missing.push(`estado: ${filter.state}`);
+  }
 
-  if (String(filter.city || '').trim() && !cityValues.some((city) => textContainsValue(normalizedText, city))) {
+  if (String(filter.englishLevel || '').trim()) {
+    const requestedRank = requestedEnglishRank(filter.englishLevel);
+    const detected = detectedEnglishLevel(candidateEnglish || text);
+    if (!detected.evident || detected.rank < requestedRank) {
+      missing.push(`nivel de ingles minimo: ${filter.englishLevel}`);
+    }
+  }
+
+  const cityMatches = candidateCity
+    ? cityValues.some((city) => normalizeText(city) === normalizeText(candidateCity))
+    : cityValues.some((city) => textContainsValue(normalizedText, city));
+  if (String(filter.city || '').trim() && !cityMatches) {
     missing.push(`cidade: ${cityValues.join(' ou ')}`);
   }
 
@@ -385,8 +439,8 @@ function extractDetail(html, result) {
   };
 }
 
-function filterAndScoreCandidate(detail, filter) {
-  const listFilters = evaluateRequiredListFilters(detail.text, filter);
+function filterAndScoreCandidate(detail, filter, candidate = {}) {
+  const listFilters = evaluateRequiredListFilters(detail.text, filter, candidate);
   const mandatory = evaluateMandatorySkills(detail.text, filter.mandatorySkills);
   const match = calculateJobMatch(detail.text, filter.jobDescription);
   const jobScore = match.score;
@@ -1050,7 +1104,15 @@ export function evaluateInternalCandidateForFilter(curriculum, filter) {
     curriculum.fonte,
     curriculum.id_controle
   ].filter(Boolean).join('\n');
-  const evaluation = evaluateCandidateTextForFilter(text, filter);
+  const address = String(curriculum.endereco || curriculum.localizacao || '').trim();
+  const addressParts = address.split(/[,/\-]+/).map((part) => part.trim()).filter(Boolean);
+  const stateMatch = address.match(/(?:^|[,/\s-])([A-Z]{2})(?:$|[,/\s-])/i);
+  const structuredCandidate = {
+    city: curriculum.cidade || (addressParts.length > 1 ? addressParts[0] : ''),
+    state: curriculum.estado || stateMatch?.[1] || '',
+    englishLevel: curriculum.nivel_ingles || ''
+  };
+  const evaluation = filterAndScoreCandidate({ text }, filter, structuredCandidate);
   const sourceUpdatedAt = curriculum.data_atualizacao || curriculum.data_criacao || '';
 
   return {
