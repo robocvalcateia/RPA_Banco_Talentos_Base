@@ -799,6 +799,7 @@ class ApinfoSession {
   constructor(credentials) {
     this.credentials = credentials;
     this.cookies = new Map();
+    this.deadline = Date.now() + 180000;
   }
 
   cookieHeader() {
@@ -829,8 +830,10 @@ class ApinfoSession {
   }
 
   async requestOnce(url, options = {}) {
+    const remaining = this.deadline - Date.now();
+    if (remaining <= 0) throw new Error('Tempo máximo da consulta APINFO atingido; resultados parciais preservados');
     const response = await fetch(url, {
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(Math.max(1, Math.min(20000, remaining))),
       redirect: 'follow',
       ...options,
       headers: {
@@ -937,7 +940,7 @@ export async function searchApinfoCandidates(filter, credentials, limit = 10) {
 
   let cursor = 0;
   await Promise.all(Array.from({ length: Math.min(3, uniqueLinks.length) }, async () => {
-    while (cursor < uniqueLinks.length) {
+    while (cursor < uniqueLinks.length && Date.now() < session.deadline) {
       const link = uniqueLinks[cursor++];
       try {
         const detailResponse = await session.getDetail(link.link);
@@ -950,6 +953,7 @@ export async function searchApinfoCandidates(filter, credentials, limit = 10) {
   const found = extractCount(firstHtml);
   if (details.length < found) warnings.push(`Cobertura parcial: ${details.length} de ${found} resultados analisados; limite por execução ${targetScan}.`);
   if (failedDetails.length) warnings.push(`${failedDetails.length} currículos não puderam ser lidos após nova tentativa.`);
+  if (cursor < uniqueLinks.length) warnings.push(`${uniqueLinks.length - cursor} currículos aguardam leitura; orçamento de tempo da consulta esgotado.`);
 
   details.sort((first, second) => second.lastUpdatedTime - first.lastUpdatedTime);
 
