@@ -11,6 +11,14 @@ test('technical gaps cannot be offset by location English and every desirable', 
   assert.notEqual(result.triageGroup, 'prioridade de entrevista');
   assert.equal(result.evidence[0].found, false);
 });
+test('a training course does not prove professional delivery of a technical requirement', () => {
+  const result = screenCandidate('SAP MM\nCurso reforma tributária\nTreinamento J1BTAX', {...filter, technicalSkills:'reforma tributária, J1BTAX'});
+  assert.equal(result.technicalScore, 0);
+  assert.match(result.evidence[0].kind, /somente formação/);
+  const delivered = screenCandidate('SAP MM\nCurso reforma tributária\nImplantação reforma tributária no cliente', {...filter,technicalSkills:'reforma tributária'});
+  assert.equal(delivered.technicalScore, 100);
+  assert.match(delivered.evidence[0].excerpt, /Implantação/);
+});
 test('FI AP AR GL aliases match real accounting terms without treating AP as arbitrary abbreviation', () => {
   assert.equal(hasSkill('contas a pagar', 'SAP AP'), true);
   assert.equal(hasSkill('accounts receivable', 'SAP AR'), true);
@@ -33,6 +41,12 @@ test('module experience merges overlaps and excludes unrelated module date range
 test('APINFO follows actual next-page links and refuses external URLs', () => {
   assert.match(apinfoNextPage('<a href="pesq9b.cfm?start=21&amp;keyw=SAP">2</a>').url, /start=21&keyw=SAP/);
   assert.equal(apinfoNextPage('<a href="https://example.com/next">Próxima</a>'), null);
+  const form = apinfoNextPage('<form method="post" action="pesq9b.cfm"><input type="hidden" name="inicio" value="21"><input type="submit" name="seguir" value="Proximos"></form>');
+  assert.equal(form.method, 'post'); assert.equal(form.body.inicio, '21');
+});
+test('Junior as a surname is not a junior job title', () => {
+  const result = evaluateLinkedinCandidateTextForFilter('Mario Zanon Junior - Consultor SAP MM Sênior\nJ1BTAX', {...filter,jobDescription:'Consultor Sênior SAP MM'});
+  assert.notEqual(result.classification, 'rejected');
 });
 test('APINFO retains successful CVs after detail failures and detects repeated pagination', async () => {
   const original = globalThis.fetch;

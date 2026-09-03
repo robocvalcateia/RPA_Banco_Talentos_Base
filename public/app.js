@@ -3468,7 +3468,7 @@ function renderCvResultRows(results, emptyMessage, group) {
         <td>${escapeHtml(result.source || 'APINFO')}<br>${result.classification === 'review' ? 'A confirmar' : result.classification === 'rejected' ? 'Não compatível' : 'Compatível'}</td>
         <td>${candidateLinkHtml(result)}</td>
         <td>${result.score ?? 0}%<br>${escapeHtml(result.scoreType || 'Evidência')}</td>
-        <td>${escapeHtml(result.observation || '-')}<br><strong>${escapeHtml(result.triageGroup || 'Validação documental pendente')}</strong>${result.evidence?.length ? `<details><summary>Conferir requisitos e trechos do CV</summary>${result.evidence.map(item => `<p><strong>${escapeHtml(item.requirement)}</strong>: ${item.found ? 'menção encontrada' : 'não evidenciado'}<br>${escapeHtml(item.excerpt || 'Necessário confirmar no currículo completo.')}</p>`).join('')}</details>` : ''}</td>
+        <td>${escapeHtml(result.observation || '-')}<br><strong>${escapeHtml(result.triageGroup || 'Validação documental pendente')}</strong>${result.evidence?.length ? `<details><summary>Conferir requisitos e trechos do CV</summary>${result.evidence.map(item => `<p><strong>${escapeHtml(item.requirement)}</strong>: ${escapeHtml(item.kind || (item.found ? 'menção encontrada' : 'não evidenciado'))}<br>${escapeHtml(item.excerpt || 'Necessário confirmar no currículo completo.')}</p>`).join('')}</details>` : ''}</td>
       </tr>
     `;
     })

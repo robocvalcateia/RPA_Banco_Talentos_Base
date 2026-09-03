@@ -66,13 +66,26 @@ function locationEvidence(text, filter, candidate) {
   // Mentions in employment history are leads, not proof of current residence/commuting availability.
   return 'unknown';
 }
-function scoreGroup(text, terms) {
-  const hits = terms.filter(term => hasSkill(text, term));
+function trainingOnly(text, term) {
+  const mentions = String(text).split(/\n|(?<=[.;])\s+/).filter(line => hasSkill(line, term));
+  return mentions.length > 0 && mentions.every(line => /\bcurso\b|\btreinamento\b|\bacademia\b|\btraining\b|\bcertifica[cç][aã]o\b/i.test(line));
+}
+function scoreGroup(text, terms, requireWorkEvidence = false) {
+  const hits = terms.filter(term => hasSkill(text, term) && (!requireWorkEvidence || !trainingOnly(text, term)));
   return { required: terms, hits, missing: terms.filter(term => !hits.includes(term)), score: terms.length ? Math.round(100 * hits.length / terms.length) : 0 };
 }
 export function evidenceExcerpt(text, term) {
   const lines = String(text).split(/\n|(?<=[.;])\s+/).map(s => s.trim()).filter(Boolean);
-  return lines.find(line => hasSkill(line, term))?.slice(0, 400) || '';
+  const matching = lines.filter(line => hasSkill(line, term));
+  const line = matching.find(line => !trainingOnly(line, term)) || matching[0];
+  if (!line) return '';
+  if (line.length <= 400) return line;
+  const words = line.split(/\s+/);
+  for (let start = 0; start < words.length; start += 10) {
+    const snippet = words.slice(start, start + 30).join(' ');
+    if (hasSkill(snippet, term)) return `…${snippet}…`;
+  }
+  return line;
 }
 // Month ranges are evidence only when explicitly attached to the relevant module.
 // An incomplete chronology is never evidence of insufficient experience.
@@ -99,7 +112,7 @@ export function experienceEvidence(text, core, now = new Date()) {
 export function screenCandidate(text, filter, candidate = {}, publicSummary = false) {
   const core = coreKeyword(filter);
   const mandatory = scoreGroup(text, phrases(filter.mandatorySkills));
-  const technical = scoreGroup(text, technicalTerms(filter));
+  const technical = scoreGroup(text, technicalTerms(filter), true);
   const desirable = scoreGroup(text, phrases(filter.desirableSkills));
   const pending = [], failed = [];
   const coreMet = core ? hasSkill(text, core) : technical.hits.length > 0;
@@ -122,12 +135,13 @@ export function screenCandidate(text, filter, candidate = {}, publicSummary = fa
   if (desirable.required.length) groups.push([5, desirable.score]);
   const weightedScore = Math.round(groups.reduce((sum, [weight, value]) => sum + weight * value, 0) / groups.reduce((sum, [weight]) => sum + weight, 0));
   const criticalTerms = normalize(core) === 'sap fi' ? ['SAP AP', 'SAP AR', 'SAP GL'] : normalize(core) === 'sap mm' ? ['J1BTAX', 'revisão de faturas'] : [];
-  const criticalMissing = criticalTerms.filter(term => technical.required.some(required => normalize(required) === normalize(term)) && !hasSkill(text, term));
+  const criticalMissing = criticalTerms.filter(term => technical.required.some(required => normalize(required) === normalize(term)) && !technical.hits.some(hit => normalize(hit) === normalize(term)));
   const technicalMet = technical.required.length > 0 && technical.score >= 60 && !criticalMissing.length;
   const score = technicalMet ? weightedScore : Math.min(weightedScore, 49);
   if (!technicalMet) pending.push('requisitos técnicos centrais insuficientemente evidenciados; não priorizar por diferenciais');
   if (criticalMissing.length) pending.push(`confirmar requisitos centrais: ${criticalMissing.join(', ')}`);
-  const currentTitle = String(candidate.currentTitle || (publicSummary ? String(text).split('\n')[0] : ''));
+  const headline = publicSummary ? String(text).split('\n')[0] : '';
+  const currentTitle = String(candidate.currentTitle || (headline.includes(' - ') ? headline.split(' - ').slice(1).join(' - ') : headline));
   if (/s[eê]nior|\bsr\b/i.test(filter.jobDescription || '') && /\bj[uú]nior\b|\bjr\b|\btrainee\b|\bestagi[aá]ri/i.test(currentTitle)) failed.push('senioridade atual declarada incompatível com a vaga sênior');
   const experience = experienceEvidence(text, core);
   // The score describes evidence, not a hiring approval. Years, travel and exclusive availability need validation.
@@ -141,7 +155,7 @@ export function screenCandidate(text, filter, candidate = {}, publicSummary = fa
     score, classification, accepted: classification === 'approved', review: classification === 'review',
     technicalScore: technical.score,
     triageGroup: failed.length ? 'não aderente' : technicalMet && !mandatory.missing.length && !publicSummary ? 'prioridade de entrevista' : 'validação documental pendente',
-    evidence: technical.required.map(term => ({ requirement: term, found: technical.hits.includes(term), excerpt: evidenceExcerpt(text, term) })),
+    evidence: technical.required.map(term => ({ requirement: term, found: technical.hits.includes(term), kind: trainingOnly(text, term) ? 'somente formação; atuação não comprovada' : technical.hits.includes(term) ? 'menção no currículo; validar escopo' : 'não evidenciado', excerpt: evidenceExcerpt(text, term) })),
     experience,
     scoreType: publicSummary ? 'evidência pública parcial' : 'evidência do currículo',
     matchedMandatorySkills: mandatory.hits, missingMandatorySkills: mandatory.missing,

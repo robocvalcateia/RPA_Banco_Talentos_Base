@@ -776,7 +776,23 @@ export function apinfoNextPage(html, currentPage = 1) {
       options.push({ url: url.href, page: page || currentPage + 1 });
     } catch { /* Ignore non-URL controls; report incomplete coverage rather than invent a request. */ }
   }
-  return options[0] || null;
+  if (options.length) return options[0];
+  const attributes = tag => Object.fromEntries(Array.from(tag.matchAll(/([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g), m => [m[1].toLowerCase(), decodeEntities(m[2] ?? m[3] ?? m[4])]));
+  for (const form of String(html).matchAll(/<form\b([^>]*)>([\s\S]*?)<\/form>/gi)) {
+    const attrs = attributes(form[1]);
+    const inputs = Array.from(form[2].matchAll(/<input\b([^>]*)>/gi), m => attributes(m[1]));
+    const buttons = Array.from(form[2].matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/gi), m => ({ ...attributes(m[1]), label: htmlToText(m[2]) }));
+    const next = [...inputs, ...buttons].find(item => /pr[oó]xim|seguinte|next/i.test(item.value || item.label || '') && /submit|image|^$/i.test(item.type || ''));
+    if (!next) continue;
+    try {
+      const url = new URL(attrs.action || APINFO_SEARCH_URL, APINFO_SEARCH_URL);
+      if (url.origin !== new URL(APINFO_BASE).origin || !url.pathname.startsWith('/apinfo/inc/') || /logout|pesqentra|roteador/i.test(url.pathname)) continue;
+      const body = Object.fromEntries(inputs.filter(item => item.name && (!item.type || /hidden|text/i.test(item.type))).map(item => [item.name, item.value || '']));
+      if (next.name) body[next.name] = next.value || '';
+      return { url: url.href, method: (attrs.method || 'get').toLowerCase(), body, page: currentPage + 1 };
+    } catch { /* Unsupported provider navigation remains explicitly partial. */ }
+  }
+  return null;
 }
 
 class ApinfoSession {
@@ -901,10 +917,13 @@ export async function searchApinfoCandidates(filter, credentials, limit = 10) {
   const visited = new Set();
   for (let page = 1; page < maxPages && links.length < targetScan; page += 1) {
     const next = apinfoNextPage(pageHtml, page);
-    if (!next || visited.has(next.url)) break;
-    visited.add(next.url);
+    const pageIdentity = next && JSON.stringify(next);
+    if (!next || visited.has(pageIdentity)) break;
+    visited.add(pageIdentity);
     try {
-      const pageSearch = await session.request(next.url);
+      const pageUrl = new URL(next.url);
+      if (next.method === 'get') for (const [key, value] of Object.entries(next.body || {})) pageUrl.searchParams.set(key, value);
+      const pageSearch = next.method === 'post' ? await session.post(next.url, next.body) : await session.request(pageUrl.href);
       const pageLinks = parseResultLinks(pageSearch.html);
       const known = new Set(links.map(item => item.code || item.link));
       const fresh = pageLinks.filter(item => !known.has(item.code || item.link));
