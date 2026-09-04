@@ -2,9 +2,33 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { screenCandidate, coreKeyword, englishEvidence, hasSkill, screeningStats, experienceEvidence } from '../candidate-screening.js';
-import { evaluateInternalCandidateForFilter, evaluateLinkedinCandidateTextForFilter, buildLinkedinQueries, searchApinfoAndLinkedinCandidates, searchApinfoCandidates, apinfoNextPage } from '../apinfo.js';
+import { evaluateInternalCandidateForFilter, evaluateLinkedinCandidateTextForFilter, buildLinkedinQueries, searchLinkedinCandidates, searchApinfoAndLinkedinCandidates, searchApinfoCandidates, apinfoNextPage } from '../apinfo.js';
 import { normalizeCvFilter, normalizeCvSearchResult } from '../db.js';
 const filter = { coreSkill: 'SAP MM', mandatorySkills: 'SAP MM', technicalSkills: 'J1BTAX, TAXBRA, revisão de faturas', desirableSkills: 'SAP Activate, debug', englishLevel: 'Avançado', locations: 'São Paulo/SP; Rio de Janeiro/RJ', matchPercent: 60 };
+test('LinkedIn evaluates every recovered profile and paginates when strategy overlap leaves fewer than target', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.SERPAPI_KEY;
+  process.env.SERPAPI_KEY = 'fixture';
+  const starts = [];
+  globalThis.fetch = async input => {
+    const url = new URL(input); const start = Number(url.searchParams.get('start') || 0); starts.push(start);
+    const queryCode = [...String(url.searchParams.get('q') || '')].reduce((sum,ch)=>sum+ch.charCodeAt(0),0);
+    const offset = start ? queryCode % 1000 : 0;
+    return new Response(JSON.stringify({organic_results:Array.from({length:10},(_,i)=>({
+      title:`Consultor SAP FI ${offset+i}`, link:`https://www.linkedin.com/in/fixture-${start}-${offset+i}`,
+      snippet:'Consultor SAP FI com atuação funcional em AP AR GL'
+    }))}),{headers:{'Content-Type':'application/json'}});
+  };
+  try {
+    const result=await searchLinkedinCandidates({coreSkill:'SAP FI',mandatorySkills:'SAP FI, SAP AP, SAP AR, SAP GL',resultLimit:10},50);
+    assert.equal(result.stats.evaluated,result.totalFound);
+    assert.equal(result.totalFound,50);
+    assert.ok(starts.some(start=>start===10));
+  } finally {
+    globalThis.fetch=originalFetch;
+    if (originalKey === undefined) delete process.env.SERPAPI_KEY; else process.env.SERPAPI_KEY=originalKey;
+  }
+});
 test('technical gaps cannot be offset by location English and every desirable', () => {
   const result = screenCandidate('SAP MM Activate debug', filter, { city: 'São Paulo', state: 'SP', englishLevel: 'Fluente' });
   assert.ok(result.score < 50); assert.equal(result.classification, 'review');

@@ -1100,10 +1100,6 @@
             </table>
           </div>
           <details>
-            <summary>A confirmar — não contam para os 30 aprovados</summary>
-            <div class="table-wrap"><table><thead><tr><th>Selecionar</th><th>Nome</th><th>Fonte</th><th>Link</th><th>Evidência</th><th>Pendências</th></tr></thead><tbody id="cvReviewResultTable"></tbody></table></div>
-          </details>
-          <details>
             <summary>Não compatíveis com os critérios documentados</summary>
             <p id="cvRejectedStatus"></p>
             <div class="table-wrap"><table><thead><tr><th>Selecionar</th><th>Nome</th><th>Fonte</th><th>Link</th><th>Evidência</th><th>Motivo</th></tr></thead><tbody id="cvRejectedResultTable"></tbody></table></div>
@@ -1643,6 +1639,11 @@
               <span id="statusReportSavedCount">0</span>
             </div>
           </div>
+          <div class="filter-bar">
+            <label>Mês/ano <input id="statusReportSavedMonth" type="month" /></label>
+            <button id="statusReportBatchDownload" type="button" class="secondary-action">Baixar em lote</button>
+          </div>
+          <div id="statusReportBatchLinks" aria-live="polite"></div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -1697,10 +1698,12 @@
               <select id="statusReportFilterStatus">
                 <option value="">Todos</option>
                 <option value="Pendente">Pendente</option>
+                <option value="Sem Entrega">Sem Entrega</option>
                 <option value="Salvo">Salvo</option>
               </select>
             </label>
           </div>
+          <p>Sem Entrega considera meses encerrados. Para consultores sem relatório criado, selecione o mês desejado; sem filtro, será considerado o mês anterior. A identificação depende das datas de início e término cadastradas.</p>
           <div class="table-wrap">
             <table>
               <thead>
@@ -1997,7 +2000,8 @@
     </div>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
-    <script src="/app.js?v=20260814-curriculum-search-identity"></script>
+    <script src="/vendor/fflate.js"></script>
+    <script src="/app.js?v=20260904-status-process"></script>
   </body>
 </html>
 

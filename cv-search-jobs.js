@@ -3,14 +3,22 @@ import { randomUUID } from 'node:crypto';
 export const APPROVED_TARGET = 30;
 
 export function uniqueApproved(rows) {
+  return uniqueCandidates(rows.filter(row => row.classification === 'approved'));
+}
+
+export function recommendedCandidates(rows, limit = APPROVED_TARGET) {
+  return uniqueCandidates(rows).slice(0, limit);
+}
+
+function uniqueCandidates(rows) {
   const parent = new Map();
   const root = key => {
     if (!parent.has(key)) parent.set(key, key);
     if (parent.get(key) !== key) parent.set(key, root(parent.get(key)));
     return parent.get(key);
   };
-  const identified = rows.filter(row => row.classification === 'approved')
-    .sort((a, b) => Number(b.score || 0) - Number(a.score || 0))
+  const identified = rows.filter(row => ['approved', 'review'].includes(row.classification))
+    .sort((a, b) => Number(b.classification === 'approved') - Number(a.classification === 'approved') || Number(b.score || 0) - Number(a.score || 0))
     .map(row => {
       // Names alone cannot distinguish homonyms. Prefer a verified curriculum ID.
       let link = String(row.link || '').trim();

@@ -94,7 +94,7 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.match(indexSource, /<section class="view" id="statusReportManagement">/);
   assert.match(indexSource, /data-view="statusReportParameters"/);
   assert.match(indexSource, /data-view="statusReportManagement"/);
-  assert.match(indexSource, /app\.js\?v=20260814-curriculum-search-identity/);
+  assert.match(indexSource, /app\.js\?v=20260904-status-process/);
   assert.match(indexSource, /styles\.css\?v=20260814-curriculum-search-identity/);
   assert.match(indexSource, /Status gravados/);
   assert.match(indexSource, /id="statusReportSavedTable"/);

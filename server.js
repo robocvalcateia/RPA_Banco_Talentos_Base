@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { CvSearchJobs, uniqueApproved, APPROVED_TARGET } from './cv-search-jobs.js';
+import { CvSearchJobs, uniqueApproved, recommendedCandidates, APPROVED_TARGET } from './cv-search-jobs.js';
 const cvSearchJobs = new CvSearchJobs();
 import { coreKeyword, screeningStats, interpretVacancy } from './candidate-screening.js';
 import { promises as fs } from 'node:fs';
@@ -1041,11 +1041,7 @@ function applyStatusReportMessageTemplate(value = '', context = {}) {
     .replace(/\{\{\s*link\s*\}\}/gi, context.url || '');
 }
 
-async function sendStatusReportConsultantEmail({ report, allocated, db, type = 'invite' }) {
-  const config = getSmtpConfigFromEnv();
-  if (!isSmtpAccountConfigured(config)) {
-    return { sent: false, reason: 'SMTP nao configurado.' };
-  }
+function buildStatusReportConsultantMessage({ report, allocated, db, type = 'invite' }) {
   const to = String(allocated.consultantEmail || report.consultantEmail || '').trim().toLowerCase();
   if (!to) return { sent: false, reason: 'E-mail do consultor nao informado.' };
 
@@ -1083,6 +1079,15 @@ async function sendStatusReportConsultantEmail({ report, allocated, db, type = '
       'Seu acesso deve ser usado apenas neste modulo.'
     ].join('\n');
 
+  return { to, subject, text };
+}
+
+async function sendStatusReportConsultantEmail(args) {
+  const config = getSmtpConfigFromEnv();
+  if (!isSmtpAccountConfigured(config)) return { sent: false, reason: 'SMTP nao configurado.' };
+  const message = buildStatusReportConsultantMessage(args);
+  if (!message.to) return message;
+  const { to, subject, text } = message;
   await sendMail({ ...config, to, subject, text });
   return { sent: true, to };
 }
@@ -3526,6 +3531,15 @@ function validateContactParent(response, db, contact) {
 
 async function serveStatic(request, response) {
   const { pathname } = getRoute(request);
+  if (pathname === '/vendor/fflate.js') {
+    try {
+      const library = await fs.readFile(path.join(__dirname, 'node_modules', 'fflate', 'umd', 'index.js'), 'utf8');
+      const content = `(function(module,exports,define){${library}\n}).call(window,undefined,undefined,undefined);`;
+      response.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store, max-age=0' });
+      response.end(content);
+    } catch { sendError(response, 404, 'Dependência de compactação não instalada.'); }
+    return;
+  }
   const requestedPath = pathname === '/' ? '/index.html' : pathname;
   const filePath = path.normalize(path.join(PUBLIC_DIR, requestedPath));
 
@@ -5479,7 +5493,7 @@ async function handleApi(request, response) {
           apinfoProgress = batch.results;
           searchResponse.searchResults = currentApproved(apinfoProgress).slice(0, APPROVED_TARGET);
           searchResponse.searchApprovedCount = searchResponse.searchResults.length;
-          searchResponse.searchMessage = `Busca em andamento: ${searchResponse.searchApprovedCount}/${APPROVED_TARGET} aprovados distintos. APINFO: ${batch.stats.evaluated} currículos avaliados, ${batch.pagesRead} páginas. A confirmar não conta para a meta.`;
+          searchResponse.searchMessage = `Buscando até ${APPROVED_TARGET} recomendados, priorizando evidências técnicas. APINFO: ${batch.stats.evaluated} currículos avaliados, ${batch.pagesRead} páginas. LinkedIn é consolidado ao final.`;
         };
 
         let search = {
@@ -5569,13 +5583,15 @@ async function handleApi(request, response) {
         if (Object.values(searchResponse.searchSourceStats).some(item => item.status === 'error' || item.warnings?.length)) searchResponse.searchStatus = 'partial';
         const approved = uniqueApproved(mergedResults).slice(0, APPROVED_TARGET);
         searchResponse.searchApprovedCount = approved.length;
-        searchResponse.searchResults = approved;
+        searchResponse.searchResults = recommendedCandidates(mergedResults);
+        searchResponse.searchRecommendedCount = searchResponse.searchResults.length;
+        searchResponse.searchSelectionVersion = 'recommendations-v1';
         searchResponse.searchReviewResults = mergedResults.filter(row => row.classification === 'review');
-        const reached = approved.length === APPROVED_TARGET;
+        const reached = searchResponse.searchRecommendedCount === APPROVED_TARGET;
         const incomplete = searchResponse.searchStatus === 'partial' || expandedRuntimeFilter.searchLinkedin || Number(alcateiaSearch.stats?.evaluated || 0) < Number(alcateiaSearch.totalFound || 0);
         searchResponse.searchStatus = reached ? 'completed' : incomplete ? 'partial' : 'completed';
         searchResponse.searchStopReason = reached ? 'target_reached' : incomplete ? 'incomplete_coverage' : 'sources_exhausted';
-        searchResponse.searchMessage = `${approved.length}/${APPROVED_TARGET} aprovados distintos, por aderência. ${reached ? 'Meta atingida.' : `Faltam ${APPROVED_TARGET - approved.length}. ${incomplete ? 'Cobertura incompleta ou fonte dependente de validação; não equivale a esgotamento do mercado.' : 'Resultados disponíveis nas fontes selecionadas esgotados.'}`} ${searchResponse.searchReviewResults.length} a confirmar, fora da meta. ${apinfoSummary} ${linkedinSummary} ${alcateiaSummary} ${(search.sourceStats?.APINFO?.warnings || []).join(' ')}`;
+        searchResponse.searchMessage = `${searchResponse.searchRecommendedCount}/${APPROVED_TARGET} candidatos recomendados. Evidências técnicas completas primeiro; demais candidatos por aderência. Recomendação não equivale a aprovação para contratação. ${reached ? 'Lista preenchida.' : 'Quantidade inferior à meta; consulte a cobertura das fontes.'} ${apinfoSummary} ${linkedinSummary} ${alcateiaSummary} ${(search.sourceStats?.APINFO?.warnings || []).join(' ')}`;
       }
       });
       sendJson(response, 202, job.response);
@@ -6366,6 +6382,37 @@ async function handleApi(request, response) {
         emails: Array.isArray(payload.emails) ? payload.emails : []
       });
       sendJson(response, 200, result);
+      return;
+    }
+
+    if (request.method === 'GET' && /^\/api\/status-reports\/[^/]+\/whatsapp$/.test(pathname)) {
+      if (requireAdmin(response, auth.user, 'Apenas administradores podem abrir mensagens de status.')) return;
+      const db = await readDatabaseCollections(['clients', 'allocateds', 'statusReports', 'statusReportMessages']);
+      const id = decodeURIComponent(pathname.split('/')[3]);
+      let report = db.statusReports.find(item => item.id === id);
+      const missing = /^missing:(\d{4}-\d{2}):(.+)$/.exec(id);
+      if (!report && missing && missing[1] < monthKeyForAppDate(new Date())) {
+        const allocated = db.allocateds.find(item => item.id === missing[2]);
+        const start = String(allocated?.startDate || '').slice(0, 7);
+        const end = String(allocated?.endDate || '').slice(0, 7);
+        if (allocated && /^\d{4}-\d{2}$/.test(start) && start <= missing[1] && (!end || end >= missing[1]) && (allocated.active || end)) {
+          report = db.statusReports.find(item => item.allocatedId === allocated.id && item.referenceMonth === missing[1]) || {
+            allocatedId: allocated.id, referenceMonth: missing[1], period: monthLabelFromKey(missing[1]),
+            consultantName: allocated.consultant, consultantEmail: allocated.consultantEmail,
+            clientName: db.clients.find(client => client.id === allocated.clientId)?.customerName || '', deliveryStatus: 'Sem Entrega'
+          };
+        }
+      }
+      if (!report) { sendError(response, 404, 'Status report não encontrado.'); return; }
+      const allocated = db.allocateds.find(item => item.id === report.allocatedId);
+      let phone = String(allocated?.phone || '').replace(/\D/g, '');
+      if (phone.length === 10 || phone.length === 11) phone = `55${phone}`;
+      if (!/^55[1-9]\d9\d{8}$/.test(phone)) {
+        sendError(response, 422, 'Cadastre um celular brasileiro válido com DDD no cadastro do consultor.'); return;
+      }
+      const message = buildStatusReportConsultantMessage({ report, allocated, db, type: report.monthlyEmailSentAt ? 'reminder' : 'invite' });
+      if (!message.text) { sendError(response, 422, 'Cadastre o e-mail do consultor para compor a mensagem.'); return; }
+      sendJson(response, 200, { url: `https://wa.me/${phone}?text=${encodeURIComponent(message.text)}` });
       return;
     }
 

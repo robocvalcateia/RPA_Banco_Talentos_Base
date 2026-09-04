@@ -518,7 +518,7 @@ function parseSerpApiLinkedinResults(payload) {
     }));
 }
 
-async function searchLinkedinCandidatesWithSerpApi(filter, limit, queryOverride = '') {
+async function searchLinkedinCandidatesWithSerpApi(filter, limit, queryOverride = '', start = 0) {
   const apiKey = process.env.SERPAPI_KEY || process.env.SERPAPI_API_KEY || '';
   if (!apiKey) {
     throw new Error('SERPAPI_KEY nao configurada; Google direto retorna pagina de JavaScript.');
@@ -534,6 +534,7 @@ async function searchLinkedinCandidatesWithSerpApi(filter, limit, queryOverride 
     hl: 'pt-BR',
     gl: 'br'
   });
+  if (start) params.set('start', String(start));
   const response = await fetch(`${SERPAPI_SEARCH_URL}?${params.toString()}`, {
     headers: {
       'User-Agent': 'Mozilla/5.0 Gestao-do-Negocio-Alcateia'
@@ -552,7 +553,7 @@ async function searchLinkedinCandidatesWithSerpApi(filter, limit, queryOverride 
   };
 }
 
-async function searchLinkedinCandidatesWithGoogle(filter, limit, queryOverride = '') {
+async function searchLinkedinCandidatesWithGoogle(filter, limit, queryOverride = '', start = 0) {
   const requestedLimit = Math.max(1, Math.min(50, Number(filter.resultLimit || limit || 10)));
   const query = queryOverride || linkedinQuery(filter);
   const params = new URLSearchParams({
@@ -560,6 +561,7 @@ async function searchLinkedinCandidatesWithGoogle(filter, limit, queryOverride =
     num: String(Math.min(10, requestedLimit)),
     hl: 'pt-BR'
   });
+  if (start) params.set('start', String(start));
   const html = await fetchText(`${GOOGLE_SEARCH_URL}?${params.toString()}`);
   if (/httpservice\/retry\/enablejs|If you're having trouble accessing Google Search|SG_REL/i.test(html)) {
     throw new Error('Google retornou pagina de ativacao de JavaScript em vez dos resultados.');
@@ -655,33 +657,51 @@ function linkedinResultRow(profile, filter, search, evaluation) {
   };
 }
 
-export async function searchLinkedinCandidates(filter, limit = 10) {
-  const requestedLimit = Math.max(1, Math.min(50, Number(filter.resultLimit || limit || 10)));
+export async function searchLinkedinCandidates(filter, limit = 30, control = {}) {
+  const requestedLimit = Math.max(30, Math.min(50, Number(limit || 30)));
   const strategies = buildLinkedinQueries(filter, requestedLimit);
   const profilesByLink = new Map();
   const providers = new Set();
   const queryErrors = [];
 
+  const exhaustedStrategies = new Set();
+  const collect = (profiles, strategy) => {
+    for (const profile of profiles) {
+      const key = String(profile.link || '').replace(/\/$/, '');
+      if (!key || profilesByLink.has(key)) continue;
+      profilesByLink.set(key, { ...profile, link: key, strategy: strategy.name, query: strategy.query });
+    }
+  };
+  // First cover every retrieval strategy once. If overlap leaves the pool below
+  // the requested recommendation size, paginate those same strategies.
   for (const strategy of strategies) {
     try {
       const search = (process.env.SERPAPI_KEY || process.env.SERPAPI_API_KEY)
         ? await searchLinkedinCandidatesWithSerpApi(filter, requestedLimit, strategy.query)
         : await searchLinkedinCandidatesWithGoogle(filter, requestedLimit, strategy.query);
       providers.add(search.provider);
-      for (const profile of search.profiles) {
-        const key = String(profile.link || '').replace(/\/$/, '');
-        if (!key) continue;
-        if (!profilesByLink.has(key)) {
-          profilesByLink.set(key, {
-            ...profile,
-            link: key,
-            strategy: strategy.name,
-            query: strategy.query
-          });
-        }
-      }
+      collect(search.profiles, strategy);
+      if (search.profiles.length < 10) exhaustedStrategies.add(strategy.name);
     } catch (error) {
       queryErrors.push(`${strategy.name}: ${error.message || 'falha na busca'}`);
+      exhaustedStrategies.add(strategy.name);
+    }
+  }
+  const maxPages = Math.max(1, Math.min(5, Number(process.env.LINKEDIN_MAX_PAGES || 3)));
+  for (let page = 1; page < maxPages && profilesByLink.size < requestedLimit; page += 1) {
+    for (const strategy of strategies) {
+      if (profilesByLink.size >= requestedLimit) break;
+      if (exhaustedStrategies.has(strategy.name)) continue;
+      try {
+        const search = (process.env.SERPAPI_KEY || process.env.SERPAPI_API_KEY)
+          ? await searchLinkedinCandidatesWithSerpApi(filter, requestedLimit, strategy.query, page * 10)
+          : await searchLinkedinCandidatesWithGoogle(filter, requestedLimit, strategy.query, page * 10);
+        providers.add(search.provider); collect(search.profiles, strategy);
+        if (search.profiles.length < 10) exhaustedStrategies.add(strategy.name);
+      } catch (error) {
+        queryErrors.push(`${strategy.name} página ${page + 1}: ${error.message || 'falha na busca'}`);
+        exhaustedStrategies.add(strategy.name);
+      }
     }
   }
 
@@ -691,7 +711,7 @@ export async function searchLinkedinCandidates(filter, limit = 10) {
 
   const search = {
     query: strategies.map((strategy) => `${strategy.name}: ${strategy.query}`).join(' || '),
-    profiles: Array.from(profilesByLink.values()).slice(0, Math.max(requestedLimit * 3, requestedLimit)),
+    profiles: Array.from(profilesByLink.values()),
     provider: Array.from(providers).join(' + ') || ((process.env.SERPAPI_KEY || process.env.SERPAPI_API_KEY) ? 'SerpAPI' : 'Google direto'),
     errors: queryErrors
   };
@@ -1117,7 +1137,7 @@ export async function searchApinfoAndLinkedinCandidates(filter, credentials, lim
   };
   const [apinfo, linkedin] = await Promise.all([
     safeSearch(filter.searchApinfo, () => searchApinfoCandidates(filter, credentials, requestedLimit, control)),
-    safeSearch(filter.searchLinkedin, () => searchLinkedinCandidates(filter, requestedLimit))
+    safeSearch(filter.searchLinkedin, () => searchLinkedinCandidates(filter, requestedLimit, control))
   ]);
   return {
     keyword: coreKeyword(filter), totalFound: apinfo.totalFound, inspected: apinfo.inspected || [],

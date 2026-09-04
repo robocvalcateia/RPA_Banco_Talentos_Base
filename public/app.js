@@ -3465,10 +3465,10 @@ function renderCvResultRows(results, emptyMessage, group) {
       <tr>
         <td><input type="checkbox" data-select-cv-result="${result.id}" data-result-group="${group}" aria-label="Selecionar ${result.name || 'candidato'}" /></td>
         <td><strong>${renderBlackflagName(result.name, curriculum || result)}</strong></td>
-        <td>${escapeHtml(result.source || 'APINFO')}<br>${result.classification === 'review' ? 'Skill a confirmar' : result.classification === 'rejected' ? 'Não compatível' : 'Aprovado na triagem técnica'}</td>
+        <td>${escapeHtml((result.source || 'APINFO').replace(/^Revisar LinkedIn$/, 'LinkedIn'))}</td>
         <td>${candidateLinkHtml(result)}</td>
         <td>${result.score ?? 0}%<br>${escapeHtml(result.scoreType || 'Evidência')}${result.operationalChecks?.length ? `<details><summary>Condições da vaga</summary>${result.operationalChecks.map(item => `<p>${escapeHtml(item.requirement)}: <strong>${item.status === 'meets' ? 'Atende ao declarado' : item.status === 'incompatible' ? 'Incompatível' : 'A confirmar'}</strong><br>${escapeHtml(item.detail)}</p>`).join('')}</details>` : ''}</td>
-        <td>${escapeHtml(result.observation || '-')}<br><strong>${escapeHtml(result.triageGroup || 'Validação documental pendente')}</strong>${result.evidence?.length ? `<details><summary>Conferir requisitos e trechos do CV</summary>${result.evidence.map(item => `<p><strong>${escapeHtml(item.requirement)}</strong>: ${escapeHtml(item.kind || (item.found ? 'menção encontrada' : 'não evidenciado'))}<br>${escapeHtml(item.excerpt || 'Necessário confirmar no currículo completo.')}</p>`).join('')}</details>` : ''}</td>
+        <td><details><summary>Conferir requisitos e evidências</summary>${escapeHtml(result.observation || '-')}<br>${(result.evidence || []).map(item => `<p><strong>${escapeHtml(item.requirement)}</strong>: ${escapeHtml(item.kind || (item.found ? 'menção encontrada' : 'não evidenciado'))}<br>${escapeHtml(item.excerpt || 'Necessário confirmar no currículo completo.')}</p>`).join('')}</details></td>
       </tr>
     `;
     })
@@ -6262,14 +6262,67 @@ async function downloadStatusReportPdf(report = statusReportCurrentExportData())
   return filename;
 }
 
+const statusReportBatchUrls = [];
+function clearStatusReportBatchLinks() {
+  statusReportBatchUrls.splice(0).forEach(url => URL.revokeObjectURL(url));
+  if ($('#statusReportBatchLinks')) $('#statusReportBatchLinks').replaceChildren();
+}
+
+async function downloadStatusReportBatch() {
+  const month = $('#statusReportSavedMonth')?.value;
+  if (!month) return toast('Selecione o mês/ano para baixar em lote.');
+  const reports = getSavedStatusReports();
+  if (!reports.length) return toast('Nenhum relatório salvo no mês selecionado.');
+  const button = $('#statusReportBatchDownload');
+  const original = setSubmitButtonBusy(button, 'Preparando ZIPs...');
+  const monthField = $('#statusReportSavedMonth');
+  monthField.disabled = true;
+  clearStatusReportBatchLinks();
+  const safe = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9_-]+/g, '-').slice(0, 90) || 'sem-nome';
+  try {
+    const groups = new Map();
+    for (const report of reports) {
+      const allocated = state.allocateds.find(item => item.id === report.allocatedId);
+      const name = allocated?.manager?.trim() || 'Sem gestor';
+      const key = allocated?.managerEmail?.trim().toLowerCase() || `${allocated?.clientId || report.clientId}:${name.toLowerCase()}`;
+      if (!groups.has(key)) groups.set(key, { name, files: {} });
+      const canvas = await createStatusReportCanvas(report);
+      const pdf = pdfBlobFromJpegDataUrl(canvas.toDataURL('image/jpeg', 0.95), canvas.width, canvas.height);
+      const files = groups.get(key).files;
+      files[`${Object.keys(files).length + 1}-${safe(report.consultantName)}-${month}.pdf`] = new Uint8Array(await pdf.arrayBuffer());
+    }
+    let index = 0;
+    for (const group of groups.values()) {
+      const bytes = fflate.zipSync(group.files, { level: 0 });
+      const blob = new Blob([bytes], { type: 'application/zip' });
+      const filename = `Status-${month}-${++index}-${safe(group.name)}.zip`;
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      statusReportBatchUrls.push(link.href);
+      link.download = filename;
+      link.textContent = `Baixar ${filename} (${Object.keys(group.files).length} relatórios)`;
+      const line = document.createElement('p');
+      line.append(link);
+      $('#statusReportBatchLinks').append(line);
+      link.click();
+    }
+    toast(`${reports.length} relatórios em ${groups.size} ZIPs. Se o navegador bloquear downloads múltiplos, use os links abaixo do filtro.`);
+  } catch (error) {
+    toast(error.message || 'Não foi possível gerar os ZIPs.');
+  } finally {
+    restoreSubmitButton(button, original);
+    monthField.disabled = false;
+  }
+}
+
 function currentStatusReportMonthKey() {
-  return new Date().toLocaleDateString('en-CA', { year: 'numeric', month: '2-digit' }).slice(0, 7);
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit' }).slice(0, 7);
 }
 
 function statusReportDeliveryStatus(report = {}) {
   return report.consultantSubmittedAt || String(report.deliveryStatus || '').toLowerCase() === 'salvo'
     ? 'Salvo'
-    : 'Pendente';
+    : /^\d{4}-\d{2}$/.test(report.referenceMonth || '') && report.referenceMonth < currentStatusReportMonthKey() ? 'Sem Entrega' : 'Pendente';
 }
 
 function statusReportPanelMode() {
@@ -6342,7 +6395,7 @@ function statusReportPayloadFromForm(form) {
 }
 
 function getFilteredStatusReports() {
-  return state.statusReports
+  return statusReportsWithMissingDeliveries()
     .filter((report) => !state.statusReportFilter.clientId || report.clientId === state.statusReportFilter.clientId)
     .filter((report) => !state.statusReportFilter.allocatedId || report.allocatedId === state.statusReportFilter.allocatedId)
     .filter((report) => !state.statusReportFilter.statusLight || report.statusLight === state.statusReportFilter.statusLight)
@@ -6350,6 +6403,27 @@ function getFilteredStatusReports() {
     .filter((report) => !state.statusReportFilter.deliveryStatus || statusReportDeliveryStatus(report) === state.statusReportFilter.deliveryStatus)
     .slice()
     .sort((first, second) => String(statusReportSortDate(second)).localeCompare(String(statusReportSortDate(first))));
+}
+
+function statusReportsWithMissingDeliveries() {
+  const rows = [...state.statusReports];
+  const now = currentStatusReportMonthKey();
+  const previous = new Date(`${now}-15T12:00:00`);
+  previous.setMonth(previous.getMonth() - 1);
+  const month = state.statusReportFilter.month || `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, '0')}`;
+  if (!/^\d{4}-\d{2}$/.test(month) || month >= now) return rows;
+  for (const allocated of state.allocateds) {
+    const start = String(allocated.startDate || '').slice(0, 7);
+    const end = String(allocated.endDate || '').slice(0, 7);
+    // Historical obligation requires an explicit allocation start, not today's active flag alone.
+    if (!/^\d{4}-\d{2}$/.test(start) || start > month || (end && end < month) || (!allocated.active && !end)) continue;
+    if (rows.some(report => report.allocatedId === allocated.id && report.referenceMonth === month)) continue;
+    rows.push({ id: `missing:${month}:${allocated.id}`, virtualMissing: true, allocatedId: allocated.id,
+      referenceMonth: month, period: formatMonthLabel(month), clientId: allocated.clientId,
+      clientName: state.clients.find(client => client.id === allocated.clientId)?.customerName || '',
+      consultantName: allocated.consultant, managerName: allocated.manager, deliveryStatus: 'Sem Entrega' });
+  }
+  return rows;
 }
 
 function statusReportIsFinalized(report = {}) {
@@ -6364,18 +6438,14 @@ function getSavedStatusReports() {
   return state.statusReports
     .filter(statusReportBelongsToCurrentConsultant)
     .filter(statusReportIsFinalized)
+    .filter(report => !$('#statusReportSavedMonth')?.value || report.referenceMonth === $('#statusReportSavedMonth').value)
     .slice()
     .sort((first, second) => String(statusReportSortDate(second)).localeCompare(String(statusReportSortDate(first))));
 }
 
 function statusReportMatchesDeliveryMonth(report = {}, month = '') {
   if (!month) return true;
-  return [
-    report.monthlyEmailSentAt,
-    report.consultantSubmittedAt,
-    report.reportDate,
-    report.referenceMonth
-  ].some((value) => monthKeyFromValue(value) === month);
+  return (report.referenceMonth || monthKeyFromValue(report.reportDate)) === month;
 }
 
 function statusReportSortDate(report = {}) {
@@ -6595,10 +6665,10 @@ function renderStatusReportManagement() {
         <td>${escapeHtml(statusReportSentDateLabel(report))}</td>
         <td>${renderStatusReportLightCell(report.statusLight)}</td>
         <td>${escapeHtml(statusReportOwnerLabel(report))}</td>
-        <td>${escapeHtml(statusReportDeliveryStatus(report) === 'Salvo' ? 'Salvo' : 'Pendente')}</td>
+        <td>${escapeHtml(statusReportDeliveryStatus(report))}</td>
         <td>${escapeHtml(statusReportDateTimeLabel(report.consultantSubmittedAt))}</td>
         <td>${escapeHtml(statusReportDateTimeLabel(report.monthlyEmailLastReminderAt))}</td>
-        <td><div class="stage-actions"><button class="secondary-action compact-action" type="button" data-preview-status-report="${escapeHtml(report.id)}">Abrir</button><button class="danger-action compact-action" type="button" data-delete-status-report="${escapeHtml(report.id)}">Excluir</button></div></td>
+        <td><div class="stage-actions">${report.virtualMissing ? '' : `<button class="secondary-action compact-action" type="button" data-preview-status-report="${escapeHtml(report.id)}">Abrir</button><button class="danger-action compact-action" type="button" data-delete-status-report="${escapeHtml(report.id)}">Excluir</button>`}<button class="secondary-action compact-action" type="button" data-wapp-status-report="${escapeHtml(report.id)}">Wapp</button></div></td>
       </tr>
     `).join('') : '<tr><td colspan="10">Nenhum status report encontrado.</td></tr>';
   }
@@ -10232,6 +10302,11 @@ function bindWorkHourActions() {
 }
 
 function bindStatusReportActions() {
+  $('#statusReportSavedMonth')?.addEventListener('change', () => {
+    clearStatusReportBatchLinks();
+    renderSavedStatusReports();
+  });
+  $('#statusReportBatchDownload')?.addEventListener('click', downloadStatusReportBatch);
   $('#statusReportAllocatedSelect')?.addEventListener('change', syncStatusReportClientName);
 
   $('#statusReportForm')?.addEventListener('submit', async (event) => {
@@ -10368,6 +10443,17 @@ function bindStatusReportActions() {
   });
 
   $('#statusReportTable')?.addEventListener('click', async (event) => {
+    const wappButton = event.target.closest('[data-wapp-status-report]');
+    if (wappButton) {
+      const popup = window.open('about:blank', '_blank');
+      if (popup) popup.opener = null;
+      try {
+        const result = await api(`/api/status-reports/${encodeURIComponent(wappButton.dataset.wappStatusReport)}/whatsapp`);
+        if (!popup) throw new Error('Permita pop-ups e clique novamente em Wapp.');
+        popup.location.href = result.url;
+      } catch (error) { popup?.close(); toast(error.message || 'Não foi possível abrir o WhatsApp.'); }
+      return;
+    }
     const deleteButton = event.target.closest('[data-delete-status-report]');
     if (deleteButton) {
       const reportId = deleteButton.dataset.deleteStatusReport;
