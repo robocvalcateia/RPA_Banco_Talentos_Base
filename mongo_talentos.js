@@ -277,14 +277,14 @@ export async function getMongoTalentosCollection() {
   return targetCount || !legacyCount ? target : db.collection(config.legacyCollectionName);
 }
 
-export async function getCurriculumsFromMongo() {
+export async function getCurriculumsFromMongo({ all = false } = {}) {
   const config = readMongoConfig();
   const collection = await getMongoTalentosCollection();
 
   const docs = await collection
     .find({}, {
       projection: CURRICULUM_BOOTSTRAP_PROJECTION,
-      limit: config.limit
+      limit: all ? 0 : config.limit
     })
     .toArray();
 

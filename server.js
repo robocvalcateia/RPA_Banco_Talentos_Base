@@ -1,4 +1,6 @@
 import http from 'node:http';
+import { CvSearchJobs, uniqueApproved, APPROVED_TARGET } from './cv-search-jobs.js';
+const cvSearchJobs = new CvSearchJobs();
 import { coreKeyword, screeningStats } from './candidate-screening.js';
 import { promises as fs } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -2015,9 +2017,9 @@ function evaluateAlcateiaCurriculum(curriculum, filter) {
 }
 
 async function searchAlcateiaCandidates(filter, limit = 50) {
-  const requestedLimit = Math.max(1, Math.min(50, Number(filter.resultLimit || limit || 50)));
+  const requestedLimit = limit === 1000 ? Infinity : Math.max(1, Math.min(50, Number(filter.resultLimit || limit || 50)));
   if (!isMongoTalentosConfigured()) return { totalFound: 0, results: [], rejectedResults: [], error: 'MongoDB não configurado', message: 'ALCATEIA: MongoDB não configurado.' };
-  const mongoResponse = await getCurriculumsFromMongo();
+  const mongoResponse = await getCurriculumsFromMongo({ all: true });
   const curriculums = Array.isArray(mongoResponse.curriculums) ? mongoResponse.curriculums : [];
   const rows = curriculums.map(curriculum => evaluateAlcateiaCurriculum(curriculum, filter).row)
     .sort((a, b) => b.score - a.score || b.sourceUpdatedAtTime - a.sourceUpdatedAtTime);
@@ -2026,7 +2028,7 @@ async function searchAlcateiaCandidates(filter, limit = 50) {
     totalFound: mongoResponse.total ?? curriculums.length, stats,
     results: rows.filter(row => row.classification !== 'rejected').slice(0, requestedLimit),
     rejectedResults: rows.filter(row => row.classification === 'rejected').slice(0, requestedLimit),
-    message: `ALCATEIA/MongoDB: ${stats.evaluated} currículos avaliados; ${stats.compatible} compatíveis, ${stats.pending} a confirmar e ${stats.rejected} não compatíveis. Exibição limitada a ${requestedLimit} por grupo.`
+    message: `ALCATEIA/MongoDB: ${stats.evaluated} currículos avaliados; ${stats.compatible} compatíveis, ${stats.pending} a confirmar e ${stats.rejected} não compatíveis.`
   };
 }
 
@@ -5393,9 +5395,18 @@ async function handleApi(request, response) {
       return;
     }
 
+    if (request.method === 'GET' && /^\/api\/cv-search-jobs\/[^/]+$/.test(pathname)) {
+      const job = cvSearchJobs.get(pathname.split('/').at(-1), auth.user.id);
+      if (!job) { sendError(response, 404, 'Busca não encontrada ou interrompida por reinício do servidor. Execute novamente.'); return; }
+      sendJson(response, 200, job.response);
+      return;
+    }
+
     if (request.method === 'POST' && pathname.startsWith('/api/cv-filters/') && pathname.endsWith('/search')) {
       const filterId = pathname.split('/').at(-2);
       const payload = await readJsonBody(request);
+      const activeJob = cvSearchJobs.find(auth.user.id, filterId);
+      if (activeJob) { sendJson(response, 202, activeJob.response); return; }
       const db = await readDatabase();
       const filter = db.cvFilters.find((item) => item.id === filterId);
 
@@ -5427,16 +5438,18 @@ async function handleApi(request, response) {
         `habilidades obrigatorias: ${expandedRuntimeFilter.mandatorySkills || 'nao informadas'} precisam constar no CV`,
         `fontes: ${enabledSearchSources(expandedRuntimeFilter).join(', ') || 'nenhuma'}`
       ].filter(Boolean).join('; ');
-      const searchResponse = {
+      const initialSearchResponse = {
         ...enrichCvFilter(expandedRuntimeFilter, db),
         searchSource: 'APINFO',
         searchExecutedAt: toISODate(),
         searchStatus: 'running',
         searchMessage: `Busca APINFO em andamento. Regra: ${ruleSummary}.`,
+        searchReviewResults: [],
         searchResults: [],
         searchRejectedResults: []
       };
 
+      const job = cvSearchJobs.start(auth.user.id, filterId, initialSearchResponse, async searchResponse => {
       if (!enabledSearchSources(expandedRuntimeFilter).length) {
         searchResponse.searchStatus = 'no_sources';
         searchResponse.searchMessage = `Nenhuma fonte de busca selecionada. Regra: ${ruleSummary}.`;
@@ -5447,6 +5460,20 @@ async function handleApi(request, response) {
         const apinfoBlocked = expandedRuntimeFilter.searchApinfo && !credentials.configured;
 
         const shouldSearchApinfoLinkedin = shouldSearchApinfo || expandedRuntimeFilter.searchLinkedin;
+
+        const alcateiaSearch = expandedRuntimeFilter.searchAlcateia
+          ? await searchAlcateiaCandidates(expandedRuntimeFilter, requestedLimit).catch(error => ({ totalFound: 0, results: [], rejectedResults: [], error: error.message, message: `ALCATEIA: falha na consulta (${error.message}).` }))
+          : { totalFound: 0, results: [], rejectedResults: [], message: 'ALCATEIA desmarcado.' };
+        const currentApproved = rows => uniqueApproved([...alcateiaSearch.results, ...rows].map(row => enrichCvSearchResultWithCurriculum(row, db)));
+        searchResponse.searchResults = currentApproved([]).slice(0, APPROVED_TARGET);
+        searchResponse.searchApprovedCount = searchResponse.searchResults.length;
+        let apinfoProgress = [];
+        const progress = batch => {
+          apinfoProgress = batch.results;
+          searchResponse.searchResults = currentApproved(apinfoProgress).slice(0, APPROVED_TARGET);
+          searchResponse.searchApprovedCount = searchResponse.searchResults.length;
+          searchResponse.searchMessage = `Busca em andamento: ${searchResponse.searchApprovedCount}/${APPROVED_TARGET} aprovados distintos. APINFO: ${batch.stats.evaluated} currículos avaliados, ${batch.pagesRead} páginas. A confirmar não conta para a meta.`;
+        };
 
         let search = {
           keyword: expandedRuntimeFilter.mandatorySkills || '',
@@ -5460,25 +5487,17 @@ async function handleApi(request, response) {
           rejectedResults: []
         };
 
-        if (shouldSearchApinfoLinkedin) {
+        if (shouldSearchApinfoLinkedin && currentApproved([]).length < APPROVED_TARGET) {
           search = await searchApinfoAndLinkedinCandidates(
             {
               ...expandedRuntimeFilter,
               searchApinfo: shouldSearchApinfo
             },
             credentials,
-            requestedLimit
+            requestedLimit,
+            { continueToTarget: true, shouldStop: () => currentApproved(apinfoProgress).length >= APPROVED_TARGET, onProgress: progress }
           );
         }
-
-        const alcateiaSearch = expandedRuntimeFilter.searchAlcateia
-          ? await searchAlcateiaCandidates(expandedRuntimeFilter, requestedLimit).catch(error => ({ totalFound: 0, results: [], rejectedResults: [], error: error.message, message: `ALCATEIA: falha na consulta (${error.message}).` }))
-          : {
-              totalFound: 0,
-              results: [],
-              rejectedResults: [],
-              message: 'ALCATEIA desmarcado.'
-            };
 
         const mergedResults = [
           ...search.results,
@@ -5541,9 +5560,18 @@ async function handleApi(request, response) {
           return total;
         }, { found: 0, evaluated: 0, compatible: 0, pending: 0, rejected: 0 });
         if (Object.values(searchResponse.searchSourceStats).some(item => item.status === 'error' || item.warnings?.length)) searchResponse.searchStatus = 'partial';
+        const approved = uniqueApproved(mergedResults).slice(0, APPROVED_TARGET);
+        searchResponse.searchApprovedCount = approved.length;
+        searchResponse.searchResults = approved;
+        searchResponse.searchReviewResults = mergedResults.filter(row => row.classification === 'review');
+        const reached = approved.length === APPROVED_TARGET;
+        const incomplete = searchResponse.searchStatus === 'partial' || expandedRuntimeFilter.searchLinkedin || Number(alcateiaSearch.stats?.evaluated || 0) < Number(alcateiaSearch.totalFound || 0);
+        searchResponse.searchStatus = reached ? 'completed' : incomplete ? 'partial' : 'completed';
+        searchResponse.searchStopReason = reached ? 'target_reached' : incomplete ? 'incomplete_coverage' : 'sources_exhausted';
+        searchResponse.searchMessage = `${approved.length}/${APPROVED_TARGET} aprovados distintos, por aderência. ${reached ? 'Meta atingida.' : `Faltam ${APPROVED_TARGET - approved.length}. ${incomplete ? 'Cobertura incompleta ou fonte dependente de validação; não equivale a esgotamento do mercado.' : 'Resultados disponíveis nas fontes selecionadas esgotados.'}`} ${searchResponse.searchReviewResults.length} a confirmar, fora da meta. ${apinfoSummary} ${linkedinSummary} ${alcateiaSummary} ${(search.sourceStats?.APINFO?.warnings || []).join(' ')}`;
       }
-
-      sendJson(response, 200, searchResponse);
+      });
+      sendJson(response, 202, job.response);
       return;
     }
 

@@ -113,7 +113,7 @@ test('leitura de curriculos no Mongo evita sort bloqueante e mantem indice de or
   const indexSource = readFileSync(new URL('../scripts/create_mongo_indexes.mjs', import.meta.url), 'utf8');
 
   assert.match(mongoSource, /CURRICULUM_BOOTSTRAP_PROJECTION/);
-  assert.match(mongoSource, /projection: CURRICULUM_BOOTSTRAP_PROJECTION,\s*limit: config\.limit/);
+  assert.match(mongoSource, /projection: CURRICULUM_BOOTSTRAP_PROJECTION,\s*limit: all \? 0 : config\.limit/);
   assert.doesNotMatch(mongoSource, /sort: \{ data_atualizacao: -1, data_criacao: -1, _id: -1 \}/);
   assert.doesNotMatch(mongoSource, /texto_integral_original: 1/);
   assert.doesNotMatch(mongoSource, /versoes: 1/);

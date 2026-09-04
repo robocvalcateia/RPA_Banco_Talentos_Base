@@ -3485,12 +3485,14 @@ function renderCvSearchResults() {
   const saveButton = $('#saveSelectedCandidatesButton');
 
   if (button) {
-    button.disabled = !filter;
+    button.disabled = !filter || filter.searchStatus === 'running';
   }
   if (saveButton) {
     saveButton.disabled = true;
   }
   if (!status || !table) return;
+  const reviewTable = $('#cvReviewResultTable');
+  if (reviewTable) reviewTable.innerHTML = renderCvResultRows(filter?.searchReviewResults || [], 'Nenhum candidato a confirmar.', 'pendente');
 
   if (!filter) {
     status.textContent = 'Preencha e salve os critérios';
@@ -3507,11 +3509,11 @@ function renderCvSearchResults() {
     .sort((first, second) => Number(second.score ?? 0) - Number(first.score ?? 0));
   const rejectedResults = Array.isArray(filter.searchRejectedResults) ? filter.searchRejectedResults : [];
     if (filter.searchStatus === 'running') {
-    setCvSearchInlineStatus('Busca de Candidatos em Andamento', 'running');
+    setCvSearchInlineStatus(filter.searchMessage || 'Busca em andamento: meta de 30 aprovados.', 'running');
   } else if (filter.searchStatus === 'completed' || filter.searchStatus === 'partial') {
     const counts = filter.searchStats;
     setCvSearchInlineStatus(
-      counts ? `${filter.searchStatus === 'partial' ? 'Busca parcial (consulte falhas por fonte)' : 'Busca finalizada'}. Encontrados: ${counts.found}; Avaliados: ${counts.evaluated}; Compatíveis: ${counts.compatible}; A confirmar: ${counts.pending}; Não compatíveis: ${counts.rejected}. Exibidos: ${results.length + rejectedResults.length}. Totais por fonte, antes de deduplicar pessoas.` : 'Busca anterior sem métricas detalhadas. Execute novamente para obter contadores confiáveis.',
+      filter.searchJobId ? filter.searchMessage : counts ? `Busca finalizada. Avaliados: ${counts.evaluated}; Compatíveis: ${counts.compatible}; A confirmar: ${counts.pending}.` : 'Execute novamente para obter contadores confiáveis.',
       'done'
     );
   } else if (filter.searchStatus === 'no_sources') {
@@ -10757,7 +10759,7 @@ function selectedCvSearchRows() {
   return $$('[data-select-cv-result]:checked')
     .map((checkbox) => {
       const group = checkbox.dataset.resultGroup;
-      const rows = group === 'rejeitado' ? filter.searchRejectedResults : filter.searchResults;
+      const rows = group === 'rejeitado' ? filter.searchRejectedResults : group === 'pendente' ? filter.searchReviewResults : filter.searchResults;
       const result = (rows ?? []).find((item) => item.id === checkbox.dataset.selectCvResult);
       if (!result) return null;
       return {
@@ -10825,10 +10827,16 @@ function bindCvSearch() {
     }
 
     try {
-      const updatedFilter = await api(`/api/cv-filters/${filter.id}/search`, {
+      let updatedFilter = await api(`/api/cv-filters/${filter.id}/search`, {
         method: 'POST',
         body: JSON.stringify(currentCvSearchSourcePayload())
       });
+      while (updatedFilter.searchStatus === 'running' && updatedFilter.searchJobId) {
+        Object.assign(filter, updatedFilter);
+        renderCvSearchResults();
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        updatedFilter = await api(`/api/cv-search-jobs/${encodeURIComponent(updatedFilter.searchJobId)}`);
+      }
       Object.assign(filter, updatedFilter);
       state.editing.cvFilterId = filter.id;
       renderCvSearchResults();
@@ -10851,6 +10859,7 @@ function bindCvSearch() {
   });
 
   $('#cvSearchResultTable')?.addEventListener('change', updateSaveSelectedCandidatesState);
+  $('#cvReviewResultTable')?.addEventListener('change', updateSaveSelectedCandidatesState);
   $('#cvRejectedResultTable')?.addEventListener('change', updateSaveSelectedCandidatesState);
 }
 

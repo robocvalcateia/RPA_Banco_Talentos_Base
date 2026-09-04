@@ -900,29 +900,35 @@ class ApinfoSession {
   }
 }
 
-export async function searchApinfoCandidates(filter, credentials, limit = 10) {
-  const session = new ApinfoSession(credentials);
-  await session.login();
+async function searchApinfoBatch(filter, credentials, limit = 10, state = {}) {
+  const session = state.session || new ApinfoSession(credentials);
+  session.deadline = Date.now() + 180000;
+  if (!state.session) await session.login();
+  state.session = session;
   const requestedLimit = Math.max(1, Math.min(50, Number(filter.resultLimit || limit || 10)));
   const targetScan = Math.min(Math.max(requestedLimit * 4, 20), 100);
   const maxPages = 10;
   const warnings = [];
   const failedDetails = [];
   const extraFields = {};
-  const retrievalFilter = { ...filter, state: '', city: '' };
+  const retrievalFilter = { ...filter, state: filter.retrievalState || filter.state || '', city: '' };
 
-  const firstSearch = await session.search(retrievalFilter, extraFields);
+  const firstSearch = state.firstHtml ? { html: state.firstHtml } : await session.search(retrievalFilter, extraFields);
   let firstHtml = firstSearch.html;
+  state.firstHtml = firstHtml;
   // Missing language and residence fields must not suppress initial retrieval.
 
-  let links = parseResultLinks(firstHtml);
+  let links = state.queue || parseResultLinks(firstHtml);
 
-  let pageHtml = firstHtml, pagesRead = 1;
-  const visited = new Set();
-  for (let page = 1; page < maxPages && links.length < targetScan; page += 1) {
+  let pageHtml = state.pageHtml || firstHtml, pagesRead = state.pagesRead || 1;
+  const visited = state.visited || new Set();
+  state.seen ||= new Set();
+  for (let step = 0; step < maxPages && links.length < targetScan && !state.exhausted && !state.blocked; step += 1) {
+    const page = pagesRead;
     const next = apinfoNextPage(pageHtml, page);
     const pageIdentity = next && JSON.stringify(next);
-    if (!next || visited.has(pageIdentity)) break;
+    if (!next) { state.exhausted = true; break; }
+    if (visited.has(pageIdentity)) { state.blocked = true; warnings.push('Paginação repetida; cobertura incompleta.'); break; }
     visited.add(pageIdentity);
     try {
       const pageUrl = new URL(next.url);
@@ -930,19 +936,21 @@ export async function searchApinfoCandidates(filter, credentials, limit = 10) {
       const pageSearch = next.method === 'post' ? await session.post(next.url, next.body) : await session.request(pageUrl.href);
       const pageLinks = parseResultLinks(pageSearch.html);
       const known = new Set(links.map(item => item.code || item.link));
-      const fresh = pageLinks.filter(item => !known.has(item.code || item.link));
-      if (!fresh.length) { warnings.push('Paginação retornou página repetida ou sem novos currículos.'); break; }
+      const fresh = pageLinks.filter(item => !known.has(item.code || item.link) && !state.seen.has(item.code || item.link));
+      if (!fresh.length) { state.blocked = true; warnings.push('Paginação retornou página repetida ou sem novos currículos.'); break; }
       links.push(...fresh); pageHtml = pageSearch.html; pagesRead += 1;
-    } catch (error) { warnings.push(`Paginação interrompida: ${error.message}`); break; }
+    } catch (error) { state.blocked = true; warnings.push(`Paginação interrompida: ${error.message}`); break; }
   }
 
-  const uniqueLinks = Array.from(new Map(links.map((link) => [link.code || link.link, link])).values()).slice(0, targetScan);
+  const allLinks = Array.from(new Map(links.map((link) => [link.code || link.link, link])).values()).filter(link => !state.seen.has(link.code || link.link));
+  const uniqueLinks = allLinks.slice(0, targetScan);
   const details = [];
 
   let cursor = 0;
   await Promise.all(Array.from({ length: Math.min(3, uniqueLinks.length) }, async () => {
     while (cursor < uniqueLinks.length && Date.now() < session.deadline) {
       const link = uniqueLinks[cursor++];
+      state.seen.add(link.code || link.link);
       try {
         const detailResponse = await session.getDetail(link.link);
         const detail = extractDetail(detailResponse.html, link);
@@ -952,6 +960,12 @@ export async function searchApinfoCandidates(filter, credentials, limit = 10) {
     }
   }));
   const found = extractCount(firstHtml);
+  Object.assign(state, { pageHtml, pagesRead, visited, queue: [...uniqueLinks.slice(cursor), ...allLinks.slice(targetScan)] });
+  state.failed = (state.failed || 0) + failedDetails.length;
+  if (state.exhausted && state.seen.size < found && !state.queue.length) {
+    state.blocked = true;
+    warnings.push('A fonte encerrou a paginação antes do total anunciado.');
+  }
   if (details.length < found) warnings.push(`Cobertura parcial: ${details.length} de ${found} resultados analisados; limite por execução ${targetScan}.`);
   if (failedDetails.length) warnings.push(`${failedDetails.length} currículos não puderam ser lidos após nova tentativa.`);
   if (cursor < uniqueLinks.length) warnings.push(`${uniqueLinks.length - cursor} currículos aguardam leitura; orçamento de tempo da consulta esgotado.`);
@@ -1010,9 +1024,72 @@ export async function searchApinfoCandidates(filter, credentials, limit = 10) {
     inspected,
     warnings, pagesRead, failedDetails,
     stats: screeningStats([...results, ...rejectedResults], extractCount(firstHtml)),
-    results: results.sort((a, b) => b.score - a.score).slice(0, requestedLimit),
-    rejectedResults: rejectedResults.slice(0, requestedLimit)
+    results: results.sort((a, b) => b.score - a.score),
+    rejectedResults
   };
+}
+
+async function searchApinfoRegionCandidates(filter, credentials, limit = 10, control = {}) {
+  const state = { seen: control.seen || new Set() }, results = [], rejectedResults = [], inspected = [];
+  let latest, batches = 0;
+  do {
+    if (control.shouldStop?.()) break;
+    try { latest = await searchApinfoBatch(filter, credentials, limit, state); }
+    catch (error) {
+      if (!latest) throw error;
+      state.blocked = true;
+      state.error = error.message;
+      break;
+    }
+    results.push(...latest.results); rejectedResults.push(...latest.rejectedResults); inspected.push(...latest.inspected);
+    batches += 1;
+    control.onProgress?.({ results, rejectedResults, stats: screeningStats([...results, ...rejectedResults], latest.totalFound), pagesRead: state.pagesRead });
+    if (!control.continueToTarget) break;
+    // A safety ceiling is an operational interruption, never market exhaustion.
+    if (batches >= 200 || (latest.failedDetails.length && !latest.inspected.length)) { state.blocked = true; break; }
+  } while ((!state.exhausted || state.queue.length) && !state.blocked);
+  const incomplete = state.blocked || state.failed || (!state.exhausted || state.queue?.length);
+  return { ...(latest || {}), results, rejectedResults, inspected,
+    stats: screeningStats([...results, ...rejectedResults], latest?.totalFound || 0),
+    warnings: incomplete ? [`Cobertura parcial APINFO: ${inspected.length} avaliados de ${latest?.totalFound || 0}.`, ...(state.failed ? [`${state.failed} currículos com falha de leitura.`] : []), ...(state.blocked ? [`Continuação interrompida por falha ou limite operacional. ${state.error || ''}`] : [])] : [],
+    exhausted: !incomplete, pagesRead: state.pagesRead || 0
+  };
+}
+
+export async function searchApinfoCandidates(filter, credentials, limit = 10, control = {}) {
+  const alternatives = [...String(filter.locations || '').matchAll(/\b(AC|AL|AP|AM|BA|CE|DF|ES|GO|MA|MT|MS|MG|PA|PB|PR|PE|PI|RJ|RN|RS|RO|RR|SC|SP|SE|TO)\b/gi)].map(match => match[1].toUpperCase());
+  const states = [...new Set(alternatives.length ? alternatives : [filter.state || ''])];
+  const combined = { results: [], rejectedResults: [], inspected: [], totalFound: 0, warnings: [], pagesRead: 0, failedDetails: [], exhausted: true, keyword: buildKeyword(filter) };
+  const seen = new Set();
+  let regionErrors = 0;
+  for (const state of states) {
+    if (control.shouldStop?.()) { combined.exhausted = false; break; }
+    try {
+      const result = await searchApinfoRegionCandidates({ ...filter, retrievalState: state }, credentials, limit, {
+        ...control,
+        seen,
+        onProgress: batch => control.onProgress?.({
+          results: [...combined.results, ...batch.results],
+          rejectedResults: [...combined.rejectedResults, ...batch.rejectedResults],
+          stats: screeningStats([...combined.results, ...combined.rejectedResults, ...batch.results, ...batch.rejectedResults], combined.totalFound + batch.stats.found),
+          pagesRead: combined.pagesRead + batch.pagesRead
+        })
+      });
+      for (const key of ['results', 'rejectedResults', 'inspected', 'warnings', 'failedDetails']) combined[key].push(...(result[key] || []));
+      combined.totalFound += result.totalFound || 0;
+      combined.pagesRead += result.pagesRead || 0;
+      combined.exhausted &&= result.exhausted;
+    } catch (error) {
+      regionErrors += 1;
+      combined.warnings.push(`APINFO ${state || 'UF padrão da fonte'}: ${error.message}`);
+      combined.exhausted = false;
+      if (states.length === 1 && !combined.inspected.length) throw error;
+    }
+  }
+  if (regionErrors === states.length) throw new Error(combined.warnings.join(' '));
+  if (states.includes('')) { combined.exhausted = false; combined.warnings.push('UF não especificada: a APINFO usa sua região padrão; não representa cobertura nacional.'); }
+  combined.stats = screeningStats([...combined.results, ...combined.rejectedResults], combined.totalFound);
+  return combined;
 }
 
 export async function extractApinfoCandidateEmails(credentials, link) {
@@ -1029,7 +1106,7 @@ export async function extractApinfoCandidateText(credentials, link) {
   return htmlToText(detailResponse.html);
 }
 
-export async function searchApinfoAndLinkedinCandidates(filter, credentials, limit = 50) {
+export async function searchApinfoAndLinkedinCandidates(filter, credentials, limit = 50, control = {}) {
   const requestedLimit = Math.max(1, Math.min(50, Number(filter.resultLimit || limit || 50)));
   const safeSearch = async (enabled, run) => {
     if (!enabled) return { totalFound: 0, results: [], rejectedResults: [], stats: screeningStats([], 0), status: 'disabled' };
@@ -1037,7 +1114,7 @@ export async function searchApinfoAndLinkedinCandidates(filter, credentials, lim
     catch (error) { return { totalFound: 0, results: [], rejectedResults: [], stats: screeningStats([], 0), status: 'error', error: error.message || 'Falha na fonte' }; }
   };
   const [apinfo, linkedin] = await Promise.all([
-    safeSearch(filter.searchApinfo, () => searchApinfoCandidates(filter, credentials, requestedLimit)),
+    safeSearch(filter.searchApinfo, () => searchApinfoCandidates(filter, credentials, requestedLimit, control)),
     safeSearch(filter.searchLinkedin, () => searchLinkedinCandidates(filter, requestedLimit))
   ]);
   return {
