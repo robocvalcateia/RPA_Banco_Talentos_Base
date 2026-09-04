@@ -88,6 +88,7 @@ test('BI BW ETL and knowledge lists cannot substitute functional FI experience',
     'Consultor SAP FICO.\nTechnical Leader for Building the SAP BW Corporate Data Warehouse (FI AP, FI AR, FI GL).',
     'Consultor SAP FI.\nDesenvolvimento e customizações de módulos SAP (AP, AR, FI, GL) com Datastage e Fabric.',
     'Consultor SAP FI.\nConhecimento em transações FI-GL, FI-AR e FI-AP.',
-    'Consultor SAP FI.\nSAP ECC, S/4HANA, Rollouts, AP/AR, GL, NewGL, TR, AA.'
+    'Consultor SAP FI.\nSAP ECC, S/4HANA, Rollouts, AP/AR, GL, NewGL, TR, AA.',
+    'Consultor SAP FI.\nCustomização de módulos SAP para recuperar dados nos módulos AP, AR, FI, GL e transferir para outra base.'
   ]) assert.notEqual(screenCandidate(cv, vacancy).classification, 'approved', cv);
 });

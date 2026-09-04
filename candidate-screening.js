@@ -1,4 +1,5 @@
 // Evidence-based screening. Unknown information is never treated as confirmation.
+export const VACANCY_RULE_VERSION = 'technical-triage-v2';
 export const normalize = (value = '') => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9+#]+/g, ' ').trim().replace(/\s+/g, ' ');
 export const phrases = (value = '') => [...new Set(String(value).split(/[,;\n]+/).map(s => s.trim()).filter(Boolean))];
 const aliases = {
@@ -88,7 +89,7 @@ export function interpretVacancy(filter) {
   }
   phrases(filter.technicalSkills).forEach(term => add(term, 'central'));
   const ranking = [...ranked.values()].filter(item => !mandatory.some(term => normalize(term) === normalize(item.term)));
-  return { version: 'technical-triage-v1', core, mandatory, ranking,
+  return { version: VACANCY_RULE_VERSION, core, mandatory, ranking,
     retrievalTerms: [...new Set([core, ...(normalize(core) === 'sap fi' ? ['SAP FICO', 'FI-AP', 'FI-AR', 'FI-GL'] : [])])],
     operational: { englishLevel: filter.englishLevel || ['', 'Básico', 'Intermediário', 'Avançado', 'Fluente'][englishEvidence(filter.jobDescription || '')], locations: filter.locations || [filter.city, filter.state].filter(Boolean).join('/'), minimumYears: Number(String(filter.jobDescription || '').match(/\b(\d+)\s*(?:\+\s*)?anos\b/i)?.[1] || 0), availability: /viagens|exclusiv|presencial|h[ií]brid/i.test(filter.jobDescription || '') },
     warnings: core ? [] : ['Informe o skill obrigatório; a descrição não substitui a definição da competência principal.'] };
@@ -125,9 +126,10 @@ export function contextualEvidence(text, term, core = '', prepared = prepareEvid
     const sapContext = !sapTerm || /\b(?:SAP|FICO|FI[- /](?:AP|AR|GL))\b/i.test(context);
     const onlyTechnicalRole = sapTerm && /\b(?:ABAP|developer|desenvolvedor|programador)\b/i.test(context) && !/funcional|functional|configura|parametriza/i.test(context);
     const dataWorkOnly = sapTerm && /\b(?:BW|BI|ETL|Datastage|Fabric)\b|data warehouse|business intelligence|indicadores|data lake/i.test(context) && !/consultor(?:a)?\s+funcional|functional consultant|parametriza[^.]{0,50}\bFI\b/i.test(line);
+    const dataTransferPurpose = sapTerm && /\b(?:recuperar|extrair|transferir|migrar)\b[^.;]{0,45}\bdados\b|extra[cç][aã]o de dados|data extraction|data migration|data integration|data pipelines|\bBigQuery\b/i.test(line);
     const managementOnly = sapTerm && /project manager|gerente de projetos|gest[aã]o de projetos|management of|condu[cç][aã]o de projetos/i.test(line) && !/configura|parametriza|customiz|consultor(?:a)? funcional|functional consultant/i.test(line);
     const skillList = /^(?:[•*\-]\s*)?(?:conhecimentos?|habilidades|compet[eê]ncias|skills|technologies)\b/i.test(line);
-    const work = (short ? action : action || nearbyWork) && sapContext && !onlyTechnicalRole && !managementOnly && !dataWorkOnly && !skillList;
+    const work = (short ? action : action || nearbyWork) && sapContext && !onlyTechnicalRole && !managementOnly && !dataWorkOnly && !dataTransferPurpose && !skillList;
     const strength = negative || training ? 0 : work ? 1 : 0.25;
     const kind = negative ? 'negação explícita' : training ? 'somente formação; atuação não comprovada' : work ? 'atuação profissional descrita' : 'menção sem atuação comprovada';
     if (!best.excerpt || strength > best.strength) {
@@ -222,7 +224,7 @@ export function experienceEvidence(text, core, now = new Date()) {
   return { months: merged.reduce((sum, [start, end]) => sum + end - start, 0), ranges: merged, basis: 'períodos explícitos vinculados ao módulo; sem sobreposição' };
 }
 export function screenCandidate(text, filter, candidate = {}, publicSummary = false) {
-  const plan = filter.vacancyAnalysis?.version === 'technical-triage-v1' ? filter.vacancyAnalysis : interpretVacancy(filter);
+  const plan = filter.vacancyAnalysis?.version === VACANCY_RULE_VERSION ? filter.vacancyAnalysis : interpretVacancy(filter);
   const core = plan.core;
   const corePresent = core && mentioned(text, core);
   const prepared = prepareEvidence(corePresent ? text : '');
