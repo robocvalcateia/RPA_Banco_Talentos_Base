@@ -2021,8 +2021,13 @@ async function searchAlcateiaCandidates(filter, limit = 50) {
   if (!isMongoTalentosConfigured()) return { totalFound: 0, results: [], rejectedResults: [], error: 'MongoDB não configurado', message: 'ALCATEIA: MongoDB não configurado.' };
   const mongoResponse = await getCurriculumsFromMongo({ all: true });
   const curriculums = Array.isArray(mongoResponse.curriculums) ? mongoResponse.curriculums : [];
-  const rows = curriculums.map(curriculum => evaluateAlcateiaCurriculum(curriculum, filter).row)
-    .sort((a, b) => b.score - a.score || b.sourceUpdatedAtTime - a.sourceUpdatedAtTime);
+  const rows = [];
+  for (let index = 0; index < curriculums.length; index += 1) {
+    rows.push(evaluateAlcateiaCurriculum(curriculums[index], filter).row);
+    // Let progress requests run while scoring a large collection.
+    if (index % 10 === 9) await new Promise(resolve => setImmediate(resolve));
+  }
+  rows.sort((a, b) => b.score - a.score || b.sourceUpdatedAtTime - a.sourceUpdatedAtTime);
   const stats = screeningStats(rows, mongoResponse.total ?? curriculums.length);
   return {
     totalFound: mongoResponse.total ?? curriculums.length, stats,
