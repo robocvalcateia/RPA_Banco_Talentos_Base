@@ -49,6 +49,12 @@ test('FICO with functional FI processes qualifies; FICO limited to CO does not',
   assert.notEqual(screenCandidate('Consultor SAP FICO: configuração de CO, centros de custo e ordens internas.', vacancy).classification, 'approved');
 });
 
+test('recognizes common senior and English role wording without accepting a mere list', () => {
+  for (const role of ['Consultor Sênior SAP FI', 'SAP FI consultant', 'Experiência em SAP FI']) {
+    assert.equal(screenCandidate(`${role}: FI-AP, FI-AR e FI-GL.`, vacancy).classification, 'approved');
+  }
+});
+
 test('synonyms and repeated terms count once, and work weighs more than a list', () => {
   const filter = { ...vacancy, jobDescription: 'Plano de contas, Chart of Accounts. Fechamento contábil.' };
   assert.equal(interpretVacancy(filter).ranking.filter(item => item.term === 'plano de contas').length, 1);

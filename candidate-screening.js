@@ -115,8 +115,9 @@ export function contextualEvidence(text, term, core = '', prepared = prepareEvid
     if (!alternatives.some(alias => normalized[index].includes(alias)) && !(short && normalized[index].includes(` ${short} `) && /\b(?:sap|fi|fico)\b/.test(normalizedContexts[index]))) continue;
     const negative = /\b(?:sem experi[eê]ncia|n[aã]o (?:possuo|tenho|atuei|trabalhei)|no experience|never worked)\b/i.test(line);
     const training = /\bcurso\b|\btreinamento\b|\bacademia\b|\btraining\b|\bcertifica[cç][aã]o\b/i.test(line) || section === 'training';
-    const action = /configura|parametriza|implanta|implement|suporte|sustenta|atua[cç]|atuei|respons[aá]vel|responsible|consultor(?:a)?\s+(?:funcional|SAP)|functional consultant|desenvolv|develop|delivered|worked|customiz|rollout/i.test(line);
-    const nearbyWork = section !== 'list' && /configura|parametriza|implanta|implement|consultor(?:a)?\s+(?:funcional|SAP)|functional consultant|respons[aá]vel|experi[eê]ncia profissional|professional experience/i.test(context);
+    const workLanguage = /configura|parametriza|implanta|implement|suporte|sustenta|atua[cç]|atuei|atuou|atuando|respons[aá]vel|responsible|consultor(?:a)?\s+(?:(?:s[eê]nior|pleno|sr)\s+)?(?:funcional|SAP)|SAP\s+(?:FI(?:CO)?|MM|SD)\s+consultant|functional consultant|experi[eê]ncia\s+(?:profissional|em|com)|experience\s+(?:in|with)|desenvolv|develop|delivered|worked|customiz|rollout/i;
+    const action = workLanguage.test(line);
+    const nearbyWork = section !== 'list' && workLanguage.test(context);
     const sapContext = !sapTerm || /\b(?:SAP|FICO|FI[- /](?:AP|AR|GL))\b/i.test(context);
     const onlyTechnicalRole = sapTerm && /\b(?:ABAP|developer|desenvolvedor|programador)\b/i.test(context) && !/funcional|functional|configura|parametriza/i.test(context);
     const work = (action || nearbyWork) && sapContext && !onlyTechnicalRole;
