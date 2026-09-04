@@ -73,3 +73,12 @@ test('public summaries never become full-CV approvals and unrelated modules fail
   assert.equal(screenCandidate(professional, vacancy, {}, true).classification, 'review');
   assert.equal(screenCandidate('Consultor SAP MM: configuração J1BTAX.', vacancy).classification, 'rejected');
 });
+
+test('AR country code, management descriptions and certified SD do not prove functional FI processes', () => {
+  const cv = 'Project manager SAP FICO, gestão de projetos.\nExperiência na condução de projetos no exterior (USA-Houston, Buenos Aires-AR).\nSAP SD CERTIFIED, New GL e SAP PROJECT MANAGER.';
+  const result = screenCandidate(cv, vacancy);
+  assert.notEqual(result.classification, 'approved');
+  assert.equal(result.evidence.find(item => item.requirement === 'SAP AR').found, false);
+  assert.equal(result.evidence.find(item => item.requirement === 'SAP GL').found, false);
+  assert.equal(result.evidence.find(item => item.requirement === 'SAP FI').found, false);
+});

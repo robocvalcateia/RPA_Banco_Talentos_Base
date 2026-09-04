@@ -101,7 +101,7 @@ function prepareEvidence(text) {
 }
 export function contextualEvidence(text, term, core = '', prepared = prepareEvidence(text)) {
   const { lines, contexts, normalized, normalizedContexts } = prepared;
-  const alternatives = skillAlternatives(term).map(alias => ` ${normalize(alias)} `);
+  const alternatives = skillAlternatives(term).filter(alias => !(term === 'SAP FI' && normalize(alias) === 'fi co')).map(alias => ` ${normalize(alias)} `);
   const short = { 'SAP AP': 'ap', 'SAP AR': 'ar', 'SAP GL': 'gl' }[term];
   let best = { requirement: term, found: false, kind: 'não evidenciado', excerpt: '', strength: 0 };
   let section = '';
@@ -112,18 +112,34 @@ export function contextualEvidence(text, term, core = '', prepared = prepareEvid
     else if (/^(cursos|forma[cç][aã]o|certifica[cç][oõ]es|education|training)/i.test(line)) section = 'training';
     else if (/^(habilidades|compet[eê]ncias|conhecimentos|skills|technologies)/i.test(line)) section = 'list';
     const context = contexts[index];
-    if (!alternatives.some(alias => normalized[index].includes(alias)) && !(short && normalized[index].includes(` ${short} `) && /\b(?:sap|fi|fico)\b/.test(normalizedContexts[index]))) continue;
+    const explicitMention = alternatives.some(alias => normalized[index].includes(alias));
+    const groupedProcesses = ['ap', 'ar', 'gl'].every(part => normalized[index].includes(` ${part} `));
+    const labeledProcess = short && new RegExp(`\\b(?:fi|modulo|submodulo)\\s+(?:de\\s+)?${short}\\b`).test(normalized[index]);
+    const shortMention = short && normalized[index].includes(` ${short} `) && (groupedProcesses || labeledProcess) && /\b(?:sap fi|sap fico|fi ap|fi ar|fi gl)\b/.test(normalizedContexts[index]);
+    if (!explicitMention && !shortMention) continue;
     const negative = /\b(?:sem experi[eê]ncia|n[aã]o (?:possuo|tenho|atuei|trabalhei)|no experience|never worked)\b/i.test(line);
-    const training = /\bcurso\b|\btreinamento\b|\bacademia\b|\btraining\b|\bcertifica[cç][aã]o\b/i.test(line) || section === 'training';
+    const training = /\bcurso\b|\bcourses?\b|\btreinamento\b|\bacademia\b|\bacademy\b|\btraining\b|\bcertified\b|\bcertification\b|\bcertifica[cç][aã]o\b/i.test(line) || section === 'training';
     const workLanguage = /configura|parametriza|implanta|implement|suporte|sustenta|atua[cç]|atuei|atuou|atuando|respons[aá]vel|responsible|consultor(?:a)?\s+(?:(?:s[eê]nior|pleno|sr)\s+)?(?:funcional|SAP)|SAP\s+(?:FI(?:CO)?|MM|SD)\s+consultant|functional consultant|experi[eê]ncia\s+(?:profissional|em|com)|experience\s+(?:in|with)|desenvolv|develop|delivered|worked|customiz|rollout/i;
     const action = workLanguage.test(line);
     const nearbyWork = section !== 'list' && workLanguage.test(context);
     const sapContext = !sapTerm || /\b(?:SAP|FICO|FI[- /](?:AP|AR|GL))\b/i.test(context);
     const onlyTechnicalRole = sapTerm && /\b(?:ABAP|developer|desenvolvedor|programador)\b/i.test(context) && !/funcional|functional|configura|parametriza/i.test(context);
-    const work = (action || nearbyWork) && sapContext && !onlyTechnicalRole;
+    const managementOnly = sapTerm && /project manager|gerente de projetos|gest[aã]o de projetos|management of|condu[cç][aã]o de projetos/i.test(line) && !/configura|parametriza|customiz|consultor(?:a)? funcional|functional consultant/i.test(line);
+    const work = (action || nearbyWork) && sapContext && !onlyTechnicalRole && !managementOnly;
     const strength = negative || training ? 0 : work ? 1 : 0.25;
     const kind = negative ? 'negação explícita' : training ? 'somente formação; atuação não comprovada' : work ? 'atuação profissional descrita' : 'menção sem atuação comprovada';
-    if (!best.excerpt || strength > best.strength) best = { requirement: term, found: strength === 1, kind, excerpt: line.slice(0, 400), strength };
+    if (!best.excerpt || strength > best.strength) {
+      let excerpt = line;
+      if (line.length > 500) {
+        const words = line.split(/\s+/);
+        for (let start = 0; start < words.length; start += 15) {
+          const fragment = words.slice(start, start + 55).join(' ');
+          const haystack = ` ${normalize(fragment)} `;
+          if (alternatives.some(alias => haystack.includes(alias)) || (shortMention && haystack.includes(` ${short} `))) { excerpt = `…${fragment}…`; break; }
+        }
+      }
+      best = { requirement: term, found: strength === 1, kind, excerpt, strength };
+    }
   }
   return best;
 }
