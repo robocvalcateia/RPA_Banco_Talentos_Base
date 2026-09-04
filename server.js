@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { CvSearchJobs, uniqueApproved, APPROVED_TARGET } from './cv-search-jobs.js';
 const cvSearchJobs = new CvSearchJobs();
-import { coreKeyword, screeningStats } from './candidate-screening.js';
+import { coreKeyword, screeningStats, interpretVacancy } from './candidate-screening.js';
 import { promises as fs } from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -5426,6 +5426,7 @@ async function handleApi(request, response) {
         createdAt: filter.createdAt
       });
       const expandedRuntimeFilter = expandCityRadiusFilter(runtimeFilter);
+      expandedRuntimeFilter.vacancyAnalysis = interpretVacancy(expandedRuntimeFilter);
       if (!coreKeyword(expandedRuntimeFilter) && (expandedRuntimeFilter.searchApinfo || expandedRuntimeFilter.searchLinkedin)) {
         sendError(response, 422, 'Informe a competência principal ou a primeira habilidade obrigatória para orientar a busca externa.');
         return;
@@ -5439,16 +5440,17 @@ async function handleApi(request, response) {
         `cidade: ${expandedRuntimeFilter.city || 'nao informada'}`,
         expandedRuntimeFilter.cityRadiusCities?.length ? `cidades no raio: ${expandedRuntimeFilter.cityRadiusCities.join(', ')}` : '',
         `nivel de ingles: ${expandedRuntimeFilter.englishLevel || 'nao informado'}`,
-        `mínimo de evidência no CV: ${expandedRuntimeFilter.matchPercent || 0}%; resumos públicos permanecem a confirmar`,
-        `habilidades obrigatorias: ${expandedRuntimeFilter.mandatorySkills || 'nao informadas'} precisam constar no CV`,
+        'aprovação técnica pelo skill obrigatório; descrição ordena por aderência; condições operacionais são avaliadas separadamente',
+        `habilidades obrigatórias interpretadas: ${expandedRuntimeFilter.vacancyAnalysis.mandatory.join(', ') || 'não informadas'}`,
         `fontes: ${enabledSearchSources(expandedRuntimeFilter).join(', ') || 'nenhuma'}`
       ].filter(Boolean).join('; ');
       const initialSearchResponse = {
         ...enrichCvFilter(expandedRuntimeFilter, db),
+        vacancyAnalysis: expandedRuntimeFilter.vacancyAnalysis,
         searchSource: 'APINFO',
         searchExecutedAt: toISODate(),
         searchStatus: 'running',
-        searchMessage: `Busca APINFO em andamento. Regra: ${ruleSummary}.`,
+        searchMessage: `Busca em andamento. Regra: ${ruleSummary}.`,
         searchReviewResults: [],
         searchResults: [],
         searchRejectedResults: []

@@ -86,8 +86,8 @@ test('APINFO continues to actual exhaustion when fewer than 30 qualify', async (
   await withApinfoFixture(async ({ details }) => {
     const result = await searchApinfoCandidates({ coreSkill: 'SAP FI', technicalSkills: 'SAP FI', mandatorySkills: 'SAP FI', state: 'SP', matchPercent: 0, resultLimit: 50 }, {}, 50, { continueToTarget: true });
     assert.equal(details.length, 115);
-    assert.equal(uniqueApproved(result.results).length, 0);
-    assert.equal(result.results.filter(row => row.classification === 'review').length, 15);
+    assert.equal(uniqueApproved(result.results).length, 15);
+    assert.ok(result.results.every(row => row.operationalChecks.some(item => item.requirement === 'Localidade' && item.status === 'unknown')));
     assert.equal(result.exhausted, true);
   }, { total: 115 });
 });

@@ -222,11 +222,11 @@ test('filtro de CV exige listas preenchidas, skills obrigatorias e percentual mi
 
   assert.equal(evaluateCandidateTextForFilter(acceptedText, filter).review, true); // Unstructured city mentions are not proof of residence.
   assert.equal(evaluateCandidateTextForFilter(missingMandatoryText, filter).accepted, false);
-  assert.match(evaluateCandidateTextForFilter(missingMandatoryText, filter).reason, /habilidade obrigatoria/i);
+  assert.match(evaluateCandidateTextForFilter(missingMandatoryText, filter).reason, /skill obrigatório/i);
   assert.equal(evaluateCandidateTextForFilter(lowScoreText, filter).accepted, false);
-  assert.match(evaluateCandidateTextForFilter(lowScoreText, filter).reason, /abaixo do mínimo/i);
+  assert.match(evaluateCandidateTextForFilter(lowScoreText, filter).reason, /skill obrigatório/i);
   assert.equal(evaluateCandidateTextForFilter(missingListText, filter).accepted, false);
-  assert.match(evaluateCandidateTextForFilter(missingListText, filter).reason, /localidade nao evidente/i);
+  assert.match(evaluateCandidateTextForFilter(missingListText, filter).reason, /Residência não comprovada/i);
 });
 
 test('filtro de CV aceita listas em branco e cidades dentro do raio parametrizado', () => {
@@ -254,7 +254,7 @@ test('filtro interno compara localizacao estruturada e aceita ingles acima do mi
     endereco: 'São Paulo, SP',
     nivel_ingles: 'C1 Advanced',
     skills: 'SAP S/4HANA e Project Management Professional',
-    experiencia_profissional: 'Gerente de projetos SAP Activate'
+    experiencia_profissional: 'Responsável pela implementação SAP S/4HANA como Project Management Professional, com SAP Activate'
   }, {
     state: 'SP',
     city: 'Sao Paulo',
@@ -267,7 +267,7 @@ test('filtro interno compara localizacao estruturada e aceita ingles acima do mi
   assert.equal(evaluation.accepted, true);
 });
 
-test('filtro de ingles usa nivel minimo e rejeita nivel inferior', () => {
+test('inglês inferior é incompatibilidade operacional, não rejeição do skill', () => {
   const filter = {
     englishLevel: 'Avançado',
     mandatorySkills: '',
@@ -276,7 +276,9 @@ test('filtro de ingles usa nivel minimo e rejeita nivel inferior', () => {
   };
 
   assert.equal(evaluateCandidateTextForFilter('Desenvolvedor Java com inglês C1', filter).accepted, true);
-  assert.equal(evaluateCandidateTextForFilter('Desenvolvedor Java com inglês B1', filter).accepted, false);
+  const lower = evaluateCandidateTextForFilter('Desenvolvedor Java com inglês B1', filter);
+  assert.equal(lower.accepted, true);
+  assert.equal(lower.operationalChecks.find(item => item.requirement === 'Inglês').status, 'incompatible');
 });
 
 test('busca LinkedIn v2 gera estrategias estruturadas por cargo skills e localidade', () => {
@@ -317,13 +319,13 @@ test('LinkedIn v2 classifica evidencias publicas sem rejeitar por lacuna nao evi
   const review = evaluateLinkedinCandidateTextForFilter(reviewText, filter);
   assert.equal(review.classification, 'review');
   assert.equal(review.review, true);
-  assert.match(review.reason, /localidade nao evidente/);
-  assert.match(review.reason, /nivel de ingles nao evidente/);
+  assert.match(review.reason, /Residência não comprovada/);
+  assert.match(review.reason, /Nível não informado/);
 
   const rejected = evaluateLinkedinCandidateTextForFilter('Gerente de Projetos em Sao Paulo com ingles avancado', filter);
   assert.equal(rejected.classification, 'rejected');
   assert.equal(rejected.accepted, false);
-  assert.match(rejected.reason, /habilidade obrigatoria ausente/);
+  assert.match(rejected.reason, /competência principal não evidenciada/);
 
   const approvedText = [
     'Gerente de Projetos PMO em Sao Paulo SP',

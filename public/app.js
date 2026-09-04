@@ -3465,9 +3465,9 @@ function renderCvResultRows(results, emptyMessage, group) {
       <tr>
         <td><input type="checkbox" data-select-cv-result="${result.id}" data-result-group="${group}" aria-label="Selecionar ${result.name || 'candidato'}" /></td>
         <td><strong>${renderBlackflagName(result.name, curriculum || result)}</strong></td>
-        <td>${escapeHtml(result.source || 'APINFO')}<br>${result.classification === 'review' ? 'A confirmar' : result.classification === 'rejected' ? 'Não compatível' : 'Compatível'}</td>
+        <td>${escapeHtml(result.source || 'APINFO')}<br>${result.classification === 'review' ? 'Skill a confirmar' : result.classification === 'rejected' ? 'Não compatível' : 'Aprovado na triagem técnica'}</td>
         <td>${candidateLinkHtml(result)}</td>
-        <td>${result.score ?? 0}%<br>${escapeHtml(result.scoreType || 'Evidência')}</td>
+        <td>${result.score ?? 0}%<br>${escapeHtml(result.scoreType || 'Evidência')}${result.operationalChecks?.length ? `<details><summary>Condições da vaga</summary>${result.operationalChecks.map(item => `<p>${escapeHtml(item.requirement)}: <strong>${item.status === 'meets' ? 'Atende ao declarado' : item.status === 'incompatible' ? 'Incompatível' : 'A confirmar'}</strong><br>${escapeHtml(item.detail)}</p>`).join('')}</details>` : ''}</td>
         <td>${escapeHtml(result.observation || '-')}<br><strong>${escapeHtml(result.triageGroup || 'Validação documental pendente')}</strong>${result.evidence?.length ? `<details><summary>Conferir requisitos e trechos do CV</summary>${result.evidence.map(item => `<p><strong>${escapeHtml(item.requirement)}</strong>: ${escapeHtml(item.kind || (item.found ? 'menção encontrada' : 'não evidenciado'))}<br>${escapeHtml(item.excerpt || 'Necessário confirmar no currículo completo.')}</p>`).join('')}</details>` : ''}</td>
       </tr>
     `;
@@ -3504,6 +3504,11 @@ function renderCvSearchResults() {
   }
 
   status.textContent = filter.searchMessage || `Pronto para buscar em ${enabledSourceLabels(filter).join(', ') || 'nenhuma fonte'}`;
+  let analysisPanel = $('#cvVacancyAnalysis');
+  if (!analysisPanel) { analysisPanel = document.createElement('details'); analysisPanel.id = 'cvVacancyAnalysis'; status.after(analysisPanel); }
+  const analysis = filter.vacancyAnalysis;
+  analysisPanel.hidden = !analysis;
+  if (analysis) analysisPanel.innerHTML = `<summary>Como a vaga foi interpretada</summary><p>Aprovação técnica exige: ${escapeHtml(analysis.mandatory.join(' + '))}.</p><p>Ordenação pela descrição (peso 3 para centrais, 1 para diferenciais): ${escapeHtml(analysis.ranking.map(item => `${item.term} (${item.weight})`).join('; ') || 'Sem conceitos técnicos adicionais identificados')}.</p><p>Inglês, localidade, experiência mínima e disponibilidade são conferidos separadamente. Aprovação técnica não significa liberação para apresentação ao cliente.</p>`;
   const results = (Array.isArray(filter.searchResults) ? filter.searchResults : [])
     .slice()
     .sort((first, second) => Number(second.score ?? 0) - Number(first.score ?? 0));

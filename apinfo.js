@@ -165,7 +165,7 @@ function extractCityCodes(html, city) {
 }
 
 function buildKeyword(filter) {
-  return coreKeyword(filter);
+  return filter.retrievalKeyword || coreKeyword(filter);
 }
 
 function requestedEnglishRank(value = '') {
@@ -760,7 +760,7 @@ function sortByFreshnessAndScore(rows) {
 }
 
 function evidenceFields(evaluation) {
-  return { technicalScore: evaluation.technicalScore, triageGroup: evaluation.triageGroup, evidence: evaluation.evidence, experience: evaluation.experience };
+  return { technicalScore: evaluation.technicalScore, triageGroup: evaluation.triageGroup, evidence: evaluation.evidence, experience: evaluation.experience, operationalChecks: evaluation.operationalChecks, approvalScope: evaluation.approvalScope, presentationStatus: evaluation.presentationStatus };
 }
 
 export function apinfoNextPage(html, currentPage = 1) {
@@ -936,7 +936,7 @@ async function searchApinfoBatch(filter, credentials, limit = 10, state = {}) {
       const pageSearch = next.method === 'post' ? await session.post(next.url, next.body) : await session.request(pageUrl.href);
       const pageLinks = parseResultLinks(pageSearch.html);
       const known = new Set(links.map(item => item.code || item.link));
-      const fresh = pageLinks.filter(item => !known.has(item.code || item.link) && !state.seen.has(item.code || item.link));
+      const fresh = pageLinks.filter(item => !known.has(item.code || item.link));
       if (!fresh.length) { state.blocked = true; warnings.push('Paginação retornou página repetida ou sem novos currículos.'); break; }
       links.push(...fresh); pageHtml = pageSearch.html; pagesRead += 1;
     } catch (error) { state.blocked = true; warnings.push(`Paginação interrompida: ${error.message}`); break; }
@@ -1059,13 +1059,15 @@ async function searchApinfoRegionCandidates(filter, credentials, limit = 10, con
 export async function searchApinfoCandidates(filter, credentials, limit = 10, control = {}) {
   const alternatives = [...String(filter.locations || '').matchAll(/\b(AC|AL|AP|AM|BA|CE|DF|ES|GO|MA|MT|MS|MG|PA|PB|PR|PE|PI|RJ|RN|RS|RO|RR|SC|SP|SE|TO)\b/gi)].map(match => match[1].toUpperCase());
   const states = [...new Set(alternatives.length ? alternatives : [filter.state || ''])];
+  const keywords = filter.vacancyAnalysis?.core === 'SAP FI' ? ['SAP FI', 'SAP FICO'] : [buildKeyword(filter)];
+  const searches = keywords.flatMap(keyword => states.map(state => ({ keyword, state })));
   const combined = { results: [], rejectedResults: [], inspected: [], totalFound: 0, warnings: [], pagesRead: 0, failedDetails: [], exhausted: true, keyword: buildKeyword(filter) };
   const seen = new Set();
   let regionErrors = 0;
-  for (const state of states) {
+  for (const { state, keyword } of searches) {
     if (control.shouldStop?.()) { combined.exhausted = false; break; }
     try {
-      const result = await searchApinfoRegionCandidates({ ...filter, retrievalState: state }, credentials, limit, {
+      const result = await searchApinfoRegionCandidates({ ...filter, retrievalState: state, retrievalKeyword: keyword }, credentials, limit, {
         ...control,
         seen,
         onProgress: batch => control.onProgress?.({
@@ -1083,10 +1085,10 @@ export async function searchApinfoCandidates(filter, credentials, limit = 10, co
       regionErrors += 1;
       combined.warnings.push(`APINFO ${state || 'UF padrão da fonte'}: ${error.message}`);
       combined.exhausted = false;
-      if (states.length === 1 && !combined.inspected.length) throw error;
+      if (searches.length === 1 && !combined.inspected.length) throw error;
     }
   }
-  if (regionErrors === states.length) throw new Error(combined.warnings.join(' '));
+  if (regionErrors === searches.length) throw new Error(combined.warnings.join(' '));
   if (states.includes('')) { combined.exhausted = false; combined.warnings.push('UF não especificada: a APINFO usa sua região padrão; não representa cobertura nacional.'); }
   combined.stats = screeningStats([...combined.results, ...combined.rejectedResults], combined.totalFound);
   return combined;

@@ -5,7 +5,7 @@ const aliases = {
   'sap fi': ['sap fico', 'fi co', 'fi ap', 'fi ar', 'fi gl'],
   'sap ap': ['fi ap', 'accounts payable', 'contas a pagar'],
   'sap ar': ['fi ar', 'accounts receivable', 'contas a receber'],
-  'sap gl': ['fi gl', 'general ledger', 'razao geral'],
+  'sap gl': ['fi gl', 'general ledger', 'razao geral', 'contabilidade geral'],
   'sap mm': ['mm sap', 'mm wm', 'sap materials management'],
   'localizacao brasil': ['localizacao brasileira', 'brazil localization', 'brazilian localization'],
   'pl sql': ['plsql'], 'sap s4hana': ['s4hana', 's 4hana', 's4 hana', 's 4 hana'],
@@ -20,7 +20,19 @@ const aliases = {
   'sap activate': ['activate'], 'sap ecc': ['ecc'],
   'revisao de faturas': ['invoice verification', 'invoice review', 'verificacao de faturas'],
   'impostos retidos': ['withholding tax', 'retencao de impostos'],
-  greenfield: ['green field'], brownfield: ['brown field']
+  greenfield: ['green field'], brownfield: ['brown field'],
+  'plano de contas': ['chart of accounts'],
+  'fechamento contabil': ['financial closing', 'financial close', 'month end closing', 'fechamento financeiro'],
+  conciliacao: ['conciliacoes', 'reconciliation', 'reconciliations'],
+  r2r: ['record to report'], p2p: ['procure to pay'],
+  'integracao fi mm': ['fi mm', 'mm fi'], 'integracao fi sd': ['fi sd', 'sd fi'],
+  'suporte ams': ['ams', 'sustentacao', 'application management services'],
+  implementacao: ['implantacao', 'implementation'],
+  'estrutura organizacional': ['organizational structure'],
+  'sap drc': ['document and reporting compliance'],
+  agile: ['agil', 'scrum'], 'sql server': ['mssql', 'microsoft sql server'],
+  aws: ['amazon web services'], azure: ['microsoft azure'],
+  kubernetes: ['k8s'], javascript: ['js'], typescript: ['ts']
 };
 export function skillAlternatives(skill) { return [skill, ...(aliases[normalize(skill)] || [])]; }
 export function hasSkill(text, skill) {
@@ -29,10 +41,91 @@ export function hasSkill(text, skill) {
 }
 export function coreKeyword(filter) {
   const explicit = phrases(filter.coreSkill)[0] || phrases(filter.mandatorySkills)[0];
-  if (explicit) return explicit;
-  return String(filter.jobDescription || '').match(/\bSAP\s+(?:FI(?:CO)?|MM|SD|ABAP|CO)\b/i)?.[0] || '';
+  if (explicit) return explicit.match(/\bSAP\s*[- ]?\s*(?:FI(?:CO)?|MM|SD|ABAP|CO)\b/i)?.[0].replace(/SAP\s*[- ]?\s*/i, 'SAP ') || explicit;
+  return String(filter.jobDescription || '').match(/\bSAP\s+(?:FI(?:CO)?|MM|SD|ABAP|CO)\b/i)?.[0] || concepts.find(term => hasSkill(filter.jobDescription || '', term)) || '';
 }
 const technicalCatalog = ['SAP FI', 'SAP MM', 'SAP SD', 'SAP CO', 'SAP ECC', 'S/4HANA', 'contas a pagar', 'contas a receber', 'razão geral', 'plano de contas', 'impostos retidos', 'reforma tributária', 'localização Brasil', 'J1BTAX', 'OBYC', 'CNAB', 'R2R', 'P2P', 'CBT', 'TAXBRA', 'TAXBRJ', 'CFOP', 'CST', 'ICMS', 'PIS', 'COFINS', 'IPI', 'CBS', 'IBS', 'revisão de faturas', 'SAP Activate', 'ASAP', 'Agile', 'rollout', 'greenfield', 'brownfield', 'SPED', 'ECF', 'SAP DRC', 'SAP TDF', 'Synchro', 'Avalara', 'debug'];
+const concepts = ['SAP FI', 'SAP AP', 'SAP AR', 'SAP GL', ...technicalCatalog.filter(term => !['SAP FI', 'contas a pagar', 'contas a receber', 'razão geral'].includes(term)), 'fechamento contábil', 'conciliação', 'integração FI MM', 'integração FI SD', 'suporte AMS', 'implementação', 'estrutura organizacional', 'Python', 'Java', 'JavaScript', 'TypeScript', 'C#', '.NET', 'SQL Server', 'PostgreSQL', 'Oracle', 'AWS', 'Azure', 'Kubernetes', 'Docker', 'React', 'Angular', 'Node.js', 'CI/CD', 'REST', 'Git'];
+function canonical(term) {
+  return concepts.find(item => skillAlternatives(item).some(alias => normalize(alias) === normalize(term))) || term.trim();
+}
+function uniqueConcepts(terms) { return [...new Map(terms.map(term => [normalize(canonical(term)), canonical(term)])).values()]; }
+function mentioned(text, term) {
+  if (hasSkill(text, term)) return true;
+  const short = { 'SAP AP': 'AP', 'SAP AR': 'AR', 'SAP GL': 'GL' }[term];
+  return Boolean(short && /\b(?:SAP|FI|FICO)\b/i.test(text) && new RegExp(`\\b${short}\\b`, 'i').test(text));
+}
+
+// Compile the vacancy once, before retrieval. This is an explicit domain-rule
+// interpreter, not a claim that an external language model reviewed the vacancy.
+export function interpretVacancy(filter) {
+  const core = canonical(coreKeyword(filter));
+  const mandatoryText = String(filter.mandatorySkills || filter.coreSkill || core);
+  const mandatory = uniqueConcepts([core, ...phrases(mandatoryText).flatMap(part => {
+    const known = concepts.filter(term => mentioned(part, term));
+    return known.length ? known : [part];
+  })].filter(Boolean));
+  if (/sap fi(?:co)?/.test(normalize(core))) {
+    for (const term of ['SAP AP', 'SAP AR', 'SAP GL']) if (mentioned(mandatoryText, term) && !mandatory.includes(term)) mandatory.push(term);
+  }
+  const ranked = new Map();
+  const add = (term, group) => {
+    term = canonical(term);
+    if (mandatory.some(item => normalize(item) === normalize(term))) return;
+    const previous = ranked.get(normalize(term));
+    if (!previous || group === 'central') ranked.set(normalize(term), { term, group, weight: group === 'central' ? 3 : 1 });
+  };
+  let section = 'central';
+  for (const sentence of String(filter.jobDescription || '').split(/\n|(?<=[.;])\s+/)) {
+    if (/conhecimentos.*desej[aá]veis|diferenciais\s*:/i.test(sentence)) section = 'differential';
+    if (/conhecimentos.*necess[aá]rios|requisitos.*obrigat[oó]rios/i.test(sentence)) section = 'central';
+    const group = /mandat[oó]ri|obrigat[oó]ri/i.test(sentence) ? 'central' : /diferencial|diferenciais|desej[aá]vel|desej[aá]veis/i.test(sentence) ? 'differential' : section;
+    concepts.filter(term => mentioned(sentence, term)).forEach(term => add(term, group));
+  }
+  for (const term of phrases(filter.desirableSkills)) {
+    const key = normalize(canonical(term));
+    ranked.set(key, { term: canonical(term), group: 'differential', weight: 1 });
+  }
+  phrases(filter.technicalSkills).forEach(term => add(term, 'central'));
+  const ranking = [...ranked.values()].filter(item => !mandatory.some(term => normalize(term) === normalize(item.term)));
+  return { version: 'technical-triage-v1', core, mandatory, ranking,
+    retrievalTerms: [...new Set([core, ...(normalize(core) === 'sap fi' ? ['SAP FICO', 'FI-AP', 'FI-AR', 'FI-GL'] : [])])],
+    operational: { englishLevel: filter.englishLevel || ['', 'Básico', 'Intermediário', 'Avançado', 'Fluente'][englishEvidence(filter.jobDescription || '')], locations: filter.locations || [filter.city, filter.state].filter(Boolean).join('/'), minimumYears: Number(String(filter.jobDescription || '').match(/\b(\d+)\s*(?:\+\s*)?anos\b/i)?.[1] || 0), availability: /viagens|exclusiv|presencial|h[ií]brid/i.test(filter.jobDescription || '') },
+    warnings: core ? [] : ['Informe o skill obrigatório; a descrição não substitui a definição da competência principal.'] };
+}
+
+function prepareEvidence(text) {
+  const lines = String(text).split(/\n|(?<=[.;])\s+/).map(line => line.trim()).filter(Boolean);
+  const contexts = lines.map((line, index) => lines.slice(Math.max(0, index - 2), index + 1).join(' '));
+  return { lines, contexts, normalized: lines.map(line => ` ${normalize(line)} `), normalizedContexts: contexts.map(line => ` ${normalize(line)} `) };
+}
+export function contextualEvidence(text, term, core = '', prepared = prepareEvidence(text)) {
+  const { lines, contexts, normalized, normalizedContexts } = prepared;
+  const alternatives = skillAlternatives(term).map(alias => ` ${normalize(alias)} `);
+  const short = { 'SAP AP': 'ap', 'SAP AR': 'ar', 'SAP GL': 'gl' }[term];
+  let best = { requirement: term, found: false, kind: 'não evidenciado', excerpt: '', strength: 0 };
+  let section = '';
+  const sapTerm = /^sap (fi|ap|ar|gl)$/i.test(term);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (/^(experi[eê]ncia|hist[oó]rico profissional|projetos|professional experience|employment)/i.test(line)) section = 'work';
+    else if (/^(cursos|forma[cç][aã]o|certifica[cç][oõ]es|education|training)/i.test(line)) section = 'training';
+    else if (/^(habilidades|compet[eê]ncias|conhecimentos|skills|technologies)/i.test(line)) section = 'list';
+    const context = contexts[index];
+    if (!alternatives.some(alias => normalized[index].includes(alias)) && !(short && normalized[index].includes(` ${short} `) && /\b(?:sap|fi|fico)\b/.test(normalizedContexts[index]))) continue;
+    const negative = /\b(?:sem experi[eê]ncia|n[aã]o (?:possuo|tenho|atuei|trabalhei)|no experience|never worked)\b/i.test(line);
+    const training = /\bcurso\b|\btreinamento\b|\bacademia\b|\btraining\b|\bcertifica[cç][aã]o\b/i.test(line) || section === 'training';
+    const action = /configura|parametriza|implanta|implement|suporte|sustenta|atua[cç]|atuei|respons[aá]vel|responsible|consultor(?:a)?\s+(?:funcional|SAP)|functional consultant|desenvolv|develop|delivered|worked|customiz|rollout/i.test(line);
+    const nearbyWork = section !== 'list' && /configura|parametriza|implanta|implement|consultor(?:a)?\s+(?:funcional|SAP)|functional consultant|respons[aá]vel|experi[eê]ncia profissional|professional experience/i.test(context);
+    const sapContext = !sapTerm || /\b(?:SAP|FICO|FI[- /](?:AP|AR|GL))\b/i.test(context);
+    const onlyTechnicalRole = sapTerm && /\b(?:ABAP|developer|desenvolvedor|programador)\b/i.test(context) && !/funcional|functional|configura|parametriza/i.test(context);
+    const work = (action || nearbyWork) && sapContext && !onlyTechnicalRole;
+    const strength = negative || training ? 0 : work ? 1 : 0.25;
+    const kind = negative ? 'negação explícita' : training ? 'somente formação; atuação não comprovada' : work ? 'atuação profissional descrita' : 'menção sem atuação comprovada';
+    if (!best.excerpt || strength > best.strength) best = { requirement: term, found: strength === 1, kind, excerpt: line.slice(0, 400), strength };
+  }
+  return best;
+}
 const filler = new Set('consultor consultant profissional experiencia conhecimento conhecimentos necessario necessarios desejavel desejaveis senior minimo anos mais atuação atuacao projetos simultaneos disponibilidade viagens nacionais ingles avancado fluente conversacao trabalho hibrido presencial remoto dedicacao exclusiva superior concluido comprovado sera teste aplicado boa comunicacao proatividade horas mes com para que uma dos das nos nas por ate como inicio fim sao paulo rio janeiro'.split(' '));
 function technicalTerms(filter) {
   if (phrases(filter.technicalSkills).length) return phrases(filter.technicalSkills);
@@ -58,7 +151,7 @@ function locationEvidence(text, filter, candidate) {
   const city = candidate.city || '', state = candidate.state || '';
   const matches = alternatives.some(target => {
     const cities = alternatives.length === 1 && !filter.locations && filter.cityRadiusCities?.length ? filter.cityRadiusCities : [target.city];
-    return (!target.state || !state || normalize(target.state) === normalize(state)) && (!target.city || cities.some(c => normalize(c) === normalize(city)));
+    return (!target.state || (state && normalize(target.state) === normalize(state))) && (!target.city || cities.some(c => normalize(c) === normalize(city)));
   });
   if (city && matches) return 'met';
   if (city && state && !matches) return 'outside';
@@ -110,61 +203,47 @@ export function experienceEvidence(text, core, now = new Date()) {
   return { months: merged.reduce((sum, [start, end]) => sum + end - start, 0), ranges: merged, basis: 'períodos explícitos vinculados ao módulo; sem sobreposição' };
 }
 export function screenCandidate(text, filter, candidate = {}, publicSummary = false) {
-  const core = coreKeyword(filter);
-  const mandatory = scoreGroup(text, phrases(filter.mandatorySkills));
-  const technical = scoreGroup(text, technicalTerms(filter), true);
-  const desirable = scoreGroup(text, phrases(filter.desirableSkills));
-  const pending = [], failed = [];
-  const coreMet = core ? hasSkill(text, core) : technical.hits.length > 0;
-  if (!coreMet) failed.push(`competência principal não evidenciada: ${core || 'informe a competência principal'}`);
-  for (const skill of mandatory.missing) {
-    const indirectLocalization = normalize(skill) === 'localizacao brasil' && ['J1BTAX', 'TAXBRA', 'TAXBRJ'].some(term => hasSkill(text, term));
-    (publicSummary || indirectLocalization ? pending : failed).push(`habilidade obrigatoria ausente como declaração explícita: ${skill}${indirectLocalization ? '; há indícios técnicos de localização, validar escopo no CV' : publicSummary ? '; confirmar no CV completo' : ''}`);
-  }
-  // Tax codes alone are supporting evidence, not synonyms that prove localization expertise.
+  const plan = filter.vacancyAnalysis?.version === 'technical-triage-v1' ? filter.vacancyAnalysis : interpretVacancy(filter);
+  const core = plan.core;
+  const prepared = prepareEvidence(text);
+  const skillEvidence = plan.mandatory.map(term => ({ ...contextualEvidence(text, term, core, prepared), group: 'mandatory' }));
+  const evidence = plan.ranking.map(item => ({ ...contextualEvidence(text, item.term, core, prepared), group: item.group, weight: item.weight }));
+  const mandatory = { hits: skillEvidence.filter(item => item.found).map(item => item.requirement), missing: skillEvidence.filter(item => !item.found).map(item => item.requirement) };
+  const pending = mandatory.missing.map(term => `skill obrigatório a confirmar: ${term}`);
+  const corePresent = core && mentioned(text, core);
+  const failed = corePresent ? [] : [`competência principal não evidenciada: ${core || 'não definida'}`];
+  const operationalChecks = [];
   const location = locationEvidence(text, filter, candidate);
-  if (location === 'unknown') pending.push('localidade nao evidente; confirmar residência e disponibilidade presencial');
-  if (location === 'outside') pending.push('localidade fora da região solicitada; confirmar mobilidade, sem presumir disponibilidade');
-  const englishRequired = englishEvidence('', filter.englishLevel || '');
+  if (location !== 'not_required') operationalChecks.push({ requirement: 'Localidade', status: location === 'met' ? 'meets' : location === 'outside' ? 'incompatible' : 'unknown', detail: location === 'met' ? 'Localidade declarada atende ao filtro' : location === 'outside' ? 'Residência fora da região; confirmar mobilidade' : 'Residência não comprovada' });
+  const requiredEnglish = plan.operational.englishLevel;
+  const englishRequired = englishEvidence('', requiredEnglish);
   const english = englishEvidence(text, candidate.englishLevel || '');
-  if (englishRequired && !english) pending.push('nivel de ingles nao evidente; confirmar conversação');
-  if (englishRequired && english && english < englishRequired) failed.push(`filtro obrigatorio: inglês informado abaixo de ${filter.englishLevel}`);
-  const groups = [[20, coreMet ? 100 : 0], [60, technical.score]];
-  if (location !== 'not_required') groups.push([5, location === 'met' ? 100 : 0]);
-  if (englishRequired) groups.push([10, english >= englishRequired ? 100 : 0]);
-  if (desirable.required.length) groups.push([5, desirable.score]);
-  const weightedScore = Math.round(groups.reduce((sum, [weight, value]) => sum + weight * value, 0) / groups.reduce((sum, [weight]) => sum + weight, 0));
-  const criticalTerms = normalize(core) === 'sap fi' ? ['SAP AP', 'SAP AR', 'SAP GL'] : normalize(core) === 'sap mm' ? ['J1BTAX', 'revisão de faturas'] : [];
-  const criticalMissing = criticalTerms.filter(term => technical.required.some(required => normalize(required) === normalize(term)) && !technical.hits.some(hit => normalize(hit) === normalize(term)));
-  const technicalMet = technical.required.length > 0 && technical.score >= 60 && !criticalMissing.length;
-  const score = technicalMet ? weightedScore : Math.min(weightedScore, 49);
-  if (!technicalMet) pending.push('requisitos técnicos centrais insuficientemente evidenciados; não priorizar por diferenciais');
-  if (criticalMissing.length) pending.push(`confirmar requisitos centrais: ${criticalMissing.join(', ')}`);
+  if (englishRequired) operationalChecks.push({ requirement: 'Inglês', status: !english ? 'unknown' : english >= englishRequired ? 'meets' : 'incompatible', detail: !english ? 'Nível não informado; testar conversação' : english >= englishRequired ? 'Nível declarado atende; conversação ainda sujeita a teste' : `Nível declarado abaixo de ${requiredEnglish}` });
+  const totalWeight = evidence.reduce((sum, item) => sum + item.weight, 0);
+  const score = totalWeight ? Math.round(100 * evidence.reduce((sum, item) => sum + item.weight * item.strength, 0) / totalWeight) : 0;
   const headline = publicSummary ? String(text).split('\n')[0] : '';
   const currentTitle = String(candidate.currentTitle || (headline.includes(' - ') ? headline.split(' - ').slice(1).join(' - ') : headline));
-  if (/s[eê]nior|\bsr\b/i.test(filter.jobDescription || '') && /\bj[uú]nior\b|\bjr\b|\btrainee\b|\bestagi[aá]ri/i.test(currentTitle)) failed.push('senioridade atual declarada incompatível com a vaga sênior');
+  if (/s[eê]nior|\bsr\b/i.test(filter.jobDescription || '') && /\bj[uú]nior\b|\bjr\b|\btrainee\b|\bestagi[aá]ri/i.test(currentTitle)) operationalChecks.push({ requirement: 'Senioridade', status: 'incompatible', detail: 'Cargo atual declarado júnior; validar senioridade exigida' });
   const experience = experienceEvidence(text, core);
-  // The score describes evidence, not a hiring approval. Years, travel and exclusive availability need validation.
-  if (/\b\d+\s*(?:\+\s*)?anos\b/i.test(filter.jobDescription || '')) pending.push(`confirmar experiência total e no módulo separadamente; ${experience.months} meses evidenciados no módulo por datas sem sobreposição (cronologia pode estar incompleta)`);
-  if (/viagens|exclusiv|presencial|h[ií]brid/i.test(filter.jobDescription || '')) pending.push('confirmar viagens, regime presencial e disponibilidade exigidos pela vaga');
+  if (plan.operational.minimumYears) operationalChecks.push({ requirement: 'Experiência mínima', status: experience.months >= plan.operational.minimumYears * 12 ? 'meets' : 'unknown', detail: experience.months ? `${experience.months} meses documentados no módulo; mínimo solicitado ${plan.operational.minimumYears} anos` : 'Cronologia não comprovada; não significa ausência de experiência' });
+  if (plan.operational.availability) operationalChecks.push({ requirement: 'Disponibilidade', status: 'unknown', detail: 'Confirmar viagens, dedicação e regime presencial com o profissional' });
   if (publicSummary) pending.push('resumo público: obter CV completo antes de validar aderência');
-  if (!publicSummary && score < Number(filter.matchPercent || 0)) pending.push(`evidência ${score}% abaixo do mínimo ${filter.matchPercent}%; revisar lacunas no currículo`);
   const classification = failed.length ? 'rejected' : pending.length ? 'review' : 'approved';
-  const explanation = [...failed, ...pending].join('; ');
+  const operationalPending = operationalChecks.filter(item => item.status !== 'meets').map(item => `${item.requirement}: ${item.detail}`);
+  const explanation = [...failed, ...pending, ...operationalPending].join('; ');
   return {
     score, classification, accepted: classification === 'approved', review: classification === 'review',
-    technicalScore: technical.score,
-    triageGroup: failed.length ? 'não aderente' : technicalMet && !mandatory.missing.length && !publicSummary ? 'prioridade de entrevista' : 'validação documental pendente',
-    evidence: technical.required.map(term => ({ requirement: term, found: technical.hits.includes(term), kind: trainingOnly(text, term) ? 'somente formação; atuação não comprovada' : technical.hits.includes(term) ? 'menção no currículo; validar escopo' : 'não evidenciado', excerpt: evidenceExcerpt(text, term) })),
-    experience,
-    scoreType: publicSummary ? 'evidência pública parcial' : 'evidência do currículo',
+    technicalScore: score, operationalChecks, approvalScope: 'technical_triage', presentationStatus: 'requires_validation',
+    triageGroup: classification === 'approved' ? 'aprovado na triagem técnica' : classification === 'rejected' ? 'não aderente' : 'skill obrigatório a confirmar',
+    evidence: [...skillEvidence, ...evidence], experience,
+    scoreType: totalWeight ? 'aderência ponderada à descrição; não define aprovação' : 'descrição sem critérios técnicos de classificação',
     matchedMandatorySkills: mandatory.hits, missingMandatorySkills: mandatory.missing,
-    jobDescriptionHits: technical.hits, jobDescriptionMissing: technical.missing,
-    missingListFilters: failed.filter(s => s.includes('filtro obrigatorio')), pendingChecks: pending,
+    jobDescriptionHits: evidence.filter(item => item.found).map(item => item.requirement), jobDescriptionMissing: evidence.filter(item => !item.found).map(item => item.requirement),
+    missingListFilters: operationalChecks.filter(item => item.status === 'incompatible').map(item => item.detail), pendingChecks: [...pending, ...operationalPending],
     reason: explanation,
-    observation: `${classification === 'approved' ? 'Compatível com os critérios documentados' : classification === 'review' ? 'A confirmar' : 'Não compatível com os critérios documentados'}. Evidência: ${score}%. ${explanation}. Técnicos: ${technical.hits.join(', ') || 'não evidentes'}. Diferenciais: ${desirable.hits.join(', ') || 'não evidentes'}.`,
-    mandatory: { ...mandatory, accepted: !mandatory.missing.length }, job: technical,
-    publicSignals: technical.hits, publicGaps: pending
+    observation: `${classification === 'approved' ? 'Aprovado na triagem técnica, não para contratação' : classification === 'review' ? 'Skill obrigatório a confirmar' : 'Competência principal não evidenciada'}. Aderência à descrição: ${score}%. ${explanation}.`,
+    mandatory: { ...mandatory, accepted: !mandatory.missing.length }, job: { hits: evidence.filter(item => item.found).map(item => item.requirement), missing: evidence.filter(item => !item.found).map(item => item.requirement), score },
+    publicSignals: evidence.filter(item => item.excerpt).map(item => item.requirement), publicGaps: pending
   };
 }
 export function screeningStats(rows, found = rows.length) {
