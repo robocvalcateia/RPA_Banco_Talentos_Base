@@ -82,3 +82,12 @@ test('AR country code, management descriptions and certified SD do not prove fun
   assert.equal(result.evidence.find(item => item.requirement === 'SAP GL').found, false);
   assert.equal(result.evidence.find(item => item.requirement === 'SAP FI').found, false);
 });
+
+test('BI BW ETL and knowledge lists cannot substitute functional FI experience', () => {
+  for (const cv of [
+    'Consultor SAP FICO.\nTechnical Leader for Building the SAP BW Corporate Data Warehouse (FI AP, FI AR, FI GL).',
+    'Consultor SAP FI.\nDesenvolvimento e customizações de módulos SAP (AP, AR, FI, GL) com Datastage e Fabric.',
+    'Consultor SAP FI.\nConhecimento em transações FI-GL, FI-AR e FI-AP.',
+    'Consultor SAP FI.\nSAP ECC, S/4HANA, Rollouts, AP/AR, GL, NewGL, TR, AA.'
+  ]) assert.notEqual(screenCandidate(cv, vacancy).classification, 'approved', cv);
+});

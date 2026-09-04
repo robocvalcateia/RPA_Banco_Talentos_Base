@@ -110,7 +110,7 @@ export function contextualEvidence(text, term, core = '', prepared = prepareEvid
     const line = lines[index];
     if (/^(experi[eê]ncia|hist[oó]rico profissional|projetos|professional experience|employment)/i.test(line)) section = 'work';
     else if (/^(cursos|forma[cç][aã]o|certifica[cç][oõ]es|education|training)/i.test(line)) section = 'training';
-    else if (/^(habilidades|compet[eê]ncias|conhecimentos|skills|technologies)/i.test(line)) section = 'list';
+    else if (/^(habilidades|compet[eê]ncias|conhecimentos?|skills|technologies)/i.test(line)) section = 'list';
     const context = contexts[index];
     const explicitMention = alternatives.some(alias => normalized[index].includes(alias));
     const groupedProcesses = ['ap', 'ar', 'gl'].every(part => normalized[index].includes(` ${part} `));
@@ -119,13 +119,15 @@ export function contextualEvidence(text, term, core = '', prepared = prepareEvid
     if (!explicitMention && !shortMention) continue;
     const negative = /\b(?:sem experi[eê]ncia|n[aã]o (?:possuo|tenho|atuei|trabalhei)|no experience|never worked)\b/i.test(line);
     const training = /\bcurso\b|\bcourses?\b|\btreinamento\b|\bacademia\b|\bacademy\b|\btraining\b|\bcertified\b|\bcertification\b|\bcertifica[cç][aã]o\b/i.test(line) || section === 'training';
-    const workLanguage = /configura|parametriza|implanta|implement|suporte|sustenta|atua[cç]|atuei|atuou|atuando|respons[aá]vel|responsible|consultor(?:a)?\s+(?:(?:s[eê]nior|pleno|sr)\s+)?(?:funcional|SAP)|SAP\s+(?:FI(?:CO)?|MM|SD)\s+consultant|functional consultant|experi[eê]ncia\s+(?:profissional|em|com)|experience\s+(?:in|with)|desenvolv|develop|delivered|worked|customiz|rollout/i;
+    const workLanguage = /configura|parametriza|implanta|implement|suporte|support|sustenta|atua[cç]|atuei|atuou|atuando|respons[aá]vel|responsible|consultor(?:a)?\s+(?:(?:s[eê]nior|pleno|sr)\s+)?(?:funcional|SAP)|SAP\s+(?:FI(?:CO)?|MM|SD)\s+consultant|functional consultant|experi[eê]ncia\s+(?:profissional|em|com)|experience\s+(?:in|with)|desenvolv|develop|delivered|worked|customiz|rollout\s+(?:de|do|para|com|SAP)/i;
     const action = workLanguage.test(line);
     const nearbyWork = section !== 'list' && workLanguage.test(context);
     const sapContext = !sapTerm || /\b(?:SAP|FICO|FI[- /](?:AP|AR|GL))\b/i.test(context);
     const onlyTechnicalRole = sapTerm && /\b(?:ABAP|developer|desenvolvedor|programador)\b/i.test(context) && !/funcional|functional|configura|parametriza/i.test(context);
+    const dataWorkOnly = sapTerm && /\b(?:BW|BI|ETL|Datastage|Fabric)\b|data warehouse|business intelligence|indicadores|data lake/i.test(context) && !/consultor(?:a)?\s+funcional|functional consultant|parametriza[^.]{0,50}\bFI\b/i.test(line);
     const managementOnly = sapTerm && /project manager|gerente de projetos|gest[aã]o de projetos|management of|condu[cç][aã]o de projetos/i.test(line) && !/configura|parametriza|customiz|consultor(?:a)? funcional|functional consultant/i.test(line);
-    const work = (action || nearbyWork) && sapContext && !onlyTechnicalRole && !managementOnly;
+    const skillList = /^(?:[•*\-]\s*)?(?:conhecimentos?|habilidades|compet[eê]ncias|skills|technologies)\b/i.test(line);
+    const work = (short ? action : action || nearbyWork) && sapContext && !onlyTechnicalRole && !managementOnly && !dataWorkOnly && !skillList;
     const strength = negative || training ? 0 : work ? 1 : 0.25;
     const kind = negative ? 'negação explícita' : training ? 'somente formação; atuação não comprovada' : work ? 'atuação profissional descrita' : 'menção sem atuação comprovada';
     if (!best.excerpt || strength > best.strength) {
@@ -222,12 +224,12 @@ export function experienceEvidence(text, core, now = new Date()) {
 export function screenCandidate(text, filter, candidate = {}, publicSummary = false) {
   const plan = filter.vacancyAnalysis?.version === 'technical-triage-v1' ? filter.vacancyAnalysis : interpretVacancy(filter);
   const core = plan.core;
-  const prepared = prepareEvidence(text);
+  const corePresent = core && mentioned(text, core);
+  const prepared = prepareEvidence(corePresent ? text : '');
   const skillEvidence = plan.mandatory.map(term => ({ ...contextualEvidence(text, term, core, prepared), group: 'mandatory' }));
   const evidence = plan.ranking.map(item => ({ ...contextualEvidence(text, item.term, core, prepared), group: item.group, weight: item.weight }));
   const mandatory = { hits: skillEvidence.filter(item => item.found).map(item => item.requirement), missing: skillEvidence.filter(item => !item.found).map(item => item.requirement) };
   const pending = mandatory.missing.map(term => `skill obrigatório a confirmar: ${term}`);
-  const corePresent = core && mentioned(text, core);
   const failed = corePresent ? [] : [`competência principal não evidenciada: ${core || 'não definida'}`];
   const operationalChecks = [];
   const location = locationEvidence(text, filter, candidate);
