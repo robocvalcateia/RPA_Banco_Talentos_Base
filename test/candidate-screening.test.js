@@ -43,6 +43,8 @@ test('APINFO follows actual next-page links and refuses external URLs', () => {
   assert.equal(apinfoNextPage('<a href="https://example.com/next">Próxima</a>'), null);
   const form = apinfoNextPage('<form method="post" action="pesq9b.cfm"><input type="hidden" name="inicio" value="21"><input type="submit" name="seguir" value="Proximos"></form>');
   assert.equal(form.method, 'post'); assert.equal(form.body.inicio, '21');
+  const jump = apinfoNextPage('<form METHOD="POST" ACTION="pesq9b.cfm">Pular para a página :<input type="hidden" name="pkey" value="snapshot-test"><input type="hidden" name="tcv" value="3282"><input type="hidden" name="keyw" value="SAP FI"><input type="text" name="pag" value="2"><input type="submit" value="OK"></form>');
+  assert.equal(jump.body.pag, '2'); assert.equal(jump.body.tcv, '3282'); assert.equal(jump.body.keyw, 'SAP FI'); assert.equal(jump.body.pkey, 'snapshot-test');
 });
 test('Junior as a surname is not a junior job title', () => {
   const result = evaluateLinkedinCandidateTextForFilter('Mario Zanon Junior - Consultor SAP MM Sênior\nJ1BTAX', {...filter,jobDescription:'Consultor Sênior SAP MM'});

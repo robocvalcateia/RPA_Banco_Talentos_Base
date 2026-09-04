@@ -782,7 +782,8 @@ export function apinfoNextPage(html, currentPage = 1) {
     const attrs = attributes(form[1]);
     const inputs = Array.from(form[2].matchAll(/<input\b([^>]*)>/gi), m => attributes(m[1]));
     const buttons = Array.from(form[2].matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/gi), m => ({ ...attributes(m[1]), label: htmlToText(m[2]) }));
-    const next = [...inputs, ...buttons].find(item => /pr[oó]xim|seguinte|next/i.test(item.value || item.label || '') && /submit|image|^$/i.test(item.type || ''));
+    const jump = /Pular\s+para\s+a\s+p[aá]gina/i.test(htmlToText(form[2])) && inputs.some(item => item.name === 'pag' && item.type === 'text' && Number(item.value) === currentPage + 1);
+    const next = [...inputs, ...buttons].find(item => (jump ? /^OK$/i : /pr[oó]xim|seguinte|next/i).test(item.value || item.label || '') && /submit|image|^$/i.test(item.type || ''));
     if (!next) continue;
     try {
       const url = new URL(attrs.action || APINFO_SEARCH_URL, APINFO_SEARCH_URL);
