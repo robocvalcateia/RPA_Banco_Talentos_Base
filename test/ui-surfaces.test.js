@@ -119,3 +119,11 @@ test('detalhe do currículo abre WhatsApp somente para celular brasileiro válid
   assert.match(appSource, /\^55\[1-9\]\\d9\\d\{8\}\$/);
   assert.match(appSource, /window\.open\(url, '_blank', 'noopener'\)/);
 });
+
+test('busca de CV recupera resultados persistidos após reinício do servidor', () => {
+  const serverSource = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+  assert.match(serverSource, /searchStopReason = 'server_restarted'/);
+  assert.match(serverSource, /resultado\(s\) recuperado\(s\)/);
+  assert.match(serverSource, /const persistSearchSnapshot/);
+  assert.match(serverSource, /await persistSearchSnapshot\(job\.response\)/);
+});

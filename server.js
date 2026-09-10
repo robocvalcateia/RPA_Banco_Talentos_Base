@@ -111,7 +111,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260827-curriculum-download-identity';
+const APP_VERSION = '20260910-persistent-cv-search';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -5446,8 +5446,19 @@ async function handleApi(request, response) {
     }
 
     if (request.method === 'GET' && /^\/api\/cv-search-jobs\/[^/]+$/.test(pathname)) {
-      const job = cvSearchJobs.get(pathname.split('/').at(-1), auth.user.id);
-      if (!job) { sendError(response, 404, 'Busca não encontrada ou interrompida por reinício do servidor. Execute novamente.'); return; }
+      const searchJobId = pathname.split('/').at(-1);
+      const job = cvSearchJobs.get(searchJobId, auth.user.id);
+      if (!job) {
+        const db = await readDatabase();
+        const recovered = db.cvFilters.find((item) => item.searchJobId === searchJobId && item.searchOwnerId === auth.user.id);
+        if (!recovered) { sendError(response, 404, 'Busca não encontrada ou interrompida por reinício do servidor. Execute novamente.'); return; }
+        recovered.searchStatus = 'partial';
+        recovered.searchStopReason = 'server_restarted';
+        recovered.searchMessage = `Busca interrompida por reinício do servidor. ${recovered.searchResults?.length || 0} resultado(s) recuperado(s); execute novamente para completar a cobertura.`;
+        await writeDatabaseCollections(db, ['cvFilters']);
+        sendJson(response, 200, recovered);
+        return;
+      }
       sendJson(response, 200, job.response);
       return;
     }
@@ -5504,6 +5515,21 @@ async function handleApi(request, response) {
         searchRejectedResults: []
       };
 
+      let persistSearchPromise = Promise.resolve();
+      const persistSearchSnapshot = (searchResponse) => {
+        Object.assign(filter, {
+          ...searchResponse,
+          updatedAt: toISODate(),
+          searchResults: (searchResponse.searchResults || []).slice(0, APPROVED_TARGET),
+          searchReviewResults: (searchResponse.searchReviewResults || []).slice(0, APPROVED_TARGET),
+          searchRejectedResults: (searchResponse.searchRejectedResults || []).slice(0, 100)
+        });
+        persistSearchPromise = persistSearchPromise
+          .catch(() => undefined)
+          .then(() => writeDatabaseCollections(db, ['cvFilters']));
+        return persistSearchPromise;
+      };
+
       const job = cvSearchJobs.start(auth.user.id, filterId, initialSearchResponse, async searchResponse => {
       if (!enabledSearchSources(expandedRuntimeFilter).length) {
         searchResponse.searchStatus = 'no_sources';
@@ -5528,6 +5554,7 @@ async function handleApi(request, response) {
           searchResponse.searchResults = currentApproved(apinfoProgress).slice(0, APPROVED_TARGET);
           searchResponse.searchApprovedCount = searchResponse.searchResults.length;
           searchResponse.searchMessage = `Buscando até ${APPROVED_TARGET} recomendados, priorizando evidências técnicas. APINFO: ${batch.stats.evaluated} currículos avaliados, ${batch.pagesRead} páginas. LinkedIn é consolidado ao final.`;
+          persistSearchSnapshot(searchResponse);
         };
 
         let search = {
@@ -5627,7 +5654,10 @@ async function handleApi(request, response) {
         searchResponse.searchStopReason = reached ? 'target_reached' : incomplete ? 'incomplete_coverage' : 'sources_exhausted';
         searchResponse.searchMessage = `${searchResponse.searchRecommendedCount}/${APPROVED_TARGET} candidatos recomendados. Evidências técnicas completas primeiro; demais candidatos por aderência. Recomendação não equivale a aprovação para contratação. ${reached ? 'Lista preenchida.' : 'Quantidade inferior à meta; consulte a cobertura das fontes.'} ${apinfoSummary} ${linkedinSummary} ${alcateiaSummary} ${(search.sourceStats?.APINFO?.warnings || []).join(' ')}`;
       }
+      await persistSearchSnapshot(searchResponse);
       });
+      job.response.searchOwnerId = auth.user.id;
+      await persistSearchSnapshot(job.response);
       sendJson(response, 202, job.response);
       return;
     }

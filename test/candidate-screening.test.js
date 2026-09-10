@@ -197,6 +197,16 @@ test('new criteria persist; historical table is removed and rejection reasons re
   assert.doesNotMatch(html, /cvFilterTable|cvFilterCount/); assert.doesNotMatch(app, /cvFilterTable|renderCvFilters/);
   assert.match(html, /cvRejectedResultTable/); assert.match(app, /counts\.evaluated/);
 });
+test('search progress and partial results persist with the CV filter', () => {
+  const normalized = normalizeCvFilter({
+    ...filter,
+    searchStatus: 'running', searchJobId: 'job-1', searchOwnerId: 'user-1',
+    searchMessage: '12 avaliados', searchResults: [{ id: 'r1', name: 'Maria', source: 'ALCATEIA', classification: 'approved', score: 88 }]
+  });
+  assert.equal(normalized.searchStatus, 'running');
+  assert.equal(normalized.searchJobId, 'job-1');
+  assert.equal(normalized.searchResults[0].name, 'Maria');
+});
 test('a failure in APINFO does not hide LinkedIn results or masquerade as a successful zero', async () => {
   const previousFetch = globalThis.fetch, previousKey = process.env.SERPAPI_KEY;
   process.env.SERPAPI_KEY = 'test-only';

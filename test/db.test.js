@@ -744,7 +744,8 @@ test('filtro de CV normaliza campos e valida UF e percentual', () => {
   assert.equal(normalized.resultLimit, 12);
   assert.equal(normalized.englishLevel, 'IntermediÃ¡rio');
   assert.equal(normalized.mandatorySkills, 'PL SQL, JavaScript, InglÃªs avanÃ§ado, UIPath');
-  assert.deepEqual(normalized.searchRejectedResults, []);
+  assert.equal(normalized.searchRejectedResults.length, 1);
+  assert.equal(normalized.searchRejectedResults[0].name, 'Candidato rejeitado');
   assert.equal(enriched.opportunityName, 'Dev Backend');
   assert.throws(() => normalizeCvFilter({ estado: 'XX', percentual_acerto: 50 }), /UF invalida/);
   assert.throws(() => normalizeCvFilter({ estado: 'SP', percentual_acerto: 101 }), /Percentual de acerto invalido/);
