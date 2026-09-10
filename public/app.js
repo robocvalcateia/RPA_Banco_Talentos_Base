@@ -70,6 +70,8 @@
   selectedCurriculumId: '',
   curriculumEditing: false,
   curriculumActiveTab: 'list',
+  cvReturnContext: null,
+  selectedCvSearchResultKeys: new Set(),
   editing: {
     clientId: '',
     contactClientId: '',
@@ -3299,6 +3301,10 @@ function selectedCvFilter() {
   return state.cvFilters.find((filter) => filter.id === state.editing.cvFilterId);
 }
 
+function cvResultSelectionKey(group, id) {
+  return `${String(group || 'resultado')}:${String(id || '')}`;
+}
+
 function candidateLinkHtml(candidate) {
   const source = normalizeText(candidate?.source || '');
   const curriculum = findCurriculumForCandidate(candidate);
@@ -3463,7 +3469,7 @@ function renderCvResultRows(results, emptyMessage, group) {
       const curriculum = findCurriculumForCandidate(result);
       return `
       <tr>
-        <td><input type="checkbox" data-select-cv-result="${result.id}" data-result-group="${group}" aria-label="Selecionar ${result.name || 'candidato'}" /></td>
+        <td><input type="checkbox" data-select-cv-result="${result.id}" data-result-group="${group}" ${state.selectedCvSearchResultKeys.has(cvResultSelectionKey(group, result.id)) ? 'checked' : ''} aria-label="Selecionar ${result.name || 'candidato'}" /></td>
         <td><strong>${renderBlackflagName(result.name, curriculum || result)}</strong></td>
         <td>${escapeHtml((result.source || 'APINFO').replace(/^Revisar LinkedIn$/, 'LinkedIn'))}</td>
         <td>${candidateLinkHtml(result)}</td>
@@ -3767,6 +3773,7 @@ async function openCurriculumFromLink(curriculumId) {
     }
   }
 
+  state.cvReturnContext = { filterId: state.editing.cvFilterId, scrollY: window.scrollY };
   state.curriculumSearch = { name: '', skills: '', hasSearched: false };
   showView('curriculums');
   selectCurriculum(curriculumIdentifier(curriculum));
@@ -3816,6 +3823,8 @@ if (!shouldShowDetail) {
 }
 
 panel.classList.remove('hidden');
+  const returnButton = $('#returnToCvResultsButton');
+  if (returnButton) returnButton.hidden = !state.cvReturnContext;
   const selectedNameElement = $('#selectedCurriculumName');
   if (selectedNameElement) {
     selectedNameElement.textContent = curriculum.nome || 'Candidato sem nome';
@@ -8378,7 +8387,6 @@ async function loadCvFilterForEdit(filter, options = {}) {
     matchPercent: filter.matchPercent
   }, 'Atualizar filtro');
   await populateCityOptions(filter.state, filter.city);
-  renderCvRuleImpact();
   renderCvSearchResults();
   if (!options.silent) {
     toast('Filtro de CV carregado para atualização.');
@@ -10838,28 +10846,24 @@ function bindDashboardFilters() {
 function bindCvFilterLocation() {
   $('#cvFilterForm select[name="state"]')?.addEventListener('change', (event) => {
     populateCityOptions(event.currentTarget.value);
-    renderCvRuleImpact();
   });
-  $('#cvFilterForm')?.addEventListener('input', renderCvRuleImpact);
-  $('#cvFilterForm')?.addEventListener('change', renderCvRuleImpact);
-  renderCvRuleImpact();
-}
-
-function renderCvRuleImpact() {
-  const form = $('#cvFilterForm');
-  const table = $('#cvRuleImpactTable');
-  if (!form || !table) return;
-  const value = (name) => String(form.elements.namedItem(name)?.value || '').trim();
-  const rows = [
-    ['Competência principal', value('coreSkill') ? `Eliminatória: exige evidência profissional de ${value('coreSkill')}.` : 'Eliminatória: precisa ser informada para iniciar a busca.'],
-    ['Critérios técnicos', value('technicalSkills') ? 'Pontuação: aumentam a aderência e ordenam os resultados; não eliminam.' : 'Sem critérios adicionais de pontuação.'],
-    ['Diferenciais', value('desirableSkills') ? 'Pontuação secundária: desempate e ordenação; nunca eliminam.' : 'Sem diferenciais informados.'],
-    ['Cidade', value('city') ? `Condição operacional: aceita ${value('city')} e municípios em um raio de 50 km.` : 'Não aplicada.'],
-    ['Estado', value('state') ? `Condição operacional: candidato deve estar em ${value('state')} quando houver localização comprovada.` : 'Não aplicado.'],
-    ['Inglês', value('englishLevel') ? `Condição operacional: exige no mínimo ${value('englishLevel')}; não muda a aprovação técnica.` : 'Não aplicado.'],
-    ['Descrição da oportunidade', 'Automática: qualifica e ordena os resultados usando a descrição cadastrada na oportunidade; não é digitada novamente.']
-  ];
-  table.innerHTML = rows.map(([rule, impact]) => `<tr><td><strong>${escapeHtml(rule)}</strong></td><td>${escapeHtml(impact)}</td></tr>`).join('');
+  $('#cvFilterForm select[name="opportunityId"]')?.addEventListener('change', async (event) => {
+    const opportunityId = event.currentTarget.value;
+    const savedFilter = state.cvFilters
+      .filter((filter) => filter.opportunityId === opportunityId)
+      .sort((first, second) => String(second.updatedAt || second.createdAt || '').localeCompare(String(first.updatedAt || first.createdAt || '')))[0];
+    if (savedFilter) {
+      await loadCvFilterForEdit(savedFilter, { silent: true });
+      toast('Filtro mais recente desta oportunidade carregado.');
+      return;
+    }
+    const form = $('#cvFilterForm');
+    clearEditing(form, 'cvFilterId', 'Salvar filtro');
+    if (form?.elements.opportunityId) form.elements.opportunityId.value = opportunityId;
+    await populateCityOptions('');
+    state.selectedCvSearchResultKeys.clear();
+    renderCvSearchResults();
+  });
 }
 
 function selectedCvSearchRows() {
@@ -10901,6 +10905,7 @@ function bindCvSearch() {
   $('#newCvFilterButton')?.addEventListener('click', () => {
     if (selectedCvFilter()?.searchStatus === 'running') return;
     clearEditing($('#cvFilterForm'), 'cvFilterId', 'Salvar filtro');
+    state.selectedCvSearchResultKeys.clear();
     populateCityOptions('');
     renderCvSearchResults();
   });
@@ -10921,6 +10926,7 @@ function bindCvSearch() {
     filter.searchResults = [];
     filter.searchRejectedResults = [];
     filter.searchStatus = 'running';
+    state.selectedCvSearchResultKeys.clear();
     filter.searchMessage = `Buscando candidatos em ${enabledSourceLabels(filter).join(', ') || 'nenhuma fonte'}...`;
 
     if (status) status.textContent = filter.searchMessage;
@@ -10968,9 +10974,17 @@ function bindCvSearch() {
     }
   });
 
-  $('#cvSearchResultTable')?.addEventListener('change', updateSaveSelectedCandidatesState);
-  $('#cvReviewResultTable')?.addEventListener('change', updateSaveSelectedCandidatesState);
-  $('#cvRejectedResultTable')?.addEventListener('change', updateSaveSelectedCandidatesState);
+  ['#cvSearchResultTable', '#cvReviewResultTable', '#cvRejectedResultTable'].forEach((selector) => {
+    $(selector)?.addEventListener('change', (event) => {
+      const checkbox = event.target.closest('[data-select-cv-result]');
+      if (checkbox) {
+        const key = cvResultSelectionKey(checkbox.dataset.resultGroup, checkbox.dataset.selectCvResult);
+        if (checkbox.checked) state.selectedCvSearchResultKeys.add(key);
+        else state.selectedCvSearchResultKeys.delete(key);
+      }
+      updateSaveSelectedCandidatesState();
+    });
+  });
 }
 
 function bindSaveSelectedCandidates() {
@@ -11558,6 +11572,17 @@ function bindCurriculumSelection() {
 
   $('#curriculumDetailTabButton')?.addEventListener('click', () => {
     openCurriculumTab('detail');
+  });
+  $('#returnToCvResultsButton')?.addEventListener('click', async () => {
+    const context = state.cvReturnContext;
+    if (!context) return;
+    state.cvReturnContext = null;
+    state.editing.cvFilterId = context.filterId;
+    showView('cvFilters');
+    const filter = selectedCvFilter();
+    if (filter) await loadCvFilterForEdit(filter, { silent: true });
+    renderCvSearchResults();
+    window.setTimeout(() => window.scrollTo({ top: context.scrollY || $('#cvSearchResultsPanel')?.offsetTop || 0, behavior: 'smooth' }), 0);
   });
   $('#curriculumTable')?.addEventListener('click', (event) => {
     const selectButton = event.target.closest('[data-select-curriculum-button]');

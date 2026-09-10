@@ -1062,13 +1062,6 @@
             <label>Competência principal<input name="coreSkill" placeholder="Ex.: SAP FI ou SAP MM" /></label>
             <label class="full">Critérios técnicos para pontuação<textarea name="technicalSkills" rows="2" placeholder="Separe por vírgula: J1BTAX, TAXBRA, revisão de faturas"></textarea></label>
             <label class="full">Diferenciais (não eliminatórios)<textarea name="desirableSkills" rows="2" placeholder="Separe por vírgula: SAP Activate, rollout, debug"></textarea></label>
-            <section class="full table-wrap" aria-labelledby="cvRuleImpactTitle">
-              <h3 id="cvRuleImpactTitle">Impacto das regras</h3>
-              <table>
-                <thead><tr><th>Regra</th><th>Impacto</th></tr></thead>
-                <tbody id="cvRuleImpactTable"></tbody>
-              </table>
-            </section>
             <fieldset class="full checkbox-group">
               <legend>Fontes de busca</legend>
               <label class="checkbox-field"><input name="searchApinfo" type="checkbox" checked /> APINFO</label>
@@ -1220,6 +1213,7 @@
           </div>
 
           <div class="detail-actions">
+            <button class="secondary-action" id="returnToCvResultsButton" type="button" hidden>Voltar aos resultados da busca</button>
             <button class="primary-action" id="selectCurriculumCandidateButton" type="button">Selecionar candidato</button>
             <button class="primary-action" id="editCurriculumButton" type="button">Editar</button>
             <button class="primary-action" id="saveCurriculumButton" type="button" disabled>Salvar dados</button>
