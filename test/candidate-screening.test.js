@@ -22,15 +22,29 @@ test('LinkedIn structured location wins and employment history later in a long s
   });
 });
 
-test('São Caetano do Sul SP is not confused with city São Paulo', () => {
+test('LinkedIn accepts cities within 50 km of São Paulo without confusing city and state', () => {
   const profile={location:'São Caetano do Sul, São Paulo, Brasil',snippet:'Consultor SAP FI'};
   const candidate=linkedinProfileLocationCandidate(profile,{locations:'São Paulo/SP; Rio de Janeiro/RJ'});
   assert.equal(candidate.city,'sao caetano do sul');
   assert.equal(candidate.state,'SP');
+  const radiusFilter={
+    coreSkill:'SAP FI',mandatorySkills:'SAP FI, SAP AP, SAP AR, SAP GL',locations:'São Paulo/SP; Rio de Janeiro/RJ',
+    cityRadiusKm:50,
+    cityRadiusLocations:[
+      {city:'São Paulo',state:'SP',cities:['sao paulo','sao caetano do sul','diadema','guarulhos']},
+      {city:'Rio de Janeiro',state:'RJ',cities:['rio de janeiro']}
+    ]
+  };
   const cityResult=evaluateLinkedinCandidateTextForFilter('Consultor SAP FI com AP AR GL',{
-    coreSkill:'SAP FI',mandatorySkills:'SAP FI, SAP AP, SAP AR, SAP GL',locations:'São Paulo/SP; Rio de Janeiro/RJ'
+    ...radiusFilter
   },candidate);
-  assert.equal(cityResult.operationalChecks.find(item=>item.requirement==='Localidade').status,'incompatible');
+  assert.equal(cityResult.operationalChecks.find(item=>item.requirement==='Localidade').status,'meets');
+  for (const nearbyCity of ['Diadema','Guarulhos']) {
+    const nearby=evaluateLinkedinCandidateTextForFilter('Consultor SAP FI com AP AR GL',radiusFilter,{city:nearbyCity,state:'SP'});
+    assert.equal(nearby.operationalChecks.find(item=>item.requirement==='Localidade').status,'meets');
+  }
+  const distant=evaluateLinkedinCandidateTextForFilter('Consultor SAP FI com AP AR GL',radiusFilter,{city:'Campinas',state:'SP'});
+  assert.equal(distant.operationalChecks.find(item=>item.requirement==='Localidade').status,'incompatible');
   const stateResult=evaluateLinkedinCandidateTextForFilter('Consultor SAP FI com AP AR GL',{
     coreSkill:'SAP FI',mandatorySkills:'SAP FI, SAP AP, SAP AR, SAP GL',state:'SP'
   },candidate);

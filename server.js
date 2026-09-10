@@ -1939,41 +1939,56 @@ function haversineKm([lat1, lon1], [lat2, lon2]) {
   return 2 * radius * Math.asin(Math.sqrt(a));
 }
 
-function expandCityRadiusFilter(filter, radiusKm = 0) {
+function expandCityRadiusFilter(filter, radiusKm = 50) {
+  const configuredLocations = String(filter.locations || '')
+    .split(';')
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => {
+      const [city, state] = value.split('/').map((part) => String(part || '').trim());
+      return { city, state: state.toUpperCase() };
+    })
+    .filter((value) => value.city);
   const city = String(filter.city || '').trim();
   const uf = String(filter.state || '').trim().toUpperCase();
-  if (!city) {
+  const targets = configuredLocations.length ? configuredLocations : (city ? [{ city, state: uf }] : []);
+  if (!targets.length) {
     return {
       ...filter,
       cityRadiusCities: [],
+      cityRadiusLocations: [],
       cityRadiusKm: 0,
       cityRadiusMessage: 'Cidade nao selecionada: filtro por cidade nao aplicado.'
     };
   }
 
-  const center = CITY_COORDINATES_BR[cityCoordinateKey(uf, city)];
-  if (!center) {
+  const cityRadiusLocations = targets.map((target) => {
+    const center = CITY_COORDINATES_BR[cityCoordinateKey(target.state, target.city)];
+    const cities = center
+      ? Object.entries(CITY_COORDINATES_BR)
+        .filter(([key, coordinates]) => {
+          const [candidateUf] = key.split('|');
+          return (!target.state || candidateUf === normalizeSearchText(target.state))
+            && haversineKm(center, coordinates) <= radiusKm;
+        })
+        .map(([key, coordinates]) => ({ city: key.split('|')[1], distance: haversineKm(center, coordinates) }))
+        .sort((first, second) => first.distance - second.distance)
+        .map((item) => item.city)
+      : [target.city];
     return {
-      ...filter,
-      cityRadiusCities: [city],
-      cityRadiusKm: radiusKm,
-      cityRadiusMessage: `Cidade ${city}/${uf || '-'} sem coordenada parametrizada; aplicada busca pela cidade selecionada.`
+      city: target.city,
+      state: target.state,
+      cities: Array.from(new Set(cities))
     };
-  }
-
-  const cityRadiusCities = Object.entries(CITY_COORDINATES_BR)
-    .filter(([key, coordinates]) => {
-      const [candidateUf] = key.split('|');
-      return (!uf || candidateUf === normalizeSearchText(uf)) && haversineKm(center, coordinates) <= radiusKm;
-    })
-    .map(([key]) => key.split('|')[1])
-    .sort((first, second) => first.localeCompare(second, 'pt-BR', { sensitivity: 'base' }));
+  });
+  const cityRadiusCities = Array.from(new Set(cityRadiusLocations.flatMap((target) => target.cities)));
 
   return {
     ...filter,
-    cityRadiusCities: cityRadiusCities.length ? cityRadiusCities : [city],
+    cityRadiusCities,
+    cityRadiusLocations,
     cityRadiusKm: radiusKm,
-    cityRadiusMessage: `Localidade solicitada: ${filter.locations || `${city}/${uf || '-'}`}. Sem raio presumido; disponibilidade presencial deve ser confirmada.`
+    cityRadiusMessage: `Localidade solicitada: ${filter.locations || `${city}/${uf || '-'}`}. Consideradas cidades em um raio de ${radiusKm} km; disponibilidade presencial deve ser confirmada.`
   };
 }
 

@@ -171,7 +171,13 @@ function locationEvidence(text, filter, candidate) {
   if (!alternatives.length) return 'not_required';
   const city = candidate.city || '', state = candidate.state || '';
   const matches = alternatives.some(target => {
-    const cities = alternatives.length === 1 && !filter.locations && filter.cityRadiusCities?.length ? filter.cityRadiusCities : [target.city];
+    const radiusTarget = Array.isArray(filter.cityRadiusLocations)
+      ? filter.cityRadiusLocations.find(item => normalize(item.city) === normalize(target.city)
+        && (!target.state || normalize(item.state) === normalize(target.state)))
+      : null;
+    const cities = radiusTarget?.cities?.length
+      ? radiusTarget.cities
+      : (alternatives.length === 1 && filter.cityRadiusCities?.length ? filter.cityRadiusCities : [target.city]);
     return (!target.state || (state && normalize(target.state) === normalize(state))) && (!target.city || cities.some(c => normalize(c) === normalize(city)));
   });
   if (city && matches) return 'met';
