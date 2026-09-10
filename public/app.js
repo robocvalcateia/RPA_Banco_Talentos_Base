@@ -3619,6 +3619,13 @@ function curriculumIdentifier(curriculum) {
   return String(curriculum?.id_controle || curriculum?.idControle || curriculum?.mongoId || curriculum?.id || '').trim();
 }
 
+function curriculumWhatsappUrl(curriculum) {
+  let phone = String(curriculum?.telefone || '').replace(/\D/g, '').replace(/^0+/, '');
+  if (phone.length === 10 || phone.length === 11) phone = `55${phone}`;
+  if (!/^55[1-9]\d9\d{8}$/.test(phone)) return '';
+  return `https://wa.me/${phone}`;
+}
+
 function selectedCurriculum() {
   if (!state.selectedCurriculumId) return null;
   return state.curriculums.find((curriculum) => curriculumIdentifier(curriculum) === state.selectedCurriculumId) || null;
@@ -3860,6 +3867,12 @@ panel.classList.remove('hidden');
     observationsButton.textContent = count ? `Observações (${count})` : 'Observações';
     observationsButton.dataset.openCurriculumObservations = curriculumObservationId(curriculum);
     observationsButton.disabled = false;
+  }
+  const whatsappButton = $('#curriculumWhatsappButton');
+  if (whatsappButton) {
+    const hasWhatsapp = Boolean(curriculumWhatsappUrl(curriculum));
+    whatsappButton.disabled = !hasWhatsapp;
+    whatsappButton.title = hasWhatsapp ? 'Abrir conversa no WhatsApp' : 'Cadastre um celular brasileiro válido com DDD';
   }
   fillCurriculumDetailForm(curriculum);
   setCurriculumDetailEditing(state.curriculumEditing);
@@ -11572,6 +11585,16 @@ function bindCurriculumSelection() {
 
   $('#curriculumDetailTabButton')?.addEventListener('click', () => {
     openCurriculumTab('detail');
+  });
+  $('#curriculumWhatsappButton')?.addEventListener('click', () => {
+    const curriculum = selectedCurriculum();
+    const url = curriculumWhatsappUrl(curriculum);
+    if (!url) {
+      toast('Cadastre um celular brasileiro válido com DDD no currículo.');
+      return;
+    }
+    const popup = window.open(url, '_blank', 'noopener');
+    if (!popup) toast('Permita pop-ups e clique novamente em Wapp.');
   });
   $('#returnToCvResultsButton')?.addEventListener('click', async () => {
     const context = state.cvReturnContext;

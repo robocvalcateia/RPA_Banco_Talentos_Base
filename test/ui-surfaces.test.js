@@ -110,3 +110,12 @@ test('filtro mais recente e contexto dos resultados sobrevivem à abertura do CV
   assert.match(appSource, /state\.selectedCvSearchResultKeys\.has/);
   assert.match(appSource, /showView\('cvFilters'\)/);
 });
+
+test('detalhe do currículo abre WhatsApp somente para celular brasileiro válido', () => {
+  const indexSource = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  const appSource = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+  assert.match(indexSource, /id="curriculumWhatsappButton"[^>]*>Wapp<\/button>/);
+  assert.match(appSource, /function curriculumWhatsappUrl\(curriculum\)/);
+  assert.match(appSource, /\^55\[1-9\]\\d9\\d\{8\}\$/);
+  assert.match(appSource, /window\.open\(url, '_blank', 'noopener'\)/);
+});
