@@ -3746,9 +3746,9 @@ function selectCurriculum(curriculumId) {
   renderCurriculums();
 }
 
-function openCurriculumFromLink(curriculumId) {
+async function openCurriculumFromLink(curriculumId) {
   const id = String(curriculumId || '').trim();
-  const curriculum = state.curriculums.find((item) => (
+  let curriculum = state.curriculums.find((item) => (
     curriculumIdentifier(item) === id
     || item.id === id
     || item.id_controle === id
@@ -3756,8 +3756,15 @@ function openCurriculumFromLink(curriculumId) {
   ));
 
   if (!curriculum) {
-    toast('Currículo não encontrado na base interna.');
-    return;
+    try {
+      curriculum = await api(`/api/curriculums/${encodeURIComponent(id)}`);
+      const existingIndex = state.curriculums.findIndex((item) => curriculumIdentifier(item) === curriculumIdentifier(curriculum));
+      if (existingIndex >= 0) state.curriculums[existingIndex] = curriculum;
+      else state.curriculums.push(curriculum);
+    } catch (error) {
+      toast(error.message || 'Currículo não encontrado na base interna.');
+      return;
+    }
   }
 
   state.curriculumSearch = { name: '', skills: '', hasSearched: false };

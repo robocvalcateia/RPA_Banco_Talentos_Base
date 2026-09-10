@@ -72,3 +72,13 @@ test('consulta de talentos busca por identidade completa do curriculo', () => {
   assert.match(appSource, /matchesEveryTerm\(curriculumIdentityText\(curriculum\), name\)/);
   assert.doesNotMatch(appSource, /matchesEveryTerm\(curriculum\.nome, name\)/);
 });
+
+test('resultado de busca abre CV interno sob demanda e preserva links externos por fonte', () => {
+  const appSource = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+  const serverSource = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+
+  assert.match(appSource, /source\.includes\('alcateia'\) && curriculumId/);
+  assert.match(appSource, /source\.includes\('apinfo'\) \|\| source\.includes\('linkedin'\)/);
+  assert.match(appSource, /await api\(`\/api\/curriculums\/\$\{encodeURIComponent\(id\)\}`\)/);
+  assert.match(serverSource, /request\.method === 'GET' && \/\^\\\/api\\\/curriculums\\\/\[\^\/\]\+\$\//);
+});

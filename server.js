@@ -4249,6 +4249,18 @@ async function handleApi(request, response) {
       return;
     }
 
+    if (request.method === 'GET' && /^\/api\/curriculums\/[^/]+$/.test(pathname)) {
+      await ensureAuthDatabase(auth);
+      const curriculumId = decodeURIComponent(pathname.split('/').at(-1));
+      const curriculum = await getCurriculumByIdentifier(auth.db, curriculumId);
+      if (!curriculum) {
+        sendError(response, 404, 'Curriculo nao encontrado na base interna.');
+        return;
+      }
+      sendJson(response, 200, curriculum);
+      return;
+    }
+
     if (request.method === 'GET' && /^\/api\/curriculums\/[^/]+\/observations$/.test(pathname)) {
       await ensureAuthDatabase(auth);
       const curriculumId = decodeURIComponent(pathname.split('/').at(-2));
