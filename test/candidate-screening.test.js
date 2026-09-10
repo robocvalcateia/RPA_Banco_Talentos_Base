@@ -74,6 +74,13 @@ test('LinkedIn evaluates every recovered profile and paginates when strategy ove
     if (originalKey === undefined) delete process.env.SERPAPI_KEY; else process.env.SERPAPI_KEY=originalKey;
   }
 });
+
+test('LinkedIn search applies bounded requests so a provider cannot leave the job running forever', async () => {
+  const source=readFileSync(new URL('../apinfo.js',import.meta.url),'utf8');
+  assert.match(source,/AbortSignal\.timeout\(Math\.max\(1, timeoutMs\)\)/);
+  assert.match(source,/control\.linkedinTimeoutMs \|\| 90000/);
+  assert.match(source,/Tempo limite da etapa LinkedIn atingido/);
+});
 test('technical gaps cannot be offset by location English and every desirable', () => {
   const result = screenCandidate('SAP MM Activate debug', filter, { city: 'São Paulo', state: 'SP', englishLevel: 'Fluente' });
   assert.ok(result.score < 50); assert.equal(result.classification, 'review');

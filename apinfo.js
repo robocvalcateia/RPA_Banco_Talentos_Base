@@ -483,6 +483,7 @@ function extractGoogleLinkedinResults(html = '') {
 async function fetchText(url, options = {}) {
   const response = await fetch(url, {
     redirect: 'follow',
+    signal: options.signal || AbortSignal.timeout(15000),
     ...options,
     headers: {
       'User-Agent': 'Mozilla/5.0 Gestao-do-Negocio-Alcateia',
@@ -519,7 +520,7 @@ function parseSerpApiLinkedinResults(payload) {
     }));
 }
 
-async function searchLinkedinCandidatesWithSerpApi(filter, limit, queryOverride = '', start = 0) {
+async function searchLinkedinCandidatesWithSerpApi(filter, limit, queryOverride = '', start = 0, timeoutMs = 15000) {
   const apiKey = process.env.SERPAPI_KEY || process.env.SERPAPI_API_KEY || '';
   if (!apiKey) {
     throw new Error('SERPAPI_KEY nao configurada; Google direto retorna pagina de JavaScript.');
@@ -537,6 +538,7 @@ async function searchLinkedinCandidatesWithSerpApi(filter, limit, queryOverride 
   });
   if (start) params.set('start', String(start));
   const response = await fetch(`${SERPAPI_SEARCH_URL}?${params.toString()}`, {
+    signal: AbortSignal.timeout(Math.max(1, timeoutMs)),
     headers: {
       'User-Agent': 'Mozilla/5.0 Gestao-do-Negocio-Alcateia'
     }
@@ -705,6 +707,8 @@ export async function searchLinkedinCandidates(filter, limit = 30, control = {})
   const profilesByLink = new Map();
   const providers = new Set();
   const queryErrors = [];
+  const deadline = Date.now() + Math.max(15000, Math.min(120000, Number(control.linkedinTimeoutMs || 90000)));
+  const remainingTimeout = () => Math.max(1, Math.min(15000, deadline - Date.now()));
 
   const exhaustedStrategies = new Set();
   const collect = (profiles, strategy) => {
@@ -717,9 +721,13 @@ export async function searchLinkedinCandidates(filter, limit = 30, control = {})
   // First cover every retrieval strategy once. If overlap leaves the pool below
   // the requested recommendation size, paginate those same strategies.
   for (const strategy of strategies) {
+    if (Date.now() >= deadline) {
+      queryErrors.push('Tempo limite da etapa LinkedIn atingido; resultados recuperados foram preservados.');
+      break;
+    }
     try {
       const search = (process.env.SERPAPI_KEY || process.env.SERPAPI_API_KEY)
-        ? await searchLinkedinCandidatesWithSerpApi(filter, requestedLimit, strategy.query)
+        ? await searchLinkedinCandidatesWithSerpApi(filter, requestedLimit, strategy.query, 0, remainingTimeout())
         : await searchLinkedinCandidatesWithGoogle(filter, requestedLimit, strategy.query);
       providers.add(search.provider);
       collect(search.profiles, strategy);
@@ -733,10 +741,14 @@ export async function searchLinkedinCandidates(filter, limit = 30, control = {})
   for (let page = 1; page < maxPages && profilesByLink.size < requestedLimit; page += 1) {
     for (const strategy of strategies) {
       if (profilesByLink.size >= requestedLimit) break;
+      if (Date.now() >= deadline) {
+        queryErrors.push('Tempo limite da etapa LinkedIn atingido; resultados recuperados foram preservados.');
+        break;
+      }
       if (exhaustedStrategies.has(strategy.name)) continue;
       try {
         const search = (process.env.SERPAPI_KEY || process.env.SERPAPI_API_KEY)
-          ? await searchLinkedinCandidatesWithSerpApi(filter, requestedLimit, strategy.query, page * 10)
+          ? await searchLinkedinCandidatesWithSerpApi(filter, requestedLimit, strategy.query, page * 10, remainingTimeout())
           : await searchLinkedinCandidatesWithGoogle(filter, requestedLimit, strategy.query, page * 10);
         providers.add(search.provider); collect(search.profiles, strategy);
         if (search.profiles.length < 10) exhaustedStrategies.add(strategy.name);
