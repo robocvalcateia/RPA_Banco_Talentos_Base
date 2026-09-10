@@ -8,7 +8,7 @@ const filter = { coreSkill: 'SAP MM', mandatorySkills: 'SAP MM', technicalSkills
 test('LinkedIn location below the headline becomes structured current-location evidence', () => {
   const profile={name:'Maria - Consultora SAP FI',snippet:'São Paulo, São Paulo, Brasil · Consultora SAP FI na Empresa'};
   const candidate=linkedinProfileLocationCandidate(profile,{locations:'São Paulo/SP; Rio de Janeiro/RJ'});
-  assert.deepEqual(candidate,{city:'São Paulo',state:'SP',locationRaw:profile.snippet,locationSource:'linkedin_public_snippet'});
+  assert.deepEqual(candidate,{city:'sao paulo',state:'SP',locationRaw:profile.snippet,locationSource:'linkedin_public_snippet'});
   const result=evaluateLinkedinCandidateTextForFilter('Consultora SAP FI com AP, AR e GL',{
     coreSkill:'SAP FI',mandatorySkills:'SAP FI, SAP AP, SAP AR, SAP GL',locations:'São Paulo/SP; Rio de Janeiro/RJ'
   },candidate);
@@ -20,6 +20,21 @@ test('LinkedIn structured location wins and employment history later in a long s
   assert.deepEqual(linkedinProfileLocationCandidate(profile,{locations:'São Paulo/SP'}),{
     city:'curitiba',state:'PR',locationRaw:`${profile.location} · ${profile.snippet.slice(0,260)}`,locationSource:'linkedin_structured'
   });
+});
+
+test('São Caetano do Sul SP is not confused with city São Paulo', () => {
+  const profile={location:'São Caetano do Sul, São Paulo, Brasil',snippet:'Consultor SAP FI'};
+  const candidate=linkedinProfileLocationCandidate(profile,{locations:'São Paulo/SP; Rio de Janeiro/RJ'});
+  assert.equal(candidate.city,'sao caetano do sul');
+  assert.equal(candidate.state,'SP');
+  const cityResult=evaluateLinkedinCandidateTextForFilter('Consultor SAP FI com AP AR GL',{
+    coreSkill:'SAP FI',mandatorySkills:'SAP FI, SAP AP, SAP AR, SAP GL',locations:'São Paulo/SP; Rio de Janeiro/RJ'
+  },candidate);
+  assert.equal(cityResult.operationalChecks.find(item=>item.requirement==='Localidade').status,'incompatible');
+  const stateResult=evaluateLinkedinCandidateTextForFilter('Consultor SAP FI com AP AR GL',{
+    coreSkill:'SAP FI',mandatorySkills:'SAP FI, SAP AP, SAP AR, SAP GL',state:'SP'
+  },candidate);
+  assert.equal(stateResult.operationalChecks.find(item=>item.requirement==='Localidade').status,'meets');
 });
 test('LinkedIn evaluates every recovered profile and paginates when strategy overlap leaves fewer than target', async () => {
   const originalFetch = globalThis.fetch;

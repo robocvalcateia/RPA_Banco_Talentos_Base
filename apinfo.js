@@ -636,21 +636,28 @@ export function linkedinProfileLocationCandidate(profile = {}, filter = {}) {
   const leadingSnippet = String(profile.snippet || '').trim().slice(0, 260);
   const locationText = [explicit, leadingSnippet].filter(Boolean).join(' · ');
   const normalizedLocation = normalizeText(locationText);
-  for (const value of String(filter.locations || '').split(';').map(item => item.trim()).filter(Boolean)) {
-    const [city, state] = value.split('/').map(item => item.trim());
-    if (city && textContainsValue(normalizedLocation, city)) return { city, state, locationRaw: locationText, locationSource: explicit ? 'linkedin_structured' : 'linkedin_public_snippet' };
-  }
-  if (filter.city && textContainsValue(normalizedLocation, filter.city)) {
-    return { city: filter.city, state: filter.state || '', locationRaw: locationText, locationSource: explicit ? 'linkedin_structured' : 'linkedin_public_snippet' };
-  }
+  const source = explicit ? 'linkedin_structured' : 'linkedin_public_snippet';
+  // Parse `city, state, country` before comparing desired cities. Otherwise,
+  // "São Caetano do Sul, São Paulo" could falsely satisfy city "São Paulo".
   const statePattern = [...BRAZIL_LOCATION_STATES.keys()].sort((a,b)=>b.length-a.length).join('|');
   const locationWithSeparators = locationText.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
-  const normalizedMatch = locationWithSeparators.match(new RegExp(`(?:^|[·|;-])\\s*([a-z][a-z .'-]{1,55}?),\\s*(${statePattern}|[a-z]{2})(?:,|\\s|·|$)`));
-  if (!normalizedMatch) return {};
-  const city = normalizedMatch[1].trim().replace(/^(?:location|localizacao)\s*:?\s*/, '');
-  const stateValue = normalizedMatch[2];
-  const state = stateValue.length === 2 ? stateValue.toUpperCase() : (BRAZIL_LOCATION_STATES.get(stateValue) || '');
-  return city && state ? { city, state, locationRaw: locationText, locationSource: explicit ? 'linkedin_structured' : 'linkedin_public_snippet' } : {};
+  const normalizedMatch = locationWithSeparators.match(new RegExp(`(?:^|[·|;–—-])\\s*(?:location|localizacao)?\\s*:?\\s*([a-z][a-z .'-]{1,55}?),\\s*(${statePattern}|[a-z]{2})(?:,|\\s|·|$)`));
+  if (normalizedMatch) {
+    const city = normalizedMatch[1].trim();
+    const stateValue = normalizedMatch[2];
+    const state = stateValue.length === 2 ? stateValue.toUpperCase() : (BRAZIL_LOCATION_STATES.get(stateValue) || '');
+    if (city && state) return { city, state, locationRaw: locationText, locationSource: source };
+  }
+  // Some search results expose only a city. Match that fallback only after a
+  // complete city/state pair has been ruled out.
+  for (const value of String(filter.locations || '').split(';').map(item => item.trim()).filter(Boolean)) {
+    const [city, state] = value.split('/').map(item => item.trim());
+    if (city && textContainsValue(normalizedLocation, city)) return { city, state, locationRaw: locationText, locationSource: source };
+  }
+  if (filter.city && textContainsValue(normalizedLocation, filter.city)) {
+    return { city: filter.city, state: filter.state || '', locationRaw: locationText, locationSource: source };
+  }
+  return {};
 }
 
 export function evaluateLinkedinCandidateTextForFilter(text, filter, candidate = {}) {
