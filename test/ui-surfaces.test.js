@@ -80,5 +80,7 @@ test('resultado de busca abre CV interno sob demanda e preserva links externos p
   assert.match(appSource, /source\.includes\('alcateia'\) && curriculumId/);
   assert.match(appSource, /source\.includes\('apinfo'\) \|\| source\.includes\('linkedin'\)/);
   assert.match(appSource, /await api\(`\/api\/curriculums\/\$\{encodeURIComponent\(id\)\}`\)/);
+  assert.match(appSource, /!state\.curriculums\.some\(\(curriculum\) => curriculumIdentifier\(curriculum\) === state\.selectedCurriculumId\)/);
+  assert.doesNotMatch(appSource, /!curriculums\.some\(\(curriculum\) => curriculumIdentifier\(curriculum\) === state\.selectedCurriculumId\)/);
   assert.match(serverSource, /request\.method === 'GET' && \/\^\\\/api\\\/curriculums\\\/\[\^\/\]\+\$\//);
 });

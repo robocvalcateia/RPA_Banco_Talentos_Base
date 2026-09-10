@@ -4443,7 +4443,7 @@ function renderCurriculums() {
     }
   }
 
-  if (!curriculums.some((curriculum) => curriculumIdentifier(curriculum) === state.selectedCurriculumId)) {
+  if (!state.curriculums.some((curriculum) => curriculumIdentifier(curriculum) === state.selectedCurriculumId)) {
     state.selectedCurriculumId = '';
     state.curriculumEditing = false;
   }
