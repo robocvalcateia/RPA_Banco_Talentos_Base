@@ -514,7 +514,8 @@ function parseSerpApiLinkedinResults(payload) {
     .map((result) => ({
       name: String(result.title ?? result.link ?? '').replace(/\s*\|\s*LinkedIn.*$/i, '').trim(),
       link: String(result.link ?? '').replace(/[#?].*$/, ''),
-      snippet: String(result.snippet ?? '').trim()
+      snippet: String(result.snippet ?? '').trim(),
+      location: String(result.location ?? result.rich_snippet?.top?.extensions?.join(' · ') ?? '').trim()
     }));
 }
 
@@ -618,8 +619,42 @@ function linkedinEvidence(profileText, filter) {
   };
 }
 
-export function evaluateLinkedinCandidateTextForFilter(text, filter) {
-  return screenCandidate(text, filter, {}, true);
+const BRAZIL_LOCATION_STATES = new Map([
+  ['acre','AC'],['alagoas','AL'],['amapa','AP'],['amazonas','AM'],['bahia','BA'],['ceara','CE'],
+  ['distrito federal','DF'],['espirito santo','ES'],['goias','GO'],['maranhao','MA'],['mato grosso','MT'],
+  ['mato grosso do sul','MS'],['minas gerais','MG'],['para','PA'],['paraiba','PB'],['parana','PR'],
+  ['pernambuco','PE'],['piaui','PI'],['rio de janeiro','RJ'],['rio grande do norte','RN'],
+  ['rio grande do sul','RS'],['rondonia','RO'],['roraima','RR'],['santa catarina','SC'],
+  ['sao paulo','SP'],['sergipe','SE'],['tocantins','TO']
+]);
+
+export function linkedinProfileLocationCandidate(profile = {}, filter = {}) {
+  // Search engines reproduce the LinkedIn location directly below the headline,
+  // normally near the beginning of the public snippet. Do not scan the whole
+  // profile, where employment locations could be mistaken for current residence.
+  const explicit = String(profile.location || '').trim();
+  const leadingSnippet = String(profile.snippet || '').trim().slice(0, 260);
+  const locationText = [explicit, leadingSnippet].filter(Boolean).join(' · ');
+  const normalizedLocation = normalizeText(locationText);
+  for (const value of String(filter.locations || '').split(';').map(item => item.trim()).filter(Boolean)) {
+    const [city, state] = value.split('/').map(item => item.trim());
+    if (city && textContainsValue(normalizedLocation, city)) return { city, state, locationRaw: locationText, locationSource: explicit ? 'linkedin_structured' : 'linkedin_public_snippet' };
+  }
+  if (filter.city && textContainsValue(normalizedLocation, filter.city)) {
+    return { city: filter.city, state: filter.state || '', locationRaw: locationText, locationSource: explicit ? 'linkedin_structured' : 'linkedin_public_snippet' };
+  }
+  const statePattern = [...BRAZIL_LOCATION_STATES.keys()].sort((a,b)=>b.length-a.length).join('|');
+  const locationWithSeparators = locationText.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  const normalizedMatch = locationWithSeparators.match(new RegExp(`(?:^|[·|;-])\\s*([a-z][a-z .'-]{1,55}?),\\s*(${statePattern}|[a-z]{2})(?:,|\\s|·|$)`));
+  if (!normalizedMatch) return {};
+  const city = normalizedMatch[1].trim().replace(/^(?:location|localizacao)\s*:?\s*/, '');
+  const stateValue = normalizedMatch[2];
+  const state = stateValue.length === 2 ? stateValue.toUpperCase() : (BRAZIL_LOCATION_STATES.get(stateValue) || '');
+  return city && state ? { city, state, locationRaw: locationText, locationSource: explicit ? 'linkedin_structured' : 'linkedin_public_snippet' } : {};
+}
+
+export function evaluateLinkedinCandidateTextForFilter(text, filter, candidate = {}) {
+  return screenCandidate(text, filter, candidate, true);
 }
 
 function linkedinResultRow(profile, filter, search, evaluation) {
@@ -721,7 +756,8 @@ export async function searchLinkedinCandidates(filter, limit = 30, control = {})
   for (const profile of search.profiles) {
     const fallbackText = `${profile.name}\n${profile.snippet}`;
     const profileText = fallbackText; // Public summaries are partial evidence, never a complete CV.
-    const evaluation = evaluateLinkedinCandidateTextForFilter(profileText, filter);
+    const locationCandidate = linkedinProfileLocationCandidate(profile, filter);
+    const evaluation = evaluateLinkedinCandidateTextForFilter(profileText, filter, locationCandidate);
     const row = linkedinResultRow(profile, filter, search, evaluation);
 
     if (evaluation.accepted || evaluation.review) {

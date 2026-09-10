@@ -2,9 +2,25 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { screenCandidate, coreKeyword, englishEvidence, hasSkill, screeningStats, experienceEvidence } from '../candidate-screening.js';
-import { evaluateInternalCandidateForFilter, evaluateLinkedinCandidateTextForFilter, buildLinkedinQueries, searchLinkedinCandidates, searchApinfoAndLinkedinCandidates, searchApinfoCandidates, apinfoNextPage } from '../apinfo.js';
+import { evaluateInternalCandidateForFilter, evaluateLinkedinCandidateTextForFilter, linkedinProfileLocationCandidate, buildLinkedinQueries, searchLinkedinCandidates, searchApinfoAndLinkedinCandidates, searchApinfoCandidates, apinfoNextPage } from '../apinfo.js';
 import { normalizeCvFilter, normalizeCvSearchResult } from '../db.js';
 const filter = { coreSkill: 'SAP MM', mandatorySkills: 'SAP MM', technicalSkills: 'J1BTAX, TAXBRA, revisão de faturas', desirableSkills: 'SAP Activate, debug', englishLevel: 'Avançado', locations: 'São Paulo/SP; Rio de Janeiro/RJ', matchPercent: 60 };
+test('LinkedIn location below the headline becomes structured current-location evidence', () => {
+  const profile={name:'Maria - Consultora SAP FI',snippet:'São Paulo, São Paulo, Brasil · Consultora SAP FI na Empresa'};
+  const candidate=linkedinProfileLocationCandidate(profile,{locations:'São Paulo/SP; Rio de Janeiro/RJ'});
+  assert.deepEqual(candidate,{city:'São Paulo',state:'SP',locationRaw:profile.snippet,locationSource:'linkedin_public_snippet'});
+  const result=evaluateLinkedinCandidateTextForFilter('Consultora SAP FI com AP, AR e GL',{
+    coreSkill:'SAP FI',mandatorySkills:'SAP FI, SAP AP, SAP AR, SAP GL',locations:'São Paulo/SP; Rio de Janeiro/RJ'
+  },candidate);
+  assert.equal(result.operationalChecks.find(item=>item.requirement==='Localidade').status,'meets');
+});
+
+test('LinkedIn structured location wins and employment history later in a long snippet is ignored', () => {
+  const profile={location:'Curitiba, Paraná, Brasil',snippet:`Consultor SAP FI. ${'experiência funcional '.repeat(20)}Projeto em São Paulo`};
+  assert.deepEqual(linkedinProfileLocationCandidate(profile,{locations:'São Paulo/SP'}),{
+    city:'curitiba',state:'PR',locationRaw:`${profile.location} · ${profile.snippet.slice(0,260)}`,locationSource:'linkedin_structured'
+  });
+});
 test('LinkedIn evaluates every recovered profile and paginates when strategy overlap leaves fewer than target', async () => {
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.SERPAPI_KEY;
