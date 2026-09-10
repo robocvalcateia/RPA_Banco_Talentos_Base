@@ -5420,9 +5420,13 @@ async function handleApi(request, response) {
     if (request.method === 'POST' && pathname === '/api/cv-filters') {
       const payload = await readJsonBody(request);
       const db = await readDatabase();
+      const opportunity = db.opportunities.find((item) => item.id === String(payload.opportunityId || '').trim());
       const filter = normalizeCvFilter({
         id: createId('cvf', payload.jobDescription || payload.opportunityId),
         ...payload,
+        jobDescription: opportunity?.jobDescription || '',
+        mandatorySkills: String(payload.coreSkill || '').trim(),
+        locations: '',
         createdAt: toISODate()
       });
 
@@ -5430,8 +5434,8 @@ async function handleApi(request, response) {
         sendError(response, 422, 'Selecione uma oportunidade valida.');
         return;
       }
-      if (!filter.jobDescription) {
-        sendError(response, 422, 'Informe a job_description.');
+      if (!filter.coreSkill) {
+        sendError(response, 422, 'Informe a competencia principal.');
         return;
       }
 
@@ -5463,6 +5467,9 @@ async function handleApi(request, response) {
       const runtimeFilter = normalizeCvFilter({
         ...filter,
         ...payload,
+        jobDescription: db.opportunities.find((item) => item.id === filter.opportunityId)?.jobDescription || '',
+        mandatorySkills: String(payload.coreSkill ?? filter.coreSkill ?? '').trim(),
+        locations: '',
         id: filter.id,
         createdAt: filter.createdAt
       });
@@ -6047,6 +6054,9 @@ async function handleApi(request, response) {
       const updated = normalizeCvFilter({
         ...filter,
         ...payload,
+        jobDescription: db.opportunities.find((item) => item.id === String(payload.opportunityId ?? filter.opportunityId))?.jobDescription || '',
+        mandatorySkills: String(payload.coreSkill ?? filter.coreSkill ?? '').trim(),
+        locations: '',
         id: filter.id,
         createdAt: filter.createdAt,
         updatedAt: toISODate()
@@ -6056,8 +6066,8 @@ async function handleApi(request, response) {
         sendError(response, 422, 'Selecione uma oportunidade valida.');
         return;
       }
-      if (!updated.jobDescription) {
-        sendError(response, 422, 'Informe a job_description.');
+      if (!updated.coreSkill) {
+        sendError(response, 422, 'Informe a competencia principal.');
         return;
       }
 

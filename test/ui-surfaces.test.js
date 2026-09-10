@@ -84,3 +84,19 @@ test('resultado de busca abre CV interno sob demanda e preserva links externos p
   assert.doesNotMatch(appSource, /!curriculums\.some\(\(curriculum\) => curriculumIdentifier\(curriculum\) === state\.selectedCurriculumId\)/);
   assert.match(serverSource, /request\.method === 'GET' && \/\^\\\/api\\\/curriculums\\\/\[\^\/\]\+\$\//);
 });
+
+test('filtro de CV simplifica entradas e explica o impacto das regras restantes', () => {
+  const indexSource = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  const appSource = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+  const serverSource = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+
+  assert.doesNotMatch(indexSource, /name="locations"/);
+  assert.doesNotMatch(indexSource, /name="mandatorySkills"/);
+  assert.doesNotMatch(indexSource, /name="jobDescription"[^>]*rows="4" required/);
+  assert.doesNotMatch(indexSource, /A busca inicial usa a competência principal/);
+  assert.match(indexSource, /id="cvRuleImpactTable"/);
+  assert.match(appSource, /function renderCvRuleImpact\(\)/);
+  assert.match(appSource, /municípios em um raio de 50 km/);
+  assert.match(serverSource, /mandatorySkills: String\(payload\.coreSkill/);
+  assert.match(serverSource, /jobDescription: opportunity\?\.jobDescription \|\| ''/);
+});

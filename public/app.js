@@ -8367,12 +8367,9 @@ async function loadCvFilterForEdit(filter, options = {}) {
   state.editing.cvFilterId = filter.id;
   fillForm('#cvFilterForm', {
     opportunityId: filter.opportunityId,
-    jobDescription: filter.jobDescription,
-    mandatorySkills: filter.mandatorySkills,
     coreSkill: filter.coreSkill || '',
     technicalSkills: filter.technicalSkills || '',
     desirableSkills: filter.desirableSkills || '',
-    locations: filter.locations || '',
     searchApinfo: filter.searchApinfo,
     searchLinkedin: filter.searchLinkedin,
     searchAlcateia: filter.searchAlcateia,
@@ -8381,6 +8378,7 @@ async function loadCvFilterForEdit(filter, options = {}) {
     matchPercent: filter.matchPercent
   }, 'Atualizar filtro');
   await populateCityOptions(filter.state, filter.city);
+  renderCvRuleImpact();
   renderCvSearchResults();
   if (!options.silent) {
     toast('Filtro de CV carregado para atualização.');
@@ -10840,14 +10838,28 @@ function bindDashboardFilters() {
 function bindCvFilterLocation() {
   $('#cvFilterForm select[name="state"]')?.addEventListener('change', (event) => {
     populateCityOptions(event.currentTarget.value);
+    renderCvRuleImpact();
   });
-  $('#cvFilterForm select[name="opportunityId"]')?.addEventListener('change', (event) => {
-    const opportunity = state.opportunities.find((item) => item.id === event.currentTarget.value);
-    const field = $('#cvFilterForm textarea[name="jobDescription"]');
-    if (field && opportunity?.jobDescription && !field.value.trim()) {
-      field.value = opportunity.jobDescription;
-    }
-  });
+  $('#cvFilterForm')?.addEventListener('input', renderCvRuleImpact);
+  $('#cvFilterForm')?.addEventListener('change', renderCvRuleImpact);
+  renderCvRuleImpact();
+}
+
+function renderCvRuleImpact() {
+  const form = $('#cvFilterForm');
+  const table = $('#cvRuleImpactTable');
+  if (!form || !table) return;
+  const value = (name) => String(form.elements.namedItem(name)?.value || '').trim();
+  const rows = [
+    ['Competência principal', value('coreSkill') ? `Eliminatória: exige evidência profissional de ${value('coreSkill')}.` : 'Eliminatória: precisa ser informada para iniciar a busca.'],
+    ['Critérios técnicos', value('technicalSkills') ? 'Pontuação: aumentam a aderência e ordenam os resultados; não eliminam.' : 'Sem critérios adicionais de pontuação.'],
+    ['Diferenciais', value('desirableSkills') ? 'Pontuação secundária: desempate e ordenação; nunca eliminam.' : 'Sem diferenciais informados.'],
+    ['Cidade', value('city') ? `Condição operacional: aceita ${value('city')} e municípios em um raio de 50 km.` : 'Não aplicada.'],
+    ['Estado', value('state') ? `Condição operacional: candidato deve estar em ${value('state')} quando houver localização comprovada.` : 'Não aplicado.'],
+    ['Inglês', value('englishLevel') ? `Condição operacional: exige no mínimo ${value('englishLevel')}; não muda a aprovação técnica.` : 'Não aplicado.'],
+    ['Descrição da oportunidade', 'Automática: qualifica e ordena os resultados usando a descrição cadastrada na oportunidade; não é digitada novamente.']
+  ];
+  table.innerHTML = rows.map(([rule, impact]) => `<tr><td><strong>${escapeHtml(rule)}</strong></td><td>${escapeHtml(impact)}</td></tr>`).join('');
 }
 
 function selectedCvSearchRows() {

@@ -1058,14 +1058,17 @@
               <option value="Avançado">Avançado</option>
               <option value="Fluente">Fluente</option>
             </select></label>
-            <p>A aprovação técnica depende do skill obrigatório. A aderência à descrição ordena os resultados; inglês, localidade e disponibilidade aparecem separadamente.</p><input name="matchPercent" type="hidden" value="0" />
+            <input name="matchPercent" type="hidden" value="0" />
             <label>Competência principal<input name="coreSkill" placeholder="Ex.: SAP FI ou SAP MM" /></label>
-            <label>Localidades alternativas (substituem Estado/Cidade)<input name="locations" placeholder="São Paulo/SP; Rio de Janeiro/RJ" /></label>
-            <label class="full">Habilidades Obrigatórias<textarea name="mandatorySkills" rows="2" placeholder="Ex.: PL SQL, UIPath, SAP"></textarea></label>
             <label class="full">Critérios técnicos para pontuação<textarea name="technicalSkills" rows="2" placeholder="Separe por vírgula: J1BTAX, TAXBRA, revisão de faturas"></textarea></label>
             <label class="full">Diferenciais (não eliminatórios)<textarea name="desirableSkills" rows="2" placeholder="Separe por vírgula: SAP Activate, rollout, debug"></textarea></label>
-            <p class="full">A busca inicial usa a competência principal (ou a primeira habilidade obrigatória). Inglês e localidade não informados ficam a confirmar. Resumos públicos não equivalem a currículos completos. A pontuação não substitui entrevista, comprovação de experiência ou teste de inglês.</p>
-            <label class="full">Job_description<textarea name="jobDescription" rows="4" required></textarea></label>
+            <section class="full table-wrap" aria-labelledby="cvRuleImpactTitle">
+              <h3 id="cvRuleImpactTitle">Impacto das regras</h3>
+              <table>
+                <thead><tr><th>Regra</th><th>Impacto</th></tr></thead>
+                <tbody id="cvRuleImpactTable"></tbody>
+              </table>
+            </section>
             <fieldset class="full checkbox-group">
               <legend>Fontes de busca</legend>
               <label class="checkbox-field"><input name="searchApinfo" type="checkbox" checked /> APINFO</label>
