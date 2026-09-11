@@ -24,7 +24,7 @@ from modules.deduplication import process_candidate_data
 from modules.original_file_store import save_original_cv_file
 from utils.file_handler import FileHandler
 from modules.mongodb_handler import get_mongodb_handler
-from utils.email_sender import enviar_email_resumo_graph
+from utils.email_sender import enviar_email_resumo_graph, enviar_confirmacao_recebimento_cv
 
 class BancoTalentosOrchestrator:
     """Orquestra o fluxo completo do sistema"""
@@ -350,6 +350,25 @@ class BancoTalentosOrchestrator:
                                 acao=f"E-mail movido para {Folder_Mail_Erro} para novo reprocessamento."
                             )
                             Move_Folder = Folder_Mail_Erro
+
+                    if Move_Folder == Folder_Mail_Sucesso and result.get('status') == 'novo':
+                        try:
+                            notificacao = enviar_confirmacao_recebimento_cv(
+                                result.get('nome') or candidate_data.get('Nome'),
+                                candidate_data.get('Email')
+                            )
+                            if notificacao.get('sent'):
+                                self.logger.info(f" Confirmação de recebimento enviada para {notificacao.get('to')}")
+                            else:
+                                self.logger.warning(f" Confirmação de recebimento não enviada: {notificacao.get('reason')}")
+                        except Exception as e:
+                            self._registrar_erro(
+                                tipo="falha_confirmacao_recebimento_cv",
+                                mensagem="CV gravado, mas a confirmação ao candidato não foi enviada.",
+                                file_info=file_info,
+                                exception=e,
+                                acao="CV mantido no banco; falha registrada para acompanhamento."
+                            )
 
                     # Move Mail Folder
                     mover_email_uma_vez(file_info, Move_Folder)

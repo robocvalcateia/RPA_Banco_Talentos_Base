@@ -1276,6 +1276,8 @@ export function normalizeCandidate(candidate) {
     aderencia: normalizeAderencia(candidate.aderencia ?? candidate.adherence ?? 50),
     source: String(candidate.source ?? '').trim(),
     notes: String(candidate.notes ?? '').trim(),
+    processCycle: Math.max(1, Number(candidate.processCycle || 1)),
+    notifications: Array.isArray(candidate.notifications) ? candidate.notifications : [],
     status: stage === 'Aprovado' || stage === 'Reprovado' ? stage : 'Em andamento',
     stageEnteredAt,
     createdAt,
@@ -1718,6 +1720,8 @@ export function normalizeSelectedCandidate(candidate) {
     origin: String(candidate.origin ?? candidate.origem ?? 'Resultado').trim(),
     candidateMessage: String(candidate.candidateMessage ?? candidate.mensagemCandidato ?? '').trim(),
     observation: String(candidate.observation ?? candidate.observacao ?? candidate['observação'] ?? candidate['observação'] ?? '').trim(),
+    processCycle: Math.max(1, Number(candidate.processCycle || 1)),
+    notifications: Array.isArray(candidate.notifications) ? candidate.notifications : [],
     createdAt: String(candidate.createdAt ?? toISODate()).trim(),
     updatedAt: String(candidate.updatedAt ?? '').trim()
   };

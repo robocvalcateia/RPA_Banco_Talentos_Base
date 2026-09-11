@@ -1,3 +1,4 @@
+import html
 import requests
 from config.mongodb import get_candidate_collection_name
 from config.microsoft_graph import get_microsoft_graph
@@ -11,6 +12,40 @@ PROCESSING_LOG_ALLOWED_RECIPIENTS = (
 
 def build_processing_log_recipients():
     return list(PROCESSING_LOG_ALLOWED_RECIPIENTS)
+
+
+def enviar_confirmacao_recebimento_cv(nome, email):
+    """Confirma ao profissional somente depois que um novo CV foi gravado com sucesso."""
+    destinatario = str(email or "").strip().lower()
+    if not destinatario or "@" not in destinatario:
+        return {"sent": False, "reason": "Candidato sem e-mail valido."}
+    if not is_production_environment():
+        return {"sent": False, "reason": "Envio desabilitado fora de PROD."}
+    graph_config = get_microsoft_graph()
+    email_from = graph_config.get_email()
+    nome_seguro = html.escape(str(nome or "Candidato").strip())
+    corpo_html = f"""
+    <p>Olá {nome_seguro}</p>
+    <p>Gostaríamos, inicialmente, de agradecer o envio de seu CV. Confirmamos o seu recebimento.</p>
+    <p>Em breve, ele será analisado e avaliado por uma pessoa do nosso time de recrutadores. Te informaremos assim que encontrarmos uma vaga na qual o seu perfil tenha aderência.</p>
+    <p>Atenciosamente</p>
+    """
+    payload = {
+        "message": {
+            "subject": "[Alcateia] Confirmação de recebimento do seu CV",
+            "body": {"contentType": "HTML", "content": corpo_html},
+            "toRecipients": [{"emailAddress": {"address": destinatario}}]
+        }
+    }
+    response = requests.post(
+        f"https://graph.microsoft.com/v1.0/users/{email_from}/sendMail",
+        headers=graph_config.get_headers(),
+        json=payload,
+        timeout=30
+    )
+    if response.status_code != 202:
+        raise Exception(f"Erro ao enviar confirmacao de CV: {response.text}")
+    return {"sent": True, "to": destinatario}
 
 
 def montar_html_erros(stats):

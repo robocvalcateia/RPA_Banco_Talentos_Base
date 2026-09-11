@@ -98,6 +98,16 @@ test('reprocessing does not mark email as success when original CV storage fails
   assert.match(storeSource, /result\.matched_count/);
 });
 
+test('novo CV gravado dispara confirmação ao candidato somente depois do sucesso', () => {
+  const mainSource = readRepoFile('legacy_banco_talentos/main.py');
+  const senderSource = readRepoFile('legacy_banco_talentos/utils/email_sender.py');
+  assert.match(mainSource, /Move_Folder == Folder_Mail_Sucesso and result\.get\('status'\) == 'novo'/);
+  assert.match(mainSource, /enviar_confirmacao_recebimento_cv/);
+  assert.match(senderSource, /Confirmação de recebimento do seu CV/);
+  assert.match(senderSource, /Te informaremos assim que encontrarmos uma vaga/);
+  assert.match(senderSource, /<p>Atenciosamente<\/p>/);
+});
+
 test('reprocessing blocks sparse CV extraction before moving email to success', () => {
   const mainSource = readRepoFile('legacy_banco_talentos/main.py');
   const gateSource = readRepoFile('legacy_banco_talentos/modules/cv_quality_gate.py');

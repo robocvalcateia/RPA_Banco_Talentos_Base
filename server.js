@@ -111,7 +111,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20260910-persistent-cv-search';
+const APP_VERSION = '20260910-candidate-lifecycle-emails';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -1992,6 +1992,65 @@ function expandCityRadiusFilter(filter, radiusKm = 50) {
   };
 }
 
+export function buildCandidateLifecycleMessage(type, candidateName, opportunityName = '') {
+  const name = String(candidateName || 'Candidato').trim();
+  const opportunity = String(opportunityName || '').trim();
+  if (type === 'selected') {
+    return [`Olá ${name}`, '', 'Tudo bem?', '', `Avaliamos o seu CV e nosso analista de RH entendeu que ele tem aderência à oportunidade ${opportunity}.`, '', 'Manteremos contato para atualização sobre a evolução do processo.', '', 'Atenciosamente'].join('\n');
+  }
+  if (type === 'rejected') {
+    return [`Olá ${name}`, '', 'Encaminhamos os seus dados para o cliente e, após criteriosa avaliação, ele decidiu seguir com outros candidatos.', '', 'Não se preocupe. Você continuará fazendo parte do nosso pool de candidatos e seu CV continuará sob avaliação. Em breve, assim que uma nova oportunidade tiver aderência ao seu perfil, entraremos em contato.', '', 'Atenciosamente'].join('\n');
+  }
+  throw new Error(`Tipo de mensagem de candidato inválido: ${type}`);
+}
+
+async function sendCandidateLifecycleEmail({ db, record, type, persist }) {
+  const opportunity = db.opportunities.find((item) => item.id === record.opportunityId);
+  const curriculum = findCurriculumForSelectedCandidate(record, db)
+    || await resolveCandidateCurriculum(db, record.curriculumId);
+  const recoveredEmails = curriculum?.email
+    ? [curriculum.email]
+    : await extractCandidateEmails(record, getApinfoCredentials(), db);
+  const email = String(recoveredEmails[0] || '').trim().toLowerCase();
+  const cycle = Math.max(1, Number(record.processCycle || 1));
+  const eventKey = `${type}:${record.opportunityId}:${cycle}`;
+  record.notifications = Array.isArray(record.notifications) ? record.notifications : [];
+  const existing = record.notifications.find((item) => item.eventKey === eventKey);
+  if (existing) return existing;
+
+  const notification = { eventKey, type, opportunityId: record.opportunityId, processCycle: cycle, to: email, status: 'sending', createdAt: toISODate(), sentAt: '', error: '' };
+  record.notifications.push(notification);
+  await persist();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    notification.status = 'skipped';
+    notification.error = 'Candidato sem e-mail válido.';
+    await persist();
+    return notification;
+  }
+  const smtpConfig = getSmtpConfigFromEnv();
+  if (!isSmtpAccountConfigured(smtpConfig)) {
+    notification.status = 'failed';
+    notification.error = 'SMTP não configurado.';
+    await persist();
+    return notification;
+  }
+  try {
+    await sendMail({
+      ...smtpConfig,
+      to: email,
+      subject: type === 'selected' ? `[Alcateia] Processo seletivo - ${opportunity?.opportunity || 'Oportunidade'}` : '[Alcateia] Atualização do processo seletivo',
+      text: buildCandidateLifecycleMessage(type, record.name || curriculum?.nome, opportunity?.opportunity)
+    });
+    notification.status = 'sent';
+    notification.sentAt = toISODate();
+  } catch (error) {
+    notification.status = 'failed';
+    notification.error = String(error.message || error);
+  }
+  await persist();
+  return notification;
+}
+
 function splitSearchTermsForCv(value = '') {
   return Array.from(new Set(
     normalizeSearchText(value)
@@ -3296,7 +3355,13 @@ export function advanceSelectedCandidateToInterview(db, selectedCandidateId) {
     existing.observation = selected.observation || existing.observation || '';
     existing.source = selected.source || existing.source || '';
     existing.aderencia = candidateAderenciaFromScore(selected.score ?? existing.aderencia);
-    if (!['Aprovado', 'Reprovado'].includes(existing.stage) && existing.stage !== 'Entrevista Alcateia') {
+    const selectedCycle = Math.max(1, Number(selected.processCycle || 1));
+    const existingCycle = Math.max(1, Number(existing.processCycle || 1));
+    if (selectedCycle > existingCycle && ['Aprovado', 'Reprovado'].includes(existing.stage)) {
+      existing.processCycle = selectedCycle;
+      existing.approved = false;
+      moveCandidateStage(existing, 'Entrevista Alcateia');
+    } else if (!['Aprovado', 'Reprovado'].includes(existing.stage) && existing.stage !== 'Entrevista Alcateia') {
       moveCandidateStage(existing, 'Entrevista Alcateia');
     }
     existing.updatedAt = timestamp;
@@ -3315,6 +3380,8 @@ export function advanceSelectedCandidateToInterview(db, selectedCandidateId) {
     aderencia: candidateAderenciaFromScore(selected.score),
     source: selected.source,
     notes: selected.candidateMessage,
+    processCycle: Math.max(1, Number(selected.processCycle || 1)),
+    notifications: [],
     status: 'Em andamento',
     stageEnteredAt: timestamp,
     createdAt: timestamp,
@@ -5994,6 +6061,14 @@ async function handleApi(request, response) {
         });
 
         if (existing) {
+          const processCandidate = db.candidates.find((item) => (
+            item.opportunityId === opportunityId
+            && ((candidate.curriculumId && item.curriculumId === candidate.curriculumId)
+              || comparableText(item.name) === comparableText(candidate.name))
+          ));
+          const startsNewCycle = processCandidate && ['Aprovado', 'Reprovado'].includes(processCandidate.stage);
+          candidate.processCycle = Math.max(1, Number(existing.processCycle || 1)) + (startsNewCycle ? 1 : 0);
+          candidate.notifications = existing.notifications || [];
           Object.assign(existing, {
             ...candidate,
             id: existing.id,
@@ -6002,6 +6077,8 @@ async function handleApi(request, response) {
           });
           saved.push(existing);
         } else {
+          candidate.processCycle = 1;
+          candidate.notifications = [];
           db.selectedCandidates.push(candidate);
           saved.push(candidate);
         }
@@ -6054,6 +6131,16 @@ async function handleApi(request, response) {
 
       await writeDatabaseCollections(db, ['selectedCandidates', 'candidateMovements', 'curriculumObservations']);
 
+      const notifications = [];
+      for (const candidate of saved) {
+        notifications.push(await sendCandidateLifecycleEmail({
+          db,
+          record: candidate,
+          type: 'selected',
+          persist: () => writeDatabaseCollections(db, ['selectedCandidates'])
+        }));
+      }
+
       const responsePayload = saved.map((candidate, index) => {
         const enriched = enrichSelectedCandidate(candidate, db);
         const mongoCandidate = mongoSaved[index];
@@ -6062,7 +6149,8 @@ async function handleApi(request, response) {
           ...enriched,
           savedToMongo: Boolean(mongoCandidate),
           mongoId: mongoCandidate?.mongoId || '',
-          curriculumId: mongoCandidate?.id_controle || mongoCandidate?.id || enriched.curriculumId || ''
+          curriculumId: mongoCandidate?.id_controle || mongoCandidate?.id || enriched.curriculumId || '',
+          notification: notifications[index]
         };
       });
 
@@ -6994,6 +7082,7 @@ async function handleApi(request, response) {
         return;
       }
 
+      const previousStage = candidate.stage;
       let candidateDb = db;
       let resolvedCurriculum = null;
       const previousObservation = String(candidate.observation || '').trim();
@@ -7058,9 +7147,18 @@ async function handleApi(request, response) {
       const placement = syncApprovedCandidatePlacement(candidate, candidateDb);
 
       await writeDatabaseCollections(db, ['candidates', 'allocateds', 'opportunities', 'candidateMovements', 'curriculumObservations', 'recordObservations']);
+      const notification = previousStage !== 'Reprovado' && candidate.stage === 'Reprovado'
+        ? await sendCandidateLifecycleEmail({
+            db: candidateDb,
+            record: candidate,
+            type: 'rejected',
+            persist: () => writeDatabaseCollections(db, ['candidates'])
+          })
+        : null;
       sendJson(response, 200, {
         ...enrichCandidate(candidate, candidateDb),
-        placement
+        placement,
+        notification
       });
       return;
     }

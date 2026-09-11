@@ -5,6 +5,7 @@ import {
   advanceSelectedCandidateToInterview,
   approvedCandidatesForOpportunity,
   buildCandidateEmailBody,
+  buildCandidateLifecycleMessage,
   buildCurriculumPayload,
   databaseWithSelectedCandidateCurriculums,
   duplicatedAllocatedCodeGroups,
@@ -369,4 +370,29 @@ test('candidato selecionado avanca para entrevistados sem duplicar', () => {
   assert.equal(db.candidates[0].stage, 'Entrevista Alcateia');
   assert.equal(db.candidates[0].curriculumId, '1001');
   assert.equal(db.candidates[0].opportunityId, 'opp_a');
+});
+
+test('mensagens automáticas usam candidato oportunidade e saudação final definida', () => {
+  const selected = buildCandidateLifecycleMessage('selected', 'Ana Silva', 'Consultor SAP FI');
+  const rejected = buildCandidateLifecycleMessage('rejected', 'Ana Silva', 'Consultor SAP FI');
+  assert.match(selected, /Olá Ana Silva/);
+  assert.match(selected, /aderência à oportunidade Consultor SAP FI/);
+  assert.match(selected, /Atenciosamente$/);
+  assert.match(rejected, /decidiu seguir com outros candidatos/);
+  assert.match(rejected, /pool de candidatos/);
+  assert.match(rejected, /Atenciosamente$/);
+});
+
+test('novo ciclo reabre candidato terminal na mesma oportunidade', () => {
+  const db = buildDb();
+  db.candidates.push({
+    id: 'cand_cycle', name: 'Pessoa Teste', curriculumId: '1001', opportunityId: 'opp_a',
+    stage: 'Reprovado', status: 'Reprovado', approved: false, processCycle: 1,
+    stageHistory: [{ stage: 'Reprovado', enteredAt: '2026-07-01T00:00:00.000Z', leftAt: '' }]
+  });
+  db.selectedCandidates.push({ id: 'sel_cycle', opportunityId: 'opp_a', name: 'Pessoa Teste', curriculumId: '1001', source: 'ALCATEIA', processCycle: 2, notifications: [] });
+  const candidate = advanceSelectedCandidateToInterview(db, 'sel_cycle');
+  assert.equal(candidate.stage, 'Entrevista Alcateia');
+  assert.equal(candidate.status, 'Em andamento');
+  assert.equal(candidate.processCycle, 2);
 });
