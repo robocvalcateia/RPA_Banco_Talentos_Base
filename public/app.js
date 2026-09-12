@@ -17,6 +17,9 @@
   allocateds: [],
   workHours: [],
   workHourClosures: [],
+  timesheetProjects: [],
+  timesheetPeriods: [],
+  workHourAudit: [],
   businessCalendar: [],
   rateCards: [],
   statusReports: [],
@@ -89,6 +92,7 @@
     userId: '',
     formDefinitionId: '',
     formRequestId: '',
+    timesheetProjectId: '',
     selectingCandidateId: '',
     movingCandidateId: '',
     observingCurriculumId: ''
@@ -189,7 +193,7 @@ function applyInitialRoute() {
     state.activeFormsPanel = formsPanel === 'builder' && isCurrentUserAdmin() ? 'builder' : formsPanel;
   }
 
-  if (viewId === 'billingReport' && ['query', 'entry'].includes(formsPanel)) {
+  if (viewId === 'billingReport' && ['query', 'entry', 'registrations'].includes(formsPanel)) {
     state.activeBillingReportPanel = formsPanel;
   }
 
@@ -269,7 +273,7 @@ const launcherNodes = {
     label: 'Billing Report',
     eyebrow: 'Seção',
     description: 'Relatórios de billing',
-    children: ['billingReportQuery', 'billingReportEntry']
+    children: ['billingReportQuery', 'billingReportEntry', 'billingReportRegistrations']
   },
   billingReportQuery: {
     label: 'Consultas / Relatórios',
@@ -284,6 +288,13 @@ const launcherNodes = {
     description: 'Registro de horas por consultor ativo',
     view: 'billingReport',
     panel: 'entry'
+  },
+  billingReportRegistrations: {
+    label: 'Cadastros',
+    eyebrow: 'Billing Report',
+    description: 'Projetos disponíveis para apontamento',
+    view: 'billingReport',
+    panel: 'registrations'
   },
   formsSection: {
     label: 'Formulários',
@@ -1149,7 +1160,7 @@ function renderOptions() {
   if (candidatePoolNameOptions) {
     candidatePoolNameOptions.innerHTML = curriculumNameOptions;
   }
-  $$('select[name="status"]').forEach((select) => {
+  $$('select[name="status"]:not(#timesheetPeriodStatus)').forEach((select) => {
     select.innerHTML = statusOptions;
   });
   $$('select[name="model"]').forEach((select) => {
@@ -2403,6 +2414,7 @@ function renderAverageTable() {
 }
 
 function renderClients() {
+  syncClientTimesheetModeField();
   updateClientOrgChartOptions();
   const filteredClients = state.clientListFilter
     ? state.clients.filter((client) => client.id === state.clientListFilter)
@@ -2417,6 +2429,7 @@ function renderClients() {
           <td>${escapeHtml(client.primaryContactEmail || '-')}</td>
           <td>${escapeHtml(client.primaryContactPhone || '-')}</td>
           <td>${escapeHtml(clientManagerName(client) || '-')}</td>
+          <td>${client.usesTimesheet ? (client.timesheetMode === 'detailed' ? 'Detalhado' : 'Simplificado') : 'Não utiliza'}</td>
           <td>${escapeHtml(client.observation || '-')}</td>
           <td>
             <div class="row-actions">
@@ -2431,7 +2444,20 @@ function renderClients() {
         </tr>
       `
     )
-    .join('') : '<tr><td colspan="7">Nenhum cliente encontrado para o filtro selecionado.</td></tr>';
+    .join('') : '<tr><td colspan="8">Nenhum cliente encontrado para o filtro selecionado.</td></tr>';
+}
+
+function syncClientTimesheetModeField() {
+  const form = $('#clientForm');
+  const wrapper = $('[data-client-timesheet-mode]', form);
+  const select = form?.elements?.timesheetMode;
+  const enabled = Boolean(form?.elements?.usesTimesheet?.checked);
+  if (wrapper) wrapper.hidden = !enabled;
+  if (select) {
+    select.required = enabled;
+    select.disabled = !enabled;
+    if (!enabled) select.value = '';
+  }
 }
 
 function clientCsvRows(clientId = $('#clientCsvSelect')?.value || '') {
@@ -5517,7 +5543,8 @@ function workHourAllocatedOptions() {
   const rows = isCurrentUserAdmin()
     ? state.allocateds.filter((allocated) => allocated.active === true)
     : activeAllocatedsForCurrentUser();
-  return rows
+  const enabledClients = new Set(state.clients.filter((client) => client.usesTimesheet).map((client) => client.id));
+  return rows.filter((allocated) => enabledClients.has(allocated.clientId))
     .slice()
     .sort((first, second) => String(first.consultant || '').localeCompare(String(second.consultant || ''), 'pt-BR', { sensitivity: 'base' }));
 }
@@ -5540,6 +5567,35 @@ function formatWorkHours(value) {
 
 function currentMonthValue() {
   return new Date().toISOString().slice(0, 7);
+}
+
+function timesheetModeForAllocated(allocatedId = '') {
+  const allocated = state.allocateds.find((item) => item.id === allocatedId);
+  const client = state.clients.find((item) => item.id === allocated?.clientId);
+  return client?.timesheetMode === 'detailed' ? 'detailed' : 'simplified';
+}
+
+function renderWorkHourMode() {
+  const detailed = timesheetModeForAllocated($('#workHourAllocatedSelect')?.value || '') === 'detailed';
+  $$('[data-work-hour-simple]').forEach((element) => { element.hidden = detailed; });
+  $$('[data-work-hour-detailed]').forEach((element) => { element.hidden = !detailed; });
+}
+
+function renderWorkHourProjects() {
+  const allocated = state.allocateds.find((item) => item.id === $('#workHourAllocatedSelect')?.value);
+  const projects = state.timesheetProjects.filter((item) => item.clientId === allocated?.clientId && item.active);
+  const select = $('#workHourProjectSelect');
+  if (select) select.innerHTML = projects.length
+    ? projects.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`).join('')
+    : '<option value="">Crie um projeto para continuar</option>';
+}
+
+function renderWorkHourDayTotal() {
+  const allocatedId = $('#workHourAllocatedSelect')?.value || '';
+  const date = $('#workHourForm input[name="date"]')?.value || '';
+  const total = state.workHours.filter((item) => item.allocatedId === allocatedId && item.date === date)
+    .reduce((sum, item) => sum + Number(item.hours || 0), 0);
+  if ($('#workHourDayTotal')) $('#workHourDayTotal').textContent = `Total lançado no dia: ${formatWorkHours(total)}`;
 }
 
 function renderWorkHourSelectors() {
@@ -5581,6 +5637,9 @@ function renderWorkHourSelectors() {
   const selectedAllocatedId = $('#workHourAllocatedSelect')?.value || '';
   const clientField = $('#workHourClientName');
   if (clientField) clientField.value = workHourClientName(selectedAllocatedId);
+  renderWorkHourProjects();
+  renderWorkHourMode();
+  renderWorkHourDayTotal();
 
   const closeMonth = $('#workHourCloseMonth');
   if (closeMonth && !closeMonth.value) closeMonth.value = currentMonthValue();
@@ -5606,8 +5665,12 @@ function workHourCsvRows(rows = getFilteredWorkHours()) {
     Consultor: entry.consultantName || '',
     Data: entry.date || '',
     'Horas Trabalhadas': formatWorkHours(entry.hours),
+    Tipo: entry.mode === 'detailed' ? 'Detalhada' : 'Simplificada',
     Cliente: workHourClientName(entry.allocatedId),
     Projeto: entry.project || '',
+    Atividade: entry.activity || '',
+    Entrada: entry.startTime || '',
+    Saida: entry.endTime || '',
     Observacao: entry.observation || ''
   }));
 }
@@ -5653,11 +5716,67 @@ function renderWorkHours() {
       <td>${escapeHtml(entry.consultantName || '-')}</td>
       <td>${escapeHtml(entry.date || '-')}</td>
       <td>${escapeHtml(formatWorkHours(entry.hours))}</td>
+      <td>${entry.mode === 'detailed' ? 'Detalhada' : 'Simplificada'}</td>
       <td>${escapeHtml(workHourClientName(entry.allocatedId) || '-')}</td>
       <td>${escapeHtml(entry.project || '-')}</td>
+      <td>${escapeHtml(entry.mode === 'detailed' ? `${entry.activity || '-'} (${entry.startTime || '-'}–${entry.endTime || '-'})` : '-')}</td>
       <td>${escapeHtml(entry.observation || '-')}</td>
     </tr>
   `).join('');
+  renderTimesheetAdministration();
+}
+
+function renderTimesheetAdministration() {
+  const enabled = state.clients.filter((client) => client.usesTimesheet);
+  const options = enabled.map((client) => `<option value="${escapeHtml(client.id)}">${escapeHtml(client.customerName)}</option>`).join('');
+  const periodClient = $('#timesheetPeriodClient');
+  if (periodClient) periodClient.innerHTML = '<option value="">Todos (regra geral)</option>' + options;
+  const cockpitClient = $('#timesheetCockpitClient');
+  if (cockpitClient) {
+    const current = cockpitClient.value;
+    cockpitClient.innerHTML = '<option value="">Todos</option>' + options;
+    cockpitClient.value = current;
+  }
+  const monthInput = $('#timesheetCockpitMonth');
+  if (monthInput && !monthInput.value) monthInput.value = currentMonthValue();
+  const periodMonth = $('#timesheetPeriodForm input[name="monthYear"]');
+  if (periodMonth && !periodMonth.value) periodMonth.value = currentMonthValue();
+  if ($('#timesheetPeriodList')) $('#timesheetPeriodList').innerHTML = state.timesheetPeriods
+    .slice().sort((a, b) => b.monthYear.localeCompare(a.monthYear)).map((period) => {
+      const client = state.clients.find((item) => item.id === period.clientId);
+      return `<p><strong>${escapeHtml(client?.customerName || 'Regra geral')}</strong> — ${escapeHtml(period.monthYear)} — ${period.status === 'OPEN' ? 'Aberto' : 'Fechado'} — limite ${escapeHtml(period.finalDeadline || 'não informado')}</p>`;
+    }).join('') || '<p class="empty-state">Nenhum calendário cadastrado.</p>';
+  renderTimesheetCockpit();
+}
+
+function renderTimesheetCockpit() {
+  const tbody = $('#timesheetCockpitTable');
+  if (!tbody) return;
+  const month = $('#timesheetCockpitMonth')?.value || currentMonthValue();
+  const clientFilter = $('#timesheetCockpitClient')?.value || '';
+  const rows = state.allocateds.filter((item) => item.active && (!clientFilter || item.clientId === clientFilter)
+    && state.clients.some((client) => client.id === item.clientId && client.usesTimesheet)).map((allocated) => {
+      const actual = state.workHours.filter((item) => item.allocatedId === allocated.id && String(item.date).startsWith(`${month}-`))
+        .reduce((sum, item) => sum + Number(item.hours || 0), 0);
+      const expected = Number(allocated.monthlyHours || 0);
+      const period = state.timesheetPeriods.find((item) => item.clientId === allocated.clientId && item.monthYear === month)
+        || state.timesheetPeriods.find((item) => !item.clientId && item.monthYear === month);
+      const today = new Date();
+      const todayIso = today.toISOString().slice(0, 10);
+      const expired = month < currentMonthValue() || period?.status === 'CLOSED' || (period?.finalDeadline && todayIso > period.finalDeadline);
+      const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
+      const elapsedRatio = month === currentMonthValue() ? Math.min(1, Number(todayIso.slice(8, 10)) / daysInMonth) : (month < currentMonthValue() ? 1 : 0);
+      const partialLate = period?.partialRequired && month === currentMonthValue()
+        && today.getDay() >= Number(period.weeklyDeadlineDay || 1) && actual < expected * elapsedRatio;
+      const status = actual >= expected && expected > 0 ? 'Em dia'
+        : expired ? (actual ? 'Atrasado' : 'Sem lançamento')
+          : partialLate ? (actual ? 'Atrasado parcial' : 'Sem lançamento parcial')
+            : actual ? 'Parcial' : 'Pendente';
+      return { allocated, actual, expected, status };
+    });
+  tbody.innerHTML = rows.map(({ allocated, actual, expected, status }) => `<tr><td>${escapeHtml(workHourClientName(allocated.id))}</td><td>${escapeHtml(allocated.consultant)}</td><td>${formatWorkHours(expected)}</td><td>${formatWorkHours(actual)}</td><td><strong>${status}</strong></td></tr>`).join('')
+    || '<tr><td colspan="5">Nenhum consultor habilitado para o filtro.</td></tr>';
+  if ($('#timesheetCockpitSummary')) $('#timesheetCockpitSummary').textContent = `${rows.filter((row) => row.status.toLowerCase().includes('atrasado') || row.status.toLowerCase().includes('sem lançamento')).length} atraso(s) no período`;
 }
 
 function parseWorkHourCsv(text) {
@@ -6849,6 +6968,21 @@ function renderBillingEntrySelectors() {
   const clientField = $('#billingEntryClientName');
   if (clientField) clientField.value = workHourClientName(select.value);
 
+  const allocated = state.allocateds.find((item) => item.id === select.value);
+  const projects = state.timesheetProjects.filter((item) => item.clientId === allocated?.clientId && item.active);
+  const projectSelect = $('#billingEntryProjectSelect');
+  if (projectSelect) {
+    const currentProject = projectSelect.value;
+    projectSelect.innerHTML = projects.length
+      ? projects.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`).join('')
+      : '<option value="">Nenhum projeto ativo cadastrado</option>';
+    projectSelect.value = projects.some((item) => item.id === currentProject) ? currentProject : projects[0]?.id || '';
+  }
+
+  const detailed = timesheetModeForAllocated(select.value) === 'detailed';
+  $$('[data-billing-entry-simple]').forEach((element) => { element.hidden = detailed; });
+  $$('[data-billing-entry-detailed]').forEach((element) => { element.hidden = !detailed; });
+
   const summary = $('#billingEntryAccessSummary');
   if (summary) {
     summary.textContent = isCurrentUserAdmin()
@@ -6857,8 +6991,38 @@ function renderBillingEntrySelectors() {
   }
 }
 
+function timesheetProjectClients() {
+  if (isCurrentUserAdmin()) return state.clients.filter((client) => client.usesTimesheet);
+  const clientIds = new Set(activeAllocatedsForCurrentUser().map((allocated) => allocated.clientId));
+  return state.clients.filter((client) => client.usesTimesheet && clientIds.has(client.id));
+}
+
+function renderTimesheetProjectMaintenance() {
+  const clients = timesheetProjectClients().slice().sort((a, b) => a.customerName.localeCompare(b.customerName, 'pt-BR', { sensitivity: 'base' }));
+  const select = $('#timesheetProjectClientSelect');
+  if (select) {
+    const current = select.value || clients[0]?.id || '';
+    select.innerHTML = clients.length
+      ? clients.map((client) => `<option value="${escapeHtml(client.id)}">${escapeHtml(client.customerName)}</option>`).join('')
+      : '<option value="">Nenhum cliente disponível</option>';
+    select.value = clients.some((client) => client.id === current) ? current : clients[0]?.id || '';
+  }
+  const allowedClientIds = new Set(clients.map((client) => client.id));
+  const rows = state.timesheetProjects.filter((project) => allowedClientIds.has(project.clientId))
+    .slice().sort((a, b) => {
+      const clientA = state.clients.find((client) => client.id === a.clientId)?.customerName || '';
+      const clientB = state.clients.find((client) => client.id === b.clientId)?.customerName || '';
+      return clientA.localeCompare(clientB, 'pt-BR', { sensitivity: 'base' }) || a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' });
+    });
+  const table = $('#timesheetProjectTable');
+  if (table) table.innerHTML = rows.length ? rows.map((project) => {
+    const client = state.clients.find((item) => item.id === project.clientId);
+    return `<tr class="clickable-row" data-edit-timesheet-project="${escapeHtml(project.id)}"><td>${escapeHtml(client?.customerName || '-')}</td><td><strong>${escapeHtml(project.name)}</strong></td><td>${escapeHtml(project.code || '-')}</td><td>${project.active ? 'Ativo' : 'Inativo'}</td><td>${escapeHtml(project.createdByName || '-')}</td></tr>`;
+  }).join('') : '<tr><td colspan="5">Nenhum projeto cadastrado para os clientes disponíveis.</td></tr>';
+}
+
 function renderBillingReportPanels() {
-  const activePanel = ['query', 'entry'].includes(state.activeBillingReportPanel)
+  const activePanel = ['query', 'entry', 'registrations'].includes(state.activeBillingReportPanel)
     ? state.activeBillingReportPanel
     : 'query';
   state.activeBillingReportPanel = activePanel;
@@ -6885,6 +7049,7 @@ function billingReportCsvRows(rows = billingReportRows()) {
 function renderBillingReport() {
   renderBillingReportPanels();
   renderBillingEntrySelectors();
+  renderTimesheetProjectMaintenance();
   renderBillingReportFilters();
   const rows = billingReportRows();
   const count = $('#billingReportCount');
@@ -8234,6 +8399,7 @@ function showView(viewId) {
   document.body.classList.toggle('module-view-active', viewId !== 'dashboard');
   $('#viewTitle').textContent = viewTitles[viewId] || 'Gestão do Negócio Alcateia';
   if (viewId === 'forms') renderFormsPanel();
+  if (viewId === 'billingReport') renderBillingReport();
   if (viewId === 'statusReports') renderStatusReports();
   if (viewId === 'statusReportManagement') renderStatusReportManagement();
   if (viewId === 'statusReportParameters') renderStatusReportParameters();
@@ -8321,8 +8487,11 @@ function loadClientForEdit(client) {
     primaryContactEmail: client.primaryContactEmail,
     primaryContactPhone: client.primaryContactPhone,
     managerContactId: client.managerContactId || '',
+    usesTimesheet: client.usesTimesheet ? 'true' : '',
+    timesheetMode: client.timesheetMode || '',
     observation: client.observation
   }, 'Atualizar cliente');
+  syncClientTimesheetModeField();
   closeContactClientModal();
   renderContactClients();
   renderClientOrgChartReport(client.id);
@@ -9184,6 +9353,7 @@ async function populateCityOptions(uf, selectedCity = '') {
 }
 
 function bindForms() {
+  $('#clientForm input[name="usesTimesheet"]')?.addEventListener('change', syncClientTimesheetModeField);
   $('#clientForm').addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -9194,7 +9364,11 @@ function bindForms() {
       if (submitButton) submitButton.disabled = true;
       const savedClient = await api(editingId ? `/api/clients/${editingId}` : '/api/clients', {
         method: editingId ? 'PATCH' : 'POST',
-        body: JSON.stringify(formPayload(form))
+        body: JSON.stringify({
+          ...formPayload(form),
+          usesTimesheet: Boolean(form.elements.usesTimesheet?.checked),
+          timesheetMode: form.elements.usesTimesheet?.checked ? form.elements.timesheetMode?.value : ''
+        })
       });
       upsertStateItem('clients', savedClient);
       clearEditing(form, 'clientId', 'Salvar cliente');
@@ -10270,13 +10444,32 @@ function bindWorkHourActions() {
   $('#workHourAllocatedSelect')?.addEventListener('change', () => {
     const clientField = $('#workHourClientName');
     if (clientField) clientField.value = workHourClientName($('#workHourAllocatedSelect')?.value || '');
+    renderWorkHourProjects();
+    renderWorkHourMode();
+    renderWorkHourDayTotal();
   });
+  $('#workHourForm input[name="date"]')?.addEventListener('change', renderWorkHourDayTotal);
+
+  $('#timesheetPeriodForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const payload = formPayload(event.currentTarget);
+    payload.partialRequired = Boolean(event.currentTarget.elements.partialRequired?.checked);
+    try {
+      const period = await api('/api/timesheet-periods', { method: 'POST', body: JSON.stringify(payload) });
+      upsertStateItem('timesheetPeriods', period);
+      renderTimesheetAdministration();
+      toast('Calendário salvo.');
+    } catch (error) { toast(error.message || 'Não foi possível salvar o calendário.'); }
+  });
+  $('#timesheetCockpitClient')?.addEventListener('change', renderTimesheetCockpit);
+  $('#timesheetCockpitMonth')?.addEventListener('change', renderTimesheetCockpit);
 
   $('#workHourForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const submitButton = $('button[type="submit"]', form);
     const payload = formPayload(form);
+    payload.mode = timesheetModeForAllocated(payload.allocatedId);
     payload.hours = String(payload.hours || '').replace(',', '.');
     delete payload.clientName;
 
@@ -10287,9 +10480,14 @@ function bindWorkHourActions() {
         body: JSON.stringify(payload)
       });
       upsertStateItem('workHours', saved);
+      const savedAllocatedId = saved.allocatedId;
+      const savedDate = saved.date;
       form.reset();
+      form.elements.allocatedId.value = savedAllocatedId;
+      form.elements.date.value = savedDate;
       renderWorkHours();
-      toast('Apontamento salvo.');
+      const total = state.workHours.filter((item) => item.allocatedId === savedAllocatedId && item.date === savedDate).reduce((sum, item) => sum + Number(item.hours || 0), 0);
+      toast(`Apontamento salvo. Total do dia: ${formatWorkHours(total)}.`);
     } catch (error) {
       toast(error.message || 'Não foi possível salvar o apontamento.');
     } finally {
@@ -10514,6 +10712,7 @@ function bindBillingReportActions() {
   $('#billingEntryAllocatedSelect')?.addEventListener('change', () => {
     const clientField = $('#billingEntryClientName');
     if (clientField) clientField.value = workHourClientName($('#billingEntryAllocatedSelect')?.value || '');
+    renderBillingEntrySelectors();
   });
 
   $('#billingEntryForm')?.addEventListener('submit', async (event) => {
@@ -10521,6 +10720,7 @@ function bindBillingReportActions() {
     const form = event.currentTarget;
     const submitButton = $('button[type="submit"]', form);
     const payload = formPayload(form);
+    payload.mode = timesheetModeForAllocated(payload.allocatedId);
     payload.hours = String(payload.hours || '').replace(',', '.');
     delete payload.clientName;
 
@@ -10555,6 +10755,55 @@ function bindBillingReportActions() {
   $('#billingReportExportButton')?.addEventListener('click', () => {
     downloadCsv('billing-report', billingReportCsvRows());
     toast('Billing Report exportado.');
+  });
+
+  $('#timesheetProjectForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const submitButton = $('button[type="submit"]', form);
+    const editingId = state.editing.timesheetProjectId;
+    const payload = formPayload(form);
+    payload.active = payload.active !== 'false';
+    const originalText = setSubmitButtonBusy(submitButton, editingId ? 'Atualizando...' : 'Salvando...');
+    try {
+      const project = await api(editingId ? `/api/timesheet-projects/${encodeURIComponent(editingId)}` : '/api/timesheet-projects', {
+        method: editingId ? 'PATCH' : 'POST',
+        body: JSON.stringify(payload)
+      });
+      upsertStateItem('timesheetProjects', project);
+      state.editing.timesheetProjectId = '';
+      form.reset();
+      setSubmitLabel(form, 'Salvar projeto');
+      renderBillingReport();
+      renderWorkHours();
+      toast(editingId ? 'Projeto atualizado.' : 'Projeto cadastrado.');
+    } catch (error) {
+      toast(error.message || 'Não foi possível salvar o projeto.');
+    } finally {
+      restoreSubmitButton(submitButton, originalText || (editingId ? 'Atualizar projeto' : 'Salvar projeto'));
+    }
+  });
+
+  $('#timesheetProjectClearButton')?.addEventListener('click', () => {
+    const form = $('#timesheetProjectForm');
+    state.editing.timesheetProjectId = '';
+    form?.reset();
+    setSubmitLabel(form, 'Salvar projeto');
+    renderTimesheetProjectMaintenance();
+  });
+
+  $('#timesheetProjectTable')?.addEventListener('click', (event) => {
+    const row = event.target.closest('[data-edit-timesheet-project]');
+    const project = state.timesheetProjects.find((item) => item.id === row?.dataset.editTimesheetProject);
+    if (!project) return;
+    state.editing.timesheetProjectId = project.id;
+    fillForm('#timesheetProjectForm', {
+      clientId: project.clientId,
+      name: project.name,
+      code: project.code || '',
+      active: project.active ? 'true' : 'false'
+    }, 'Atualizar projeto');
+    toast('Projeto carregado para atualização.');
   });
 }
 

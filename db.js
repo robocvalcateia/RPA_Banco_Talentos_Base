@@ -83,6 +83,9 @@ const REQUIRED_COLLECTIONS = [
   'allocateds',
   'workHours',
   'workHourClosures',
+  'timesheetProjects',
+  'timesheetPeriods',
+  'workHourAudit',
   'businessCalendar',
   'rateCards',
   'statusReports',
@@ -559,6 +562,9 @@ export function normalizeDatabase(data = {}) {
   data.allocateds = data.allocateds.map((allocated) => normalizeAllocated(allocated));
   data.workHours = data.workHours.map((entry) => normalizeWorkHourEntry(entry));
   data.workHourClosures = data.workHourClosures.map((closure) => normalizeWorkHourClosure(closure));
+  data.timesheetProjects = data.timesheetProjects.map((project) => normalizeTimesheetProject(project));
+  data.timesheetPeriods = data.timesheetPeriods.map((period) => normalizeTimesheetPeriod(period));
+  data.workHourAudit = data.workHourAudit.map((event) => normalizeWorkHourAudit(event));
   data.businessCalendar = data.businessCalendar.map((entry) => normalizeBusinessCalendarEntry(entry));
   data.rateCards = data.rateCards.map((rateCard) => normalizeRateCard(rateCard));
   data.users = data.users.map((user) => normalizeUser(user));
@@ -1101,6 +1107,11 @@ export function normalizeCurriculum(curriculum) {
 
 export function normalizeClient(client) {
   const customerName = String(client.customerName ?? client.name ?? '').trim();
+  const usesTimesheet = normalizeBoolean(client.usesTimesheet ?? client.usaTimesheet ?? false);
+  const requestedTimesheetMode = String(client.timesheetMode ?? client.modalidadeTimesheet ?? '').trim().toLowerCase();
+  const timesheetMode = usesTimesheet
+    ? (requestedTimesheetMode === 'detailed' ? 'detailed' : 'simplified')
+    : '';
 
   return {
     ...client,
@@ -1110,6 +1121,8 @@ export function normalizeClient(client) {
     primaryContactEmail: String(client.primaryContactEmail ?? '').trim(),
     primaryContactPhone: String(client.primaryContactPhone ?? '').trim(),
     managerContactId: String(client.managerContactId ?? client.gestorContatoId ?? client.nomeGestorId ?? '').trim(),
+    usesTimesheet,
+    timesheetMode,
     observation: String(client.observation ?? client.observacao ?? '').trim(),
     createdAt: String(client.createdAt ?? toISODate()).trim(),
     updatedAt: String(client.updatedAt ?? '').trim()
@@ -1341,13 +1354,66 @@ export function normalizeWorkHourEntry(entry = {}) {
     date,
     hours: Number.isFinite(hours) ? hours : 0,
     clientId: String(entry.clientId ?? entry.clienteId ?? '').trim(),
+    mode: String(entry.mode ?? entry.modo ?? 'simplified').trim().toLowerCase() === 'detailed' ? 'detailed' : 'simplified',
+    projectId: String(entry.projectId ?? entry.projetoId ?? '').trim(),
     project: String(entry.project ?? entry.projeto ?? '').trim(),
+    activity: String(entry.activity ?? entry.atividade ?? '').trim(),
+    startTime: String(entry.startTime ?? entry.horaEntrada ?? '').trim(),
+    endTime: String(entry.endTime ?? entry.horaSaida ?? '').trim(),
     observation: String(entry.observation ?? entry.observacao ?? '').trim(),
     createdById: String(entry.createdById ?? entry.usuarioId ?? '').trim(),
     createdByName: String(entry.createdByName ?? entry.usuario ?? '').trim(),
     createdByEmail: String(entry.createdByEmail ?? entry.usuarioEmail ?? '').trim().toLowerCase(),
     createdAt: String(entry.createdAt ?? toISODate()).trim(),
     updatedAt: String(entry.updatedAt ?? entry.createdAt ?? toISODate()).trim()
+  };
+}
+
+export function normalizeTimesheetProject(project = {}) {
+  const clientId = String(project.clientId ?? project.clienteId ?? '').trim();
+  const name = String(project.name ?? project.nome ?? project.project ?? '').trim();
+  return {
+    ...project,
+    id: String(project.id ?? createId('timesheet_project', `${clientId}-${name}`)).trim(),
+    clientId,
+    name,
+    code: String(project.code ?? project.codigo ?? '').trim(),
+    active: project.active === undefined ? true : normalizeBoolean(project.active),
+    createdById: String(project.createdById ?? '').trim(),
+    createdByName: String(project.createdByName ?? '').trim(),
+    createdAt: String(project.createdAt ?? toISODate()).trim(),
+    updatedAt: String(project.updatedAt ?? project.createdAt ?? toISODate()).trim()
+  };
+}
+
+export function normalizeTimesheetPeriod(period = {}) {
+  const clientId = String(period.clientId ?? period.clienteId ?? '').trim();
+  const monthYear = String(period.monthYear ?? period.mesAno ?? '').trim();
+  return {
+    ...period,
+    id: String(period.id ?? createId('timesheet_period', `${clientId || 'global'}-${monthYear}`)).trim(),
+    clientId,
+    monthYear,
+    status: String(period.status ?? 'OPEN').trim().toUpperCase() === 'CLOSED' ? 'CLOSED' : 'OPEN',
+    finalDeadline: String(period.finalDeadline ?? period.dataLimite ?? '').trim(),
+    weeklyDeadlineDay: Math.min(6, Math.max(0, Number(period.weeklyDeadlineDay ?? 1))),
+    partialRequired: period.partialRequired === undefined ? true : normalizeBoolean(period.partialRequired),
+    createdAt: String(period.createdAt ?? toISODate()).trim(),
+    updatedAt: String(period.updatedAt ?? period.createdAt ?? toISODate()).trim()
+  };
+}
+
+export function normalizeWorkHourAudit(event = {}) {
+  return {
+    ...event,
+    id: String(event.id ?? createId('work_hour_audit', event.workHourId || toISODate())).trim(),
+    workHourId: String(event.workHourId ?? '').trim(),
+    action: String(event.action ?? '').trim(),
+    before: event.before && typeof event.before === 'object' ? event.before : null,
+    after: event.after && typeof event.after === 'object' ? event.after : null,
+    userId: String(event.userId ?? '').trim(),
+    userName: String(event.userName ?? '').trim(),
+    createdAt: String(event.createdAt ?? toISODate()).trim()
   };
 }
 

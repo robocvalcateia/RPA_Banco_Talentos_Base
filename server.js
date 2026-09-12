@@ -48,6 +48,9 @@ import {
   normalizeStatusReport,
   normalizeWorkHourClosure,
   normalizeWorkHourEntry,
+  normalizeTimesheetProject,
+  normalizeTimesheetPeriod,
+  normalizeWorkHourAudit,
   normalizeStage,
   CANDIDATE_POOL_PROFILES,
   CANDIDATE_POOL_STATUSES,
@@ -1573,7 +1576,19 @@ function buildWorkHourEntryFromPayload(payload, allocated, user, existing = {}) 
   });
 }
 
-function validateWorkHourEntry(response, entry, businessCalendar = []) {
+function timeToMinutes(value = '') {
+  const match = String(value).match(/^(\d{2}):(\d{2})$/);
+  if (!match) return NaN;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function effectiveTimesheetPeriod(periods = [], clientId = '', monthYear = '') {
+  return periods.find((period) => period.clientId === clientId && period.monthYear === monthYear)
+    || periods.find((period) => !period.clientId && period.monthYear === monthYear)
+    || null;
+}
+
+function validateWorkHourEntry(response, entry, db = {}, existingId = '', user = {}) {
   if (!entry.allocatedId) {
     sendError(response, 422, 'Informe o consultor alocado.');
     return true;
@@ -1582,11 +1597,61 @@ function validateWorkHourEntry(response, entry, businessCalendar = []) {
     sendError(response, 422, 'Informe a data.');
     return true;
   }
-  if (!Number.isFinite(entry.hours) || entry.hours < 0.5 || entry.hours > 24) {
-    sendError(response, 422, 'Horas trabalhadas deve aceitar valores de 0H30 a 24h.');
+  const client = db.clients?.find((item) => item.id === entry.clientId);
+  if (!client?.usesTimesheet) {
+    sendError(response, 422, 'O cliente não está habilitado para usar o Timesheet.');
     return true;
   }
-  const nonBusinessReason = workHourNonBusinessReason(entry.date, businessCalendar, entry.clientId);
+  if (!['simplified', 'detailed'].includes(client.timesheetMode)) {
+    sendError(response, 422, 'Defina a modalidade do Timesheet no cadastro do cliente.');
+    return true;
+  }
+  if (entry.mode !== client.timesheetMode) {
+    sendError(response, 422, `Este cliente utiliza apontamento ${client.timesheetMode === 'detailed' ? 'detalhado' : 'simplificado'}.`);
+    return true;
+  }
+  const project = db.timesheetProjects?.find((item) => item.id === entry.projectId && item.clientId === entry.clientId && item.active);
+  if (!project) {
+    sendError(response, 422, 'Selecione um projeto ativo do cliente.');
+    return true;
+  }
+  entry.project = project.name;
+  const period = effectiveTimesheetPeriod(db.timesheetPeriods, entry.clientId, entry.date.slice(0, 7));
+  if (!period || period.status !== 'OPEN') {
+    sendError(response, 422, 'O mês/ano está fechado para lançamentos.');
+    return true;
+  }
+  if (!isAdminUser(user) && period.finalDeadline && new Date().toISOString().slice(0, 10) > period.finalDeadline) {
+    sendError(response, 422, `O prazo de lançamento terminou em ${period.finalDeadline}.`);
+    return true;
+  }
+  if (entry.mode === 'detailed') {
+    const start = timeToMinutes(entry.startTime);
+    const end = timeToMinutes(entry.endTime);
+    if (!entry.activity || !Number.isFinite(start) || !Number.isFinite(end) || start % 15 || end % 15 || end <= start) {
+      sendError(response, 422, 'Na entrada detalhada, informe atividade e horários válidos em intervalos de 15 minutos.');
+      return true;
+    }
+    entry.hours = (end - start) / 60;
+    const overlaps = (db.workHours || []).some((item) => item.id !== existingId && item.allocatedId === entry.allocatedId
+      && item.date === entry.date && item.mode === 'detailed'
+      && timeToMinutes(item.startTime) < end && timeToMinutes(item.endTime) > start);
+    if (overlaps) {
+      sendError(response, 422, 'O horário informado se sobrepõe a outro lançamento do dia.');
+      return true;
+    }
+  }
+  if (!Number.isFinite(entry.hours) || entry.hours < 0.25 || entry.hours > 24 || !Number.isInteger(entry.hours * 4)) {
+    sendError(response, 422, 'As horas devem ser informadas em intervalos de 15 minutos, entre 0H15 e 24h.');
+    return true;
+  }
+  const dayTotal = (db.workHours || []).filter((item) => item.id !== existingId && item.allocatedId === entry.allocatedId && item.date === entry.date)
+    .reduce((total, item) => total + Number(item.hours || 0), 0) + Number(entry.hours);
+  if (dayTotal > 24) {
+    sendError(response, 422, 'O total de lançamentos do consultor não pode ultrapassar 24 horas no dia.');
+    return true;
+  }
+  const nonBusinessReason = workHourNonBusinessReason(entry.date, db.businessCalendar || [], entry.clientId);
   if (nonBusinessReason && !entry.observation) {
     sendError(response, 422, `Informe a observacao: apontamento em ${nonBusinessReason}.`);
     return true;
@@ -4286,8 +4351,11 @@ async function handleApi(request, response) {
         emailProcessing: { ...emailProcessing },
         candidates: consultantOnly ? [] : responseDb.candidates.map((candidate) => enrichCandidate(candidate, responseDb)),
         allocateds: visibleAllocateds.map((allocated) => enrichAllocated(allocated, responseDb)),
-        workHours: consultantOnly ? [] : visibleWorkHours,
-        workHourClosures: consultantOnly ? [] : visibleWorkHourClosures,
+        workHours: visibleWorkHours,
+        workHourClosures: visibleWorkHourClosures,
+        timesheetProjects: responseDb.timesheetProjects.filter((project) => !consultantOnly || visibleClientIds.has(project.clientId)),
+        timesheetPeriods: responseDb.timesheetPeriods.filter((period) => !consultantOnly || !period.clientId || visibleClientIds.has(period.clientId)),
+        workHourAudit: consultantOnly ? [] : responseDb.workHourAudit,
         businessCalendar: consultantOnly ? [] : responseDb.businessCalendar,
         rateCards: consultantOnly ? [] : responseDb.rateCards.map((rateCard) => enrichRateCard(rateCard, responseDb)),
         statusReports: visibleStatusReports.map((report) => enrichStatusReport(report, responseDb)),
@@ -5039,6 +5107,10 @@ async function handleApi(request, response) {
         sendError(response, 422, 'Informe o nome do cliente.');
         return;
       }
+      if (client.usesTimesheet && !['simplified', 'detailed'].includes(String(payload.timesheetMode || '').toLowerCase())) {
+        sendError(response, 422, 'Selecione a modalidade Simplificado ou Detalhado para o Timesheet.');
+        return;
+      }
       if (validateClientManagerContact(response, db, client)) {
         return;
       }
@@ -5070,6 +5142,10 @@ async function handleApi(request, response) {
 
       if (!updated.customerName) {
         sendError(response, 422, 'Informe o nome do cliente.');
+        return;
+      }
+      if (updated.usesTimesheet && !['simplified', 'detailed'].includes(String(payload.timesheetMode ?? updated.timesheetMode).toLowerCase())) {
+        sendError(response, 422, 'Selecione a modalidade Simplificado ou Detalhado para o Timesheet.');
         return;
       }
       if (validateClientManagerContact(response, db, updated)) {
@@ -6769,9 +6845,100 @@ async function handleApi(request, response) {
       return;
     }
 
+    if (request.method === 'POST' && pathname === '/api/timesheet-projects') {
+      const payload = await readJsonBody(request);
+      const db = await readDatabaseCollections(['clients', 'allocateds', 'timesheetProjects']);
+      const client = db.clients.find((item) => item.id === String(payload.clientId || '').trim());
+      if (!client?.usesTimesheet) {
+        sendError(response, 422, 'Selecione um cliente habilitado para o Timesheet.');
+        return;
+      }
+      const canCreate = isAdminUser(auth.user) || activeAllocatedsForUser(db.allocateds, auth.user).some((item) => item.clientId === client.id);
+      if (!canCreate) {
+        sendError(response, 403, 'Você só pode criar projetos para clientes aos quais está vinculado.');
+        return;
+      }
+      const project = normalizeTimesheetProject({ ...payload, clientId: client.id, createdById: auth.user.id, createdByName: auth.user.name });
+      if (!project.name) {
+        sendError(response, 422, 'Informe o nome do projeto.');
+        return;
+      }
+      if (db.timesheetProjects.some((item) => item.clientId === client.id && item.name.toLowerCase() === project.name.toLowerCase())) {
+        sendError(response, 409, 'Já existe um projeto com esse nome para o cliente.');
+        return;
+      }
+      db.timesheetProjects.push(project);
+      await writeDatabaseCollections(db, ['timesheetProjects']);
+      sendJson(response, 201, project);
+      return;
+    }
+
+    if (request.method === 'PATCH' && pathname.startsWith('/api/timesheet-projects/')) {
+      const projectId = decodeURIComponent(pathname.split('/').at(-1));
+      const payload = await readJsonBody(request);
+      const db = await readDatabaseCollections(['clients', 'allocateds', 'timesheetProjects']);
+      const existing = db.timesheetProjects.find((item) => item.id === projectId);
+      if (!existing) {
+        sendError(response, 404, 'Projeto não encontrado.');
+        return;
+      }
+      const clientId = String(payload.clientId ?? existing.clientId).trim();
+      const client = db.clients.find((item) => item.id === clientId);
+      if (!client?.usesTimesheet) {
+        sendError(response, 422, 'Selecione um cliente habilitado para o Timesheet.');
+        return;
+      }
+      const canMaintain = isAdminUser(auth.user) || activeAllocatedsForUser(db.allocateds, auth.user).some((item) => item.clientId === client.id);
+      if (!canMaintain) {
+        sendError(response, 403, 'Você só pode manter projetos para clientes aos quais está vinculado.');
+        return;
+      }
+      const updated = normalizeTimesheetProject({
+        ...existing,
+        ...payload,
+        id: existing.id,
+        clientId,
+        createdAt: existing.createdAt,
+        updatedAt: toISODate()
+      });
+      if (!updated.name) {
+        sendError(response, 422, 'Informe o nome do projeto.');
+        return;
+      }
+      if (db.timesheetProjects.some((item) => item.id !== existing.id && item.clientId === client.id && item.name.toLowerCase() === updated.name.toLowerCase())) {
+        sendError(response, 409, 'Já existe um projeto com esse nome para o cliente.');
+        return;
+      }
+      Object.assign(existing, updated);
+      await writeDatabaseCollections(db, ['timesheetProjects']);
+      sendJson(response, 200, existing);
+      return;
+    }
+
+    if (request.method === 'POST' && pathname === '/api/timesheet-periods') {
+      if (requireAdmin(response, auth.user, 'Apenas ADMIN pode abrir ou fechar períodos.')) return;
+      const payload = await readJsonBody(request);
+      const db = await readDatabaseCollections(['clients', 'timesheetPeriods']);
+      const period = normalizeTimesheetPeriod(payload);
+      if (!/^\d{4}-\d{2}$/.test(period.monthYear)) {
+        sendError(response, 422, 'Informe o mês/ano do período.');
+        return;
+      }
+      if (period.clientId && !db.clients.some((item) => item.id === period.clientId && item.usesTimesheet)) {
+        sendError(response, 422, 'Selecione um cliente habilitado ou use a regra geral.');
+        return;
+      }
+      const existing = db.timesheetPeriods.find((item) => item.clientId === period.clientId && item.monthYear === period.monthYear);
+      if (existing) Object.assign(existing, period, { id: existing.id, createdAt: existing.createdAt, updatedAt: toISODate() });
+      else db.timesheetPeriods.push(period);
+      await writeDatabaseCollections(db, ['timesheetPeriods']);
+      sendJson(response, existing ? 200 : 201, existing || period);
+      return;
+    }
+
     if (request.method === 'POST' && pathname === '/api/work-hours') {
       const payload = await readJsonBody(request);
-      const db = await readDatabaseCollections(['clients', 'users', 'allocateds', 'workHours', 'businessCalendar']);
+      const db = await readDatabaseCollections(['clients', 'users', 'allocateds', 'workHours', 'businessCalendar', 'timesheetProjects', 'timesheetPeriods', 'workHourAudit']);
       const allocated = db.allocateds.find((item) => item.id === String(payload.allocatedId || payload.consultorId || '').trim());
 
       if (!allocated || allocated.active !== true) {
@@ -6783,26 +6950,19 @@ async function handleApi(request, response) {
         return;
       }
 
-      const date = normalizeDateOnly(payload.date ?? payload.data);
-      const existing = db.workHours.find((entry) => entry.allocatedId === allocated.id && entry.date === date);
-      const entry = buildWorkHourEntryFromPayload(payload, allocated, auth.user, existing || {});
-      if (validateWorkHourEntry(response, entry, db.businessCalendar)) return;
-
-      if (existing) {
-        Object.assign(existing, entry);
-      } else {
-        db.workHours.push(entry);
-      }
-
-      await writeDatabaseCollections(db, ['workHours']);
-      sendJson(response, existing ? 200 : 201, entry);
+      const entry = buildWorkHourEntryFromPayload(payload, allocated, auth.user);
+      if (validateWorkHourEntry(response, entry, db, '', auth.user)) return;
+      db.workHours.push(entry);
+      db.workHourAudit.push(normalizeWorkHourAudit({ workHourId: entry.id, action: 'CREATE', after: entry, userId: auth.user.id, userName: auth.user.name }));
+      await writeDatabaseCollections(db, ['workHours', 'workHourAudit']);
+      sendJson(response, 201, entry);
       return;
     }
 
     if (request.method === 'PATCH' && pathname.startsWith('/api/work-hours/')) {
       const entryId = decodeURIComponent(pathname.split('/').at(-1));
       const payload = await readJsonBody(request);
-      const db = await readDatabaseCollections(['clients', 'users', 'allocateds', 'workHours', 'businessCalendar']);
+      const db = await readDatabaseCollections(['clients', 'users', 'allocateds', 'workHours', 'businessCalendar', 'timesheetProjects', 'timesheetPeriods', 'workHourAudit']);
       const existing = db.workHours.find((entry) => entry.id === entryId);
 
       if (!existing) {
@@ -6820,11 +6980,13 @@ async function handleApi(request, response) {
         return;
       }
 
+      const before = { ...existing };
       const entry = buildWorkHourEntryFromPayload({ ...existing, ...payload }, allocated, auth.user, existing);
-      if (validateWorkHourEntry(response, entry, db.businessCalendar)) return;
+      if (validateWorkHourEntry(response, entry, db, existing.id, auth.user)) return;
 
       Object.assign(existing, entry);
-      await writeDatabaseCollections(db, ['workHours']);
+      db.workHourAudit.push(normalizeWorkHourAudit({ workHourId: entry.id, action: 'UPDATE', before, after: entry, userId: auth.user.id, userName: auth.user.name }));
+      await writeDatabaseCollections(db, ['workHours', 'workHourAudit']);
       sendJson(response, 200, existing);
       return;
     }
@@ -6838,7 +7000,7 @@ async function handleApi(request, response) {
         return;
       }
 
-      const db = await readDatabaseCollections(['clients', 'users', 'allocateds', 'workHours', 'businessCalendar']);
+      const db = await readDatabaseCollections(['clients', 'users', 'allocateds', 'workHours', 'businessCalendar', 'timesheetProjects', 'timesheetPeriods', 'workHourAudit']);
       const errors = [];
       const imported = [];
 
@@ -6852,10 +7014,11 @@ async function handleApi(request, response) {
         }
 
         const date = normalizeDateOnly(row.date ?? row.data);
-        const existing = db.workHours.find((entry) => entry.allocatedId === allocated.id && entry.date === date);
-        const entry = buildWorkHourEntryFromPayload({ ...row, allocatedId: allocated.id, date }, allocated, auth.user, existing || {});
+        const project = db.timesheetProjects.find((item) => item.clientId === allocated.clientId && item.active
+          && (item.id === row.projectId || item.name.toLowerCase() === String(row.project || '').trim().toLowerCase()));
+        const entry = buildWorkHourEntryFromPayload({ ...row, allocatedId: allocated.id, date, projectId: project?.id || '' }, allocated, auth.user);
         const fakeResponse = { writeHead() {}, end() {} };
-        if (validateWorkHourEntry(fakeResponse, entry, db.businessCalendar)) {
+        if (validateWorkHourEntry(fakeResponse, entry, db, '', auth.user)) {
           const reason = workHourNonBusinessReason(entry.date, db.businessCalendar, entry.clientId);
           errors.push(reason && !entry.observation
             ? `Linha ${line}: observacao obrigatoria por ser ${reason}.`
@@ -6863,11 +7026,8 @@ async function handleApi(request, response) {
           continue;
         }
 
-        if (existing) {
-          Object.assign(existing, entry);
-        } else {
-          db.workHours.push(entry);
-        }
+        db.workHours.push(entry);
+        db.workHourAudit.push(normalizeWorkHourAudit({ workHourId: entry.id, action: 'IMPORT', after: entry, userId: auth.user.id, userName: auth.user.name }));
         imported.push(entry);
       }
 
@@ -6876,7 +7036,7 @@ async function handleApi(request, response) {
         return;
       }
 
-      await writeDatabaseCollections(db, ['workHours']);
+      await writeDatabaseCollections(db, ['workHours', 'workHourAudit']);
       sendJson(response, 200, { imported: imported.length, rows: imported });
       return;
     }

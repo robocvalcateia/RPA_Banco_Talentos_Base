@@ -30,6 +30,8 @@ import {
   recalculateFaturamentoAccumulatedRealized,
   normalizeWorkHourClosure,
   normalizeWorkHourEntry,
+  normalizeTimesheetPeriod,
+  normalizeTimesheetProject,
   normalizeRateCard,
   normalizeSelectedCandidate,
   normalizeOpportunityModel,
@@ -43,6 +45,30 @@ import {
   writeDatabaseDocument,
   deleteDatabaseDocument
 } from '../db.js';
+
+test('timesheet normaliza cliente, projeto, período e entrada detalhada', () => {
+  const db = normalizeDatabase({
+    clients: [{ id: 'client_ts', customerName: 'Cliente TS', usesTimesheet: true, timesheetMode: 'detailed' }],
+    timesheetProjects: [{ id: 'project_ts', clientId: 'client_ts', name: 'Projeto SAP' }],
+    timesheetPeriods: [{ id: 'period_ts', clientId: 'client_ts', monthYear: '2026-09', status: 'closed', weeklyDeadlineDay: 5 }],
+    workHours: [{ id: 'hour_ts', allocatedId: 'alloc_ts', clientId: 'client_ts', projectId: 'project_ts', date: '2026-09-10', mode: 'detailed', startTime: '09:00', endTime: '10:15', activity: 'Teste', hours: 1.25 }]
+  });
+  assert.equal(db.clients[0].usesTimesheet, true);
+  assert.equal(db.clients[0].timesheetMode, 'detailed');
+  assert.equal(db.timesheetProjects[0].active, true);
+  assert.equal(db.timesheetPeriods[0].status, 'CLOSED');
+  assert.equal(db.workHours[0].mode, 'detailed');
+  assert.equal(db.workHours[0].projectId, 'project_ts');
+});
+
+test('normalizadores de timesheet preservam intervalos e regra global', () => {
+  assert.equal(normalizeDatabase({ clients: [{ customerName: 'Legado', usesTimesheet: true }] }).clients[0].timesheetMode, 'simplified');
+  assert.equal(normalizeTimesheetProject({ clientId: 'c1', name: 'Projeto' }).name, 'Projeto');
+  const period = normalizeTimesheetPeriod({ monthYear: '2026-09', partialRequired: false, weeklyDeadlineDay: 9 });
+  assert.equal(period.clientId, '');
+  assert.equal(period.partialRequired, false);
+  assert.equal(period.weeklyDeadlineDay, 6);
+});
 
 function comparableClientNameForTest(value) {
   return String(value ?? '')
