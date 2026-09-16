@@ -71,6 +71,8 @@ test('consulta de talentos busca por identidade completa do curriculo', () => {
   assert.match(appSource, /curriculum\.id_controle/);
   assert.match(appSource, /matchesEveryTerm\(curriculumIdentityText\(curriculum\), name\)/);
   assert.doesNotMatch(appSource, /matchesEveryTerm\(curriculum\.nome, name\)/);
+  assert.match(appSource, /terms\.every\(\(term\) => normalizedText\.includes\(term\)\)/);
+  assert.match(appSource, /split\(\/\[\\s,;\|\/\\\\\]\+\//);
 });
 
 test('resultado de busca abre CV interno sob demanda e preserva links externos por fonte', () => {

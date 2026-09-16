@@ -996,10 +996,10 @@ function normalizeSearchValue(value) {
 }
 
 function splitSearchTerms(value) {
-  return normalizeSearchValue(value)
-    .split(/\s+/)
+  return [...new Set(normalizeSearchValue(value)
+    .split(/[\s,;|/\\]+/)
     .map((term) => term.trim())
-    .filter(Boolean);
+    .filter(Boolean))];
 }
 
 function splitRawSearchTerms(value) {
