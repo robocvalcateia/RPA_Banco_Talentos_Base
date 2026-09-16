@@ -73,6 +73,22 @@ test('Wapp uses same email body builder and endpoint is admin-only without sendi
   assert.match(server,/const message = buildStatusReportConsultantMessage\(args\)/);
 });
 
+test('opening a managed status navigates to the editor and loads the selected report', () => {
+  const calls=[];
+  const state={activeStatusReportPanel:''};
+  const ctx=vm.createContext({
+    state,
+    toast:message=>calls.push(['toast',message]),
+    showView:view=>calls.push(['view',view]),
+    loadStatusReportForEdit:report=>calls.push(['load',report.id]),
+    window:{scrollTo:options=>calls.push(['scroll',options.top])}
+  });
+  vm.runInContext(fn(app,'openStatusReportFromManagement'),ctx);
+  ctx.openStatusReportFromManagement({id:'status-123'});
+  assert.equal(state.activeStatusReportPanel,'editor');
+  assert.deepEqual(calls,[['view','statusReports'],['load','status-123'],['scroll',0]]);
+});
+
 test('shared message preserves personalized email body for WhatsApp', () => {
   const ctx=vm.createContext({
     buildStatusReportUrl:()=> 'https://example.test/status',

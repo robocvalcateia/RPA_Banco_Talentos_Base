@@ -6857,6 +6857,17 @@ function loadStatusReportForEdit(report, previewOnly = false) {
   toast(previewOnly ? 'Status report aberto para visualizacao.' : 'Status report carregado para edicao.');
 }
 
+function openStatusReportFromManagement(report) {
+  if (!report) {
+    toast('Status report não encontrado. Atualize a tela e tente novamente.');
+    return;
+  }
+  state.activeStatusReportPanel = 'editor';
+  showView('statusReports');
+  loadStatusReportForEdit(report);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
 function clearStatusReportForm() {
   const form = $('#statusReportForm');
   if (!form) return;
@@ -10697,14 +10708,14 @@ function bindStatusReportActions() {
     const previewButton = event.target.closest('[data-preview-status-report]');
     if (previewButton) {
       const report = state.statusReports.find((item) => item.id === previewButton.dataset.previewStatusReport);
-      loadStatusReportForEdit(report, true);
+      openStatusReportFromManagement(report);
       return;
     }
 
     if (event.target.closest('button, a, input, select, textarea')) return;
     const row = event.target.closest('[data-edit-status-report]');
     const report = state.statusReports.find((item) => item.id === row?.dataset.editStatusReport);
-    if (report) loadStatusReportForEdit(report);
+    if (report) openStatusReportFromManagement(report);
   });
 }
 
