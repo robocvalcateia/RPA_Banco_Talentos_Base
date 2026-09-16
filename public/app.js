@@ -6353,8 +6353,10 @@ function pdfBlobFromJpegDataUrl(dataUrl, imageWidth, imageHeight) {
 async function exportStatusReportImage() {
   const report = statusReportCurrentExportData();
   const canvas = await createStatusReportCanvas(report);
-  downloadDataUrl(canvas.toDataURL('image/png'), `status-report-${safeFilename(report.clientName || 'alcateia')}-${new Date().toISOString().slice(0, 10)}.png`);
-  toast('Imagem do status report gerada.');
+  const filename = `Status_${statusReportFilenamePart(report.consultantName || 'Consultor', 'Consultor')}_${String(report.reportDate || new Date().toISOString().slice(0, 10)).replace(/[^0-9]/g, '')}.png`;
+  downloadDataUrl(canvas.toDataURL('image/png'), filename);
+  toast(`Imagem ${filename} baixada.`);
+  return filename;
 }
 
 function statusReportFilenamePart(value, fallback = 'relatorio') {
@@ -10577,6 +10579,17 @@ function bindStatusReportActions() {
   });
 
   $('#statusReportClearButton')?.addEventListener('click', clearStatusReportForm);
+  $('#statusReportDownloadImageButton')?.addEventListener('click', async (event) => {
+    const button = event.currentTarget;
+    const originalText = setSubmitButtonBusy(button, 'Gerando imagem...');
+    try {
+      await exportStatusReportImage();
+    } catch (error) {
+      toast(error.message || 'Não foi possível gerar a imagem do status report.');
+    } finally {
+      restoreSubmitButton(button, originalText || 'Baixar imagem');
+    }
+  });
 
   $('#statusReportSavedTable')?.addEventListener('click', (event) => {
     const downloadButton = event.target.closest('[data-download-saved-status-report]');

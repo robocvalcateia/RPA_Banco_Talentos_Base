@@ -66,11 +66,13 @@ test('status report remove preview one page da tela principal', () => {
   const indexSource = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
 
   assert.doesNotMatch(indexSource, /One page view/);
-  assert.doesNotMatch(indexSource, /Exportar imagem/);
+  assert.match(indexSource, /id="statusReportDownloadImageButton"/);
   assert.doesNotMatch(indexSource, /Enviar avalia/);
   assert.doesNotMatch(indexSource, /statusReportPreview/);
   assert.doesNotMatch(appSource, /statusReportPreview/);
-  assert.doesNotMatch(appSource, /statusReportExportImageButton/);
+  assert.match(appSource, /statusReportDownloadImageButton/);
+  assert.match(appSource, /async function exportStatusReportImage/);
+  assert.match(appSource, /canvas\.toDataURL\('image\/png'\)/);
   assert.doesNotMatch(appSource, /statusReportExportPdfButton/);
   assert.match(appSource, /Status_\$\{statusReportFilenamePart\(report\.consultantName/);
   assert.match(appSource, /ALCATEIA - Relat.rio Acompanhamento Consultor/);
@@ -94,7 +96,7 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.match(indexSource, /<section class="view" id="statusReportManagement">/);
   assert.match(indexSource, /data-view="statusReportParameters"/);
   assert.match(indexSource, /data-view="statusReportManagement"/);
-  assert.match(indexSource, /app\.js\?v=20260904-status-process/);
+  assert.match(indexSource, /app\.js\?v=20260916-status-report-image/);
   assert.match(indexSource, /styles\.css\?v=20260814-curriculum-search-identity/);
   assert.match(indexSource, /Status gravados/);
   assert.match(indexSource, /id="statusReportSavedTable"/);
