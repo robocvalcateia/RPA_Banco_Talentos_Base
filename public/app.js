@@ -95,6 +95,7 @@
     timesheetProjectId: '',
     selectingCandidateId: '',
     movingCandidateId: '',
+    viewingOpportunityCandidatesId: '',
     observingCurriculumId: ''
   },
   indicators: null
@@ -2997,10 +2998,62 @@ function renderOpportunities() {
           <td>${formatCurrency(opportunity.contractValue)}</td>
           <td>${escapeHtml(opportunity.jobDescription || '-')}</td>
           <td>${opportunity.observation || '-'}</td>
+          <td><button class="primary-action compact-action" type="button" data-open-opportunity-candidates="${opportunity.id}">Candidatos</button></td>
         </tr>
       `;
     })
     .join('');
+}
+
+function activeCandidatesForOpportunity(opportunityId) {
+  return state.candidates.filter((candidate) => candidate.opportunityId === opportunityId && candidate.stage !== 'Reprovado');
+}
+
+function ensureOpportunityCandidatesModal() {
+  let modal = $('#opportunityCandidatesModal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'opportunityCandidatesModal';
+  modal.className = 'modal-backdrop hidden';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-labelledby', 'opportunityCandidatesTitle');
+  modal.innerHTML = `
+    <section class="modal-card opportunity-candidates-card">
+      <div class="modal-heading"><div><h2 id="opportunityCandidatesTitle">Candidatos da oportunidade</h2><span id="opportunityCandidatesSummary"></span></div><button class="surface-window-control surface-close-button" type="button" data-close-opportunity-candidates aria-label="Fechar painel" title="Fechar"></button></div>
+      <div class="table-wrap"><table><thead><tr><th>Candidato</th><th>Etapa</th><th>Aderência</th><th>Ações</th></tr></thead><tbody id="opportunityCandidatesTable"></tbody></table></div>
+    </section>`;
+  document.body.appendChild(modal);
+  initPanelMaximizeControls();
+  return modal;
+}
+
+function renderOpportunityCandidatesModal(opportunityId) {
+  const modal = ensureOpportunityCandidatesModal();
+  const opportunity = state.opportunities.find((item) => item.id === opportunityId);
+  if (!opportunity) return;
+  state.editing.viewingOpportunityCandidatesId = opportunityId;
+  const candidates = activeCandidatesForOpportunity(opportunityId);
+  $('#opportunityCandidatesSummary', modal).textContent = `${opportunityLabel(opportunity)} · ${candidates.length} candidato(s) ativo(s)`;
+  $('#opportunityCandidatesTable', modal).innerHTML = candidates.length ? candidates.map((candidate) => `
+    <tr><td><strong>${escapeHtml(candidate.name || '-')}</strong></td><td><span class="tag">${escapeHtml(candidate.stage || 'Triagem')}</span></td><td><span class="score">${candidate.aderencia ?? 0}%</span></td><td><div class="stage-actions"><button class="ghost-action compact-action" type="button" data-opportunity-move-candidate="${candidate.id}">Mover</button><button class="danger-action compact-action" type="button" data-reject-opportunity-candidate="${candidate.id}">Reprovado</button></div></td></tr>`).join('') : '<tr><td colspan="4">Nenhum candidato ativo vinculado a esta oportunidade.</td></tr>';
+  openSurfaceDialog(modal);
+}
+
+function closeOpportunityCandidatesModal() {
+  state.editing.viewingOpportunityCandidatesId = '';
+  closeSurfaceDialog('#opportunityCandidatesModal');
+}
+
+async function rejectOpportunityCandidate(candidate) {
+  const reason = window.prompt(`Motivo da reprovação de ${candidate.name || 'candidato'} (opcional):`, '');
+  if (reason === null) return;
+  if (!window.confirm(`Confirmar a reprovação de ${candidate.name || 'candidato'} somente nesta oportunidade?`)) return;
+  const savedCandidate = await api(`/api/candidates/${candidate.id}`, { method: 'PATCH', body: JSON.stringify({ stage: 'Reprovado', rejectionReason: reason.trim() }) });
+  upsertStateItem('candidates', savedCandidate);
+  renderOpportunityCandidatesModal(candidate.opportunityId);
+  renderCandidates();
+  toast(`${candidate.name || 'Candidato'} reprovado somente nesta oportunidade.`);
 }
 
 function isApprovedOpportunityCandidate(candidate) {
@@ -8806,6 +8859,7 @@ async function moveCandidateToStage(candidateId, stage) {
   closeCandidateStageMoveModal();
   toast(`Candidato movido para ${stage}.`);
   render();
+  if (state.editing.viewingOpportunityCandidatesId) renderOpportunityCandidatesModal(state.editing.viewingOpportunityCandidatesId);
 }
 
 function loadUserForEdit(user) {
@@ -11651,10 +11705,34 @@ function bindEditableRows() {
   });
 
   $('#opportunityTable').addEventListener('click', (event) => {
+    const candidatesButton = event.target.closest('[data-open-opportunity-candidates]');
+    if (candidatesButton) {
+      renderOpportunityCandidatesModal(candidatesButton.dataset.openOpportunityCandidates);
+      return;
+    }
     if (event.target.closest('button, a, input, select, textarea')) return;
     const row = event.target.closest('[data-edit-opportunity]');
     const opportunity = state.opportunities.find((item) => item.id === row?.dataset.editOpportunity);
     if (opportunity) loadOpportunityForEdit(opportunity);
+  });
+
+  document.addEventListener('click', async (event) => {
+    if (event.target.closest('[data-close-opportunity-candidates]') || event.target.id === 'opportunityCandidatesModal') {
+      closeOpportunityCandidatesModal();
+      return;
+    }
+    const moveButton = event.target.closest('[data-opportunity-move-candidate]');
+    if (moveButton) {
+      const candidate = state.candidates.find((item) => item.id === moveButton.dataset.opportunityMoveCandidate);
+      if (candidate) openCandidateStageMoveModal(candidate);
+      return;
+    }
+    const rejectButton = event.target.closest('[data-reject-opportunity-candidate]');
+    if (!rejectButton) return;
+    const candidate = state.candidates.find((item) => item.id === rejectButton.dataset.rejectOpportunityCandidate);
+    if (!candidate) return;
+    rejectButton.disabled = true;
+    try { await rejectOpportunityCandidate(candidate); } catch (error) { toast(error.message || 'Não foi possível reprovar o candidato nesta oportunidade.'); } finally { rejectButton.disabled = false; }
   });
 
   $('#huntingTable')?.addEventListener('click', (event) => {

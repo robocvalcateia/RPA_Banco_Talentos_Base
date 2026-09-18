@@ -129,3 +129,18 @@ test('busca de CV recupera resultados persistidos após reinício do servidor', 
   assert.match(serverSource, /const persistSearchSnapshot/);
   assert.match(serverSource, /await persistSearchSnapshot\(job\.response\)/);
 });
+
+test('oportunidade abre candidatos ativos e reprova somente o vínculo da vaga', () => {
+  const indexSource = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+  const appSource = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+  const serverSource = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+  assert.match(indexSource, /<th>Ações<\/th>/);
+  assert.match(appSource, /data-open-opportunity-candidates/);
+  assert.match(appSource, /candidate\.opportunityId === opportunityId && candidate\.stage !== 'Reprovado'/);
+  assert.match(appSource, /data-opportunity-move-candidate/);
+  assert.match(appSource, /data-reject-opportunity-candidate/);
+  assert.match(appSource, /stage: 'Reprovado', rejectionReason: reason\.trim\(\)/);
+  assert.match(serverSource, /candidate\.rejectedAt = toISODate\(\)/);
+  assert.match(serverSource, /candidate\.rejectedBy = String\(auth\.user\.name/);
+  assert.match(serverSource, /candidate\.rejectionReason = String\(payload\.rejectionReason/);
+});

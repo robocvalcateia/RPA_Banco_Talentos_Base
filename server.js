@@ -7279,7 +7279,13 @@ async function handleApi(request, response) {
       if (payload.stage && payload.stage !== candidate.stage) {
         moveCandidateStage(candidate, payload.stage);
         appendCandidateMovement(db, candidate, `Alterou etapa para ${candidate.stage}`, auth.user);
+        if (candidate.stage === 'Reprovado') {
+          candidate.rejectedAt = toISODate();
+          candidate.rejectedBy = String(auth.user.name || auth.user.email || auth.user.id || '').trim();
+          candidate.rejectionReason = String(payload.rejectionReason ?? '').trim();
+        }
       }
+      if (candidate.stage === 'Reprovado' && payload.rejectionReason !== undefined) candidate.rejectionReason = String(payload.rejectionReason ?? '').trim();
       if (payload.aderencia !== undefined) {
         candidate.aderencia = normalizeAderencia(payload.aderencia);
       }

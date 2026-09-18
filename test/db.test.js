@@ -414,6 +414,14 @@ test('candidato segue estrutura vinculada a curriculum e oportunidade', () => {
   assert.equal(enriched.curriculumName, '');
 });
 
+test('candidato preserva metadados da reprovação no vínculo com a oportunidade', () => {
+  const normalized = normalizeCandidate({ id: 'cand_reprovado', name: 'Candidato Teste', opportunityId: 'opp_1', stage: 'Reprovado', reprovado_em: '2026-09-18T12:00:00.000Z', reprovado_por: 'Admin Teste', motivo_reprovacao: 'Perfil fora do escopo' });
+  assert.equal(normalized.status, 'Reprovado');
+  assert.equal(normalized.rejectedAt, '2026-09-18T12:00:00.000Z');
+  assert.equal(normalized.rejectedBy, 'Admin Teste');
+  assert.equal(normalized.rejectionReason, 'Perfil fora do escopo');
+});
+
 test('curriculum normaliza estrutura importada', () => {
   const normalized = normalizeCurriculum({
     _id: "ObjectId('69d810e8ea6b2af3cebdfb48')",
