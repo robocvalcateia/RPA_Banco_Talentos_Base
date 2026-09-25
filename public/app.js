@@ -3049,12 +3049,27 @@ async function rejectOpportunityCandidate(candidate) {
   const reason = window.prompt(`Motivo da reprovação de ${candidate.name || 'candidato'} (opcional):`, '');
   if (reason === null) return;
   if (!window.confirm(`Confirmar a reprovação de ${candidate.name || 'candidato'} somente nesta oportunidade?`)) return;
-  const savedCandidate = await api(`/api/candidates/${candidate.id}`, { method: 'PATCH', body: JSON.stringify({ stage: 'Reprovado', rejectionReason: reason.trim() }) });
+
+  const savedCandidate = await api(`/api/candidates/${candidate.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ stage: 'Reprovado', rejectionReason: reason.trim() })
+  });
   upsertStateItem('candidates', savedCandidate);
-  renderOpportunityCandidatesModal(candidate.opportunityId);
-  renderCandidates();
-  toast(`${candidate.name || 'Candidato'} reprovado somente nesta oportunidade.`);
+  render();
+  if (state.editing.viewingOpportunityCandidatesId) {
+    renderOpportunityCandidatesModal(state.editing.viewingOpportunityCandidatesId);
+  }
+  toast(candidateMovementFeedback(savedCandidate, `${candidate.name || 'Candidato'} reprovado somente nesta oportunidade.`));
 }
+
+function candidateMovementFeedback(candidate, message) {
+  const notification = candidate.notification;
+  if (notification?.status === 'sent') return `${message} E-mail enviado.`;
+  if (notification?.status === 'failed') return `${message} Falha no envio do e-mail; verifique a configuração de envio.`;
+  if (notification?.status === 'skipped') return `${message} E-mail não enviado: candidato sem endereço válido.`;
+  return message;
+}
+
 
 function isApprovedOpportunityCandidate(candidate) {
   return candidate?.approved === true || candidate?.stage === 'Aprovado' || candidate?.status === 'Aprovado';
@@ -7345,22 +7360,23 @@ function allocatedCodeFromCandidate(candidate) {
 }
 
 function getFilteredCandidates() {
+  const activeCandidates = state.candidates.filter((candidate) => candidate.stage !== 'Reprovado');
   const type = $('#candidateFilterType')?.value;
   const value = $('#candidateFilterValue')?.value;
   if (!type || !value) {
     const openOpportunityIds = new Set(state.opportunities.filter((opportunity) => opportunity.status === 'Open').map((opportunity) => opportunity.id));
-    return state.candidates.filter((candidate) => openOpportunityIds.has(candidate.opportunityId));
+    return activeCandidates.filter((candidate) => openOpportunityIds.has(candidate.opportunityId));
   }
 
   if (type === 'opportunity') {
-    return state.candidates.filter((candidate) => candidate.opportunityId === value);
+    return activeCandidates.filter((candidate) => candidate.opportunityId === value);
   }
 
   if (type === 'consultor') {
-    return state.candidates.filter((candidate) => candidate.id === value);
+    return activeCandidates.filter((candidate) => candidate.id === value);
   }
 
-  return state.candidates;
+  return activeCandidates;
 }
 
 function renderCandidates() {
@@ -8214,8 +8230,9 @@ function renderCandidateStageActions(candidate) {
   if (!previous && !next) return '';
 
   return `
-    <div class="stage-actions">
+    <div class="candidate-movement-actions">
       <button class="ghost-action" type="button" data-open-candidate-stage-move="${candidate.id}">Mover</button>
+      ${candidate.stage !== 'Reprovado' ? `<button class="danger-action" type="button" data-reject-opportunity-candidate="${candidate.id}">Reprovado</button>` : ''}
     </div>
   `;
 }
@@ -8857,9 +8874,11 @@ async function moveCandidateToStage(candidateId, stage) {
   });
   upsertStateItem('candidates', savedCandidate);
   closeCandidateStageMoveModal();
-  toast(`Candidato movido para ${stage}.`);
+  toast(candidateMovementFeedback(savedCandidate, `Candidato movido para ${stage}.`));
   render();
-  if (state.editing.viewingOpportunityCandidatesId) renderOpportunityCandidatesModal(state.editing.viewingOpportunityCandidatesId);
+  if (state.editing.viewingOpportunityCandidatesId) {
+    renderOpportunityCandidatesModal(state.editing.viewingOpportunityCandidatesId);
+  }
 }
 
 function loadUserForEdit(user) {
