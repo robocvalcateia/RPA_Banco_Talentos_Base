@@ -3676,6 +3676,39 @@ function renderEmailProcessingStatus() {
 
   if (!statusElement) return;
 
+  if (isCurrentUserAdmin() && statusElement && !$('#candidateEmailDiagnosticsButton')) {
+    const button = document.createElement('button');
+    button.id = 'candidateEmailDiagnosticsButton';
+    button.className = 'ghost-action';
+    button.type = 'button';
+    button.textContent = 'Verificar envios de e-mail';
+    const output = document.createElement('pre');
+    output.id = 'candidateEmailDiagnosticsOutput';
+    output.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;font:inherit';
+    output.setAttribute('role', 'status');
+    statusElement.after(button, output);
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      output.textContent = 'Consultando registros de envio...';
+      try {
+        const result = await api('/api/admin/candidate-email-diagnostics');
+        const labels = { received: 'Recebimento de CV', selected: 'Seleção', rejected: 'Reprovação' };
+        output.textContent = [
+          'Verificação: ' + result.checkedAt,
+          'Remetente SMTP: ' + (result.smtp.from || 'não informado'),
+          'Configuração SMTP: ' + (result.smtp.configured ? 'preenchida (não testa entrega)' : 'incompleta'),
+          'Conta Microsoft: ' + result.graph.mailbox,
+          'Consulta Microsoft: ' + (result.graph.connected ? 'conectada; amostra de ' + result.graph.sampleSize + ' mensagens enviadas mais recentes' : result.graph.error),
+          ...result.graph.events.map(item => labels[item.type] + ': ' + item.count + ' na amostra; último: ' + (item.latest || 'não localizado')),
+          ...result.notifications.map(item => labels[item.type] + ' no sistema: ' + item.counts.sent + ' enviados; ' + item.counts.failed + ' falhas; ' + item.counts.skipped + ' sem endereço; ' + item.counts.sending + ' em envio. Último: ' + (item.latest ? item.latest.date + ' / ' + item.latest.status + (item.latest.error ? ' / ' + item.latest.error : '') : 'sem registro')),
+          'Leitura de currículos: ' + result.processing.status + ' / ' + (result.processing.finishedAt || 'sem data nesta execução'),
+          result.note
+        ].join('\n');
+      } catch (error) { output.textContent = error.message; }
+      finally { button.disabled = false; }
+    });
+  }
+
   if (state.talentError) {
     statusElement.textContent = state.talentError;
     return;

@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { summarizeCandidateEmails, summarizeSentMessages } from './email-diagnostics.js';
 import { CvSearchJobs, uniqueApproved, recommendedCandidates, APPROVED_TARGET } from './cv-search-jobs.js';
 const cvSearchJobs = new CvSearchJobs();
 import { coreKeyword, screeningStats, interpretVacancy } from './candidate-screening.js';
@@ -3890,6 +3891,39 @@ async function handleApi(request, response) {
     if (request.method === 'POST' && pathname === '/api/logout') {
       sessions.delete(auth.token);
       sendJson(response, 200, { ok: true });
+      return;
+    }
+
+    if (request.method === 'GET' && pathname === '/api/admin/candidate-email-diagnostics') {
+      if (String(auth.user.role || '').toLowerCase() !== 'admin') {
+        sendError(response, 403, 'Apenas administradores podem consultar os envios.');
+        return;
+      }
+      const db = await readDatabase();
+      const smtp = getSmtpConfigFromEnv();
+      const mailbox = String(process.env.GRAPH_EMAIL || 'robocv@alcateiaconsulting.com.br').trim();
+      const graph = { mailbox, connected: false, sampleSize: 0, events: [], error: '' };
+      try {
+        const token = await withTimeout(getGraphAccessTokenForDiagnostics(), 15000, 'Tempo esgotado ao autenticar Microsoft.');
+        const query = new URLSearchParams({ '$top': '1000', '$select': 'subject,sentDateTime', '$orderby': 'sentDateTime desc' });
+        const result = await fetch('https://graph.microsoft.com/v1.0/users/' + encodeURIComponent(mailbox) + '/mailFolders/sentitems/messages?' + query, {
+          headers: { authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(15000)
+        });
+        if (!result.ok) throw new Error('Consulta Microsoft recusada: HTTP ' + result.status);
+        const data = await result.json();
+        graph.connected = true;
+        graph.sampleSize = (data.value || []).length;
+        graph.events = summarizeSentMessages(data.value || []);
+      } catch (error) {
+        graph.error = String(error.message || error).split(': {')[0].slice(0, 200);
+      }
+      sendJson(response, 200, {
+        checkedAt: toISODate(),
+        smtp: { configured: isSmtpAccountConfigured(smtp), host: smtp.host, user: smtp.user, from: smtp.from },
+        notifications: summarizeCandidateEmails(db), graph,
+        processing: { status: emailProcessing.status, finishedAt: emailProcessing.finishedAt, confirmationsInCurrentLog: (String(emailProcessing.logs || '').match(/Confirmação de recebimento enviada/g) || []).length },
+        note: 'Consulta sem envio. Itens enviados não comprovam entrega na caixa do destinatário; ausência na amostra não comprova falha.'
+      });
       return;
     }
 
