@@ -2152,7 +2152,7 @@ export function moveCandidateStage(candidate, nextStage, now = new Date()) {
   candidate.stage = nextStage;
   candidate.stageEnteredAt = timestamp;
   candidate.status = nextStage === 'Aprovado' || nextStage === 'Reprovado' ? nextStage : 'Em andamento';
-  candidate.approved = nextStage === 'Aprovado' ? true : candidate.approved;
+  candidate.approved = nextStage === 'Reprovado' ? false : nextStage === 'Aprovado' ? true : candidate.approved;
   candidate.stageHistory = history;
 
   return candidate;
