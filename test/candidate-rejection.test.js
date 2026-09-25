@@ -72,10 +72,11 @@ test('botão principal aciona reprovação, atualiza lista e não abre painel in
 
 function lifecycleContext({ email = 'candidate@example.test', configured = true, fail = false } = {}) {
   const sent = [];
+  const audits = [];
   const snapshots = [];
   const record = { name: 'Teste', opportunityId: 'a', processCycle: 1 };
   const db = { opportunities: [{ id: 'a', opportunity: 'Desenvolvedor' }] };
-  const context = vm.createContext({ findCurriculumForSelectedCandidate: () => ({ email }),
+  const context = vm.createContext({ writeEmailLog: async row => audits.push(JSON.parse(JSON.stringify(row))), lifecycleLog: (_, notification) => ({ ...notification }), findCurriculumForSelectedCandidate: () => ({ email }),
     resolveCandidateCurriculum: async () => null, extractCandidateEmails: async () => [],
     getApinfoCredentials: () => ({}), toISODate: () => '2026-09-25T12:00:00.000Z',
     getSmtpConfigFromEnv: () => ({}), isSmtpAccountConfigured: () => configured,
@@ -83,7 +84,7 @@ function lifecycleContext({ email = 'candidate@example.test', configured = true,
   vm.runInContext(extract(server, 'buildCandidateLifecycleMessage') + '\n' + extract(server, 'sendCandidateLifecycleEmail'), context);
   const invoke = type => context.sendCandidateLifecycleEmail({ db, record, type,
     persist: async () => snapshots.push(JSON.parse(JSON.stringify(record))) });
-  return { record, invoke, sent, snapshots };
+  return { record, invoke, sent, snapshots, audits };
 }
 
 test('seleção e reprovação disparam uma vez por ciclo e registram envio', async () => {
@@ -93,6 +94,7 @@ test('seleção e reprovação disparam uma vez por ciclo e registram envio', as
     assert.equal((await ctx.invoke(type)).status, 'sent');
   }
   assert.equal(ctx.sent.length, 2);
+  assert.deepEqual(ctx.audits.map(row => row.status), ['sending', 'sent', 'sending', 'sent']);
   assert.match(ctx.sent[0].text, /aderência à oportunidade Desenvolvedor/);
   assert.match(ctx.sent[1].text, /outros candidatos/);
   assert.equal(ctx.snapshots[0].notifications[0].status, 'sending');
@@ -110,6 +112,7 @@ test('gatilho registra ausência de endereço, configuração e falha SMTP sem f
     assert.equal(result.status, status);
     assert.match(result.error, error);
     assert.equal(ctx.sent.length, 0);
+    assert.equal(ctx.audits.at(-1).status, status);
     assert.equal(ctx.snapshots.at(-1).notifications[0].status, status);
   }
 });

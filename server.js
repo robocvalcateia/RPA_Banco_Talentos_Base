@@ -1,3 +1,4 @@
+import { writeEmailLog, readEmailLogs, lifecycleLog, legacyEmailLogs, queryEmailLogs, receivedMessageLog } from './email-logs.js';
 import http from 'node:http';
 import { summarizeCandidateEmails, summarizeSentMessages } from './email-diagnostics.js';
 import { CvSearchJobs, uniqueApproved, recommendedCandidates, APPROVED_TARGET } from './cv-search-jobs.js';
@@ -2071,6 +2072,7 @@ export function buildCandidateLifecycleMessage(type, candidateName, opportunityN
 }
 
 async function sendCandidateLifecycleEmail({ db, record, type, persist }) {
+  const persistCandidate = persist;
   const opportunity = db.opportunities.find((item) => item.id === record.opportunityId);
   const curriculum = findCurriculumForSelectedCandidate(record, db)
     || await resolveCandidateCurriculum(db, record.curriculumId);
@@ -2085,6 +2087,10 @@ async function sendCandidateLifecycleEmail({ db, record, type, persist }) {
   if (existing) return existing;
 
   const notification = { eventKey, type, opportunityId: record.opportunityId, processCycle: cycle, to: email, status: 'sending', createdAt: toISODate(), sentAt: '', error: '' };
+  persist = async () => {
+    await writeEmailLog(lifecycleLog(record, notification, opportunity, getSmtpConfigFromEnv().from));
+    await persistCandidate();
+  };
   record.notifications.push(notification);
   await persist();
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -3891,6 +3897,43 @@ async function handleApi(request, response) {
     if (request.method === 'POST' && pathname === '/api/logout') {
       sessions.delete(auth.token);
       sendJson(response, 200, { ok: true });
+      return;
+    }
+
+    if (pathname === '/api/admin/email-logs' && ['GET', 'POST'].includes(request.method)) {
+      if (String(auth.user.role || '').toLowerCase() !== 'admin') {
+        sendError(response, 403, 'Apenas administradores podem consultar o histórico de e-mails.');
+        return;
+      }
+      const db = await readDatabaseCollections(['candidates', 'selectedCandidates', 'opportunities']);
+      if (request.method === 'POST') {
+        const previousLogs = new Set((await readEmailLogs()).map(item => item.id));
+        for (const row of legacyEmailLogs(db)) {
+          const existing = previousLogs.has(row.id);
+          if (!existing) await writeEmailLog(row);
+        }
+        const mailbox = String(process.env.GRAPH_EMAIL || 'robocv@alcateiaconsulting.com.br').trim();
+        const token = await withTimeout(getGraphAccessTokenForDiagnostics(), 15000, 'Tempo esgotado na autenticação Microsoft.');
+        const query = new URLSearchParams({ '$top': '1000', '$select': 'id,subject,sentDateTime,toRecipients', '$orderby': 'sentDateTime desc' });
+        const result = await fetch('https://graph.microsoft.com/v1.0/users/' + encodeURIComponent(mailbox) + '/mailFolders/sentitems/messages?' + query, {
+          headers: { authorization: 'Bearer ' + token, Prefer: 'IdType="ImmutableId"' }, signal: AbortSignal.timeout(20000)
+        });
+        if (!result.ok) { sendError(response, 502, 'Não foi possível consultar o histórico Microsoft: HTTP ' + result.status); return; }
+        const data = await result.json();
+        const saved = await readEmailLogs();
+        let imported = 0;
+        for (const message of data.value || []) {
+          const row = receivedMessageLog(message, mailbox);
+          if (!row || saved.some(item => item.id === row.id || (item.type === 'received' && item.source === 'system' && item.status === 'sent' && item.to?.toLowerCase() === row.to.toLowerCase() && Math.abs(Date.parse(item.sentAt) - Date.parse(row.sentAt)) < 120000))) continue;
+          await writeEmailLog(row);
+          saved.push(row);
+          imported++;
+        }
+        sendJson(response, 200, { imported, scanned: (data.value || []).length });
+        return;
+      }
+      const filters = Object.fromEntries(route.searchParams);
+      sendJson(response, 200, queryEmailLogs([...legacyEmailLogs(db), ...await readEmailLogs()], filters));
       return;
     }
 

@@ -3664,6 +3664,7 @@ function talentSourceLabel() {
 }
 
 function renderEmailProcessingStatus() {
+  ensureEmailLogButton();
   const sourceLabel = $('#curriculumSourceLabel');
   const statusElement = $('#emailProcessingStatus');
   const button = $('#processEmailsButton');
