@@ -3709,7 +3709,6 @@ function renderEmailProcessingStatus() {
     });
   }
 
-
   if (state.talentError) {
     statusElement.textContent = state.talentError;
     return;
