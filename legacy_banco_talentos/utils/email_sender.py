@@ -1,4 +1,8 @@
 import html
+import os
+import uuid
+from datetime import datetime, timezone
+from config.mongodb import get_mongodb
 import requests
 from config.mongodb import get_candidate_collection_name
 from config.microsoft_graph import get_microsoft_graph
@@ -16,35 +20,62 @@ def build_processing_log_recipients():
 
 def enviar_confirmacao_recebimento_cv(nome, email):
     """Confirma ao profissional somente depois que um novo CV foi gravado com sucesso."""
-    destinatario = str(email or "").strip().lower()
-    if not destinatario or "@" not in destinatario:
-        return {"sent": False, "reason": "Candidato sem e-mail valido."}
     if not is_production_environment():
         return {"sent": False, "reason": "Envio desabilitado fora de PROD."}
-    graph_config = get_microsoft_graph()
-    email_from = graph_config.get_email()
-    nome_seguro = html.escape(str(nome or "Candidato").strip())
-    corpo_html = f"""
-    <p>Olá {nome_seguro}</p>
-    <p>Gostaríamos, inicialmente, de agradecer o envio de seu CV. Confirmamos o seu recebimento.</p>
-    <p>Em breve, ele será analisado e avaliado por uma pessoa do nosso time de recrutadores. Te informaremos assim que encontrarmos uma vaga na qual o seu perfil tenha aderência.</p>
-    <p>Atenciosamente</p>
-    """
-    payload = {
-        "message": {
-            "subject": "[Alcateia] Confirmação de recebimento do seu CV",
-            "body": {"contentType": "HTML", "content": corpo_html},
-            "toRecipients": [{"emailAddress": {"address": destinatario}}]
-        }
+    log_collection = get_mongodb().get_db()[os.getenv("MONGODB_APP_COLLECTION_PREFIX", "") + "emailDeliveryLogs"]
+    log_entry = {
+        "id": "received:" + str(uuid.uuid4()), "type": "received", "source": "system",
+        "candidateName": str(nome or ""), "to": str(email or "").strip().lower(),
+        "from": os.getenv("GRAPH_EMAIL", "robocv@alcateiaconsulting.com.br"),
+        "provider": "Microsoft Graph", "status": "sending", "error": "", "sentAt": "",
+        "createdAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     }
-    response = requests.post(
-        f"https://graph.microsoft.com/v1.0/users/{email_from}/sendMail",
-        headers=graph_config.get_headers(),
-        json=payload,
-        timeout=30
-    )
-    if response.status_code != 202:
-        raise Exception(f"Erro ao enviar confirmacao de CV: {response.text}")
+    def persist_log():
+        log_entry["updatedAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        log_collection.update_one({"id": log_entry["id"]}, {"$set": log_entry}, upsert=True)
+    persist_log()
+    destinatario = str(email or "").strip().lower()
+    if not destinatario or "@" not in destinatario:
+        log_entry["status"] = "skipped"
+        log_entry["error"] = "Candidato sem e-mail valido."
+        persist_log()
+        return {"sent": False, "reason": log_entry["error"]}
+    if not is_production_environment():
+        return {"sent": False, "reason": "Envio desabilitado fora de PROD."}
+    try:
+        graph_config = get_microsoft_graph()
+        email_from = graph_config.get_email()
+        nome_seguro = html.escape(str(nome or "Candidato").strip())
+        corpo_html = f"""
+        <p>Olá {nome_seguro}</p>
+        <p>Gostaríamos, inicialmente, de agradecer o envio de seu CV. Confirmamos o seu recebimento.</p>
+        <p>Em breve, ele será analisado e avaliado por uma pessoa do nosso time de recrutadores. Te informaremos assim que encontrarmos uma vaga na qual o seu perfil tenha aderência.</p>
+        <p>Atenciosamente</p>
+        """
+        payload = {
+            "message": {
+                "subject": "[Alcateia] Confirmação de recebimento do seu CV",
+                "body": {"contentType": "HTML", "content": corpo_html},
+                "toRecipients": [{"emailAddress": {"address": destinatario}}]
+            }
+        }
+        response = requests.post(
+            f"https://graph.microsoft.com/v1.0/users/{email_from}/sendMail",
+            headers=graph_config.get_headers(),
+            json=payload,
+            timeout=30
+        )
+        if response.status_code != 202:
+            raise Exception(f"Erro ao enviar confirmacao de CV: {response.text}")
+        log_entry["status"] = "sent"
+        log_entry["sentAt"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    except Exception as error:
+        log_entry["status"] = "failed"
+        log_entry["error"] = str(error)[:1000]
+        persist_log()
+        raise
+    persist_log()
     return {"sent": True, "to": destinatario}
 
 
