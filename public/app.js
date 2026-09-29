@@ -1,4 +1,4 @@
-﻿const state = {
+const state = {
   clients: [],
   contactClients: [],
   opportunities: [],
@@ -1103,16 +1103,8 @@ function formatCurriculumDate(value) {
 function renderOptions() {
   const emptyOption = '<option value="">Selecione</option>';
   const clientOptions = emptyOption + state.clients.map((client) => `<option value="${client.id}">${client.customerName}</option>`).join('');
-  const opportunityOptions = emptyOption + state.opportunities
-    .slice()
-    .sort(byOpportunityCode)
-    .map((opportunity) => `<option value="${opportunity.id}">${opportunityLabel(opportunity)}</option>`)
-    .join('');
-  const openOpportunityOptions = emptyOption + state.opportunities
-    .slice()
-    .filter((opportunity) => opportunity.status === 'Open')
-    .sort(byOpportunityCode)
-    .map((opportunity) => `<option value="${opportunity.id}">${opportunityLabel(opportunity)}</option>`)
+  const openOpportunityOptions = emptyOption + openOpportunitiesForCurriculumSelection()
+    .map((opportunity) => `<option value="${escapeHtml(opportunity.id)}">${escapeHtml(opportunityLabel(opportunity))}</option>`)
     .join('');
   const statusOptions = emptyOption + state.opportunityStatuses.map((status) => `<option>${status}</option>`).join('');
   const modelOptions = emptyOption + state.opportunityModels.map((model) => `<option>${model}</option>`).join('');
@@ -1149,7 +1141,7 @@ function renderOptions() {
   });
   $$('select[name="opportunityId"]').forEach((select) => {
     const currentValue = select.value;
-    select.innerHTML = select.closest('#cvFilterForm') ? openOpportunityOptions : opportunityOptions;
+    select.innerHTML = openOpportunityOptions;
     if (currentValue && [...select.options].some((option) => option.value === currentValue)) {
       select.value = currentValue;
     }
@@ -4113,7 +4105,7 @@ async function openOriginalCurriculumFile(button) {
 
 function openOpportunitiesForCurriculumSelection() {
   return state.opportunities
-    .filter((opportunity) => isDashboardOpenOpportunity(opportunity) && opportunity.status === 'Open')
+    .filter((opportunity) => opportunity.status === 'Open')
     .sort(byOpportunityCode);
 }
 
@@ -7355,9 +7347,7 @@ function renderCandidateFilters() {
 
   if (type === 'opportunity') {
     options = options.concat(
-      state.opportunities
-        .slice()
-        .sort(byOpportunityCode)
+      openOpportunitiesForCurriculumSelection()
         .map((opportunity) => ({
           value: opportunity.id,
           label: opportunityLabel(opportunity)
@@ -7507,9 +7497,7 @@ function renderSelectedCandidates() {
     .map((client) => `<option value="${client.id}">${escapeHtml(client.customerName || client.id)}</option>`)
     .join('');
   clientSelect.innerHTML = clientOptions;
-  const opportunityOptions = '<option value="">Todos</option>' + state.opportunities
-    .slice()
-    .sort(byOpportunityCode)
+  const opportunityOptions = '<option value="">Todos</option>' + openOpportunitiesForCurriculumSelection()
     .map((opportunity) => `<option value="${opportunity.id}">${escapeHtml(opportunityLabel(opportunity))}</option>`)
     .join('');
   opportunitySelect.innerHTML = opportunityOptions;

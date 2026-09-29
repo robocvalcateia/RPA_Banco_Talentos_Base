@@ -3392,6 +3392,17 @@ function enrichCvSearchResultWithCurriculum(result, db) {
   });
 }
 
+// Validate new candidate links against the current stored opportunity, not the browser snapshot.
+export function requireOpenCandidateOpportunity(db, opportunityId) {
+  const opportunity = db.opportunities.find((item) => item.id === String(opportunityId ?? '').trim());
+  if (!opportunity || opportunity.status !== 'Open') {
+    const error = new Error('Selecione uma oportunidade com status Open para vincular candidatos.');
+    error.statusCode = 422;
+    throw error;
+  }
+  return opportunity;
+}
+
 export function advanceSelectedCandidateToInterview(db, selectedCandidateId) {
   const selected = db.selectedCandidates.find((item) => item.id === selectedCandidateId);
   if (!selected) {
@@ -3400,12 +3411,7 @@ export function advanceSelectedCandidateToInterview(db, selectedCandidateId) {
     throw error;
   }
 
-  const opportunity = db.opportunities.find((item) => item.id === selected.opportunityId);
-  if (!opportunity) {
-    const error = new Error('Oportunidade do candidato selecionado nao encontrada.');
-    error.statusCode = 422;
-    throw error;
-  }
+  requireOpenCandidateOpportunity(db, selected.opportunityId);
 
   const curriculum = findCurriculumForCandidateResult(db, selected);
   const curriculumId = selected.curriculumId || curriculum?.id_controle || curriculum?.id || '';
@@ -5650,10 +5656,7 @@ async function handleApi(request, response) {
         createdAt: toISODate()
       });
 
-      if (!filter.opportunityId || !db.opportunities.some((opportunity) => opportunity.id === filter.opportunityId)) {
-        sendError(response, 422, 'Selecione uma oportunidade valida.');
-        return;
-      }
+      requireOpenCandidateOpportunity(db, filter.opportunityId);
       if (!filter.coreSkill) {
         sendError(response, 422, 'Informe a competencia principal.');
         return;
@@ -5686,8 +5689,6 @@ async function handleApi(request, response) {
     if (request.method === 'POST' && pathname.startsWith('/api/cv-filters/') && pathname.endsWith('/search')) {
       const filterId = pathname.split('/').at(-2);
       const payload = await readJsonBody(request);
-      const activeJob = cvSearchJobs.find(auth.user.id, filterId);
-      if (activeJob) { sendJson(response, 202, activeJob.response); return; }
       const db = await readDatabase();
       const filter = db.cvFilters.find((item) => item.id === filterId);
 
@@ -5695,6 +5696,9 @@ async function handleApi(request, response) {
         sendError(response, 404, 'Filtro de CV nao encontrado.');
         return;
       }
+      requireOpenCandidateOpportunity(db, filter.opportunityId);
+      const activeJob = cvSearchJobs.find(auth.user.id, filterId);
+      if (activeJob) { sendJson(response, 202, activeJob.response); return; }
       const runtimeFilter = normalizeCvFilter({
         ...filter,
         ...payload,
@@ -6183,10 +6187,7 @@ async function handleApi(request, response) {
       const candidateMessage = String(payload.candidateMessage ?? '').trim();
       const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
 
-      if (!opportunityId || !db.opportunities.some((opportunity) => opportunity.id === opportunityId)) {
-        sendError(response, 422, 'Selecione uma oportunidade valida.');
-        return;
-      }
+      requireOpenCandidateOpportunity(db, opportunityId);
       if (!candidates.length) {
         sendError(response, 422, 'Selecione pelo menos um candidato.');
         return;
@@ -6333,10 +6334,7 @@ async function handleApi(request, response) {
         updatedAt: toISODate()
       });
 
-      if (!updated.opportunityId || !db.opportunities.some((opportunity) => opportunity.id === updated.opportunityId)) {
-        sendError(response, 422, 'Selecione uma oportunidade valida.');
-        return;
-      }
+      requireOpenCandidateOpportunity(db, updated.opportunityId);
       if (!updated.coreSkill) {
         sendError(response, 422, 'Informe a competencia principal.');
         return;
@@ -6433,10 +6431,7 @@ async function handleApi(request, response) {
         sendError(response, 422, 'Selecione um curriculo valido.');
         return;
       }
-      if (!candidate.opportunityId || !db.opportunities.some((opportunity) => opportunity.id === candidate.opportunityId)) {
-        sendError(response, 422, 'Selecione uma oportunidade valida.');
-        return;
-      }
+      requireOpenCandidateOpportunity(db, candidate.opportunityId);
 
       db.candidates.push(candidate);
       candidateDb.candidates = db.candidates;
@@ -7317,6 +7312,12 @@ async function handleApi(request, response) {
       if (!candidate) {
         sendError(response, 404, 'Candidato nao encontrado.');
         return;
+      }
+
+      const requestedOpportunityId = String(payload.opportunityId ?? candidate.opportunityId).trim();
+      if (requestedOpportunityId !== candidate.opportunityId
+        || (payload.curriculumId !== undefined && String(payload.curriculumId).trim() !== candidate.curriculumId)) {
+        requireOpenCandidateOpportunity(db, requestedOpportunityId);
       }
 
       const previousStage = candidate.stage;
