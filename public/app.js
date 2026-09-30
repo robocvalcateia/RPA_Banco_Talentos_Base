@@ -3044,10 +3044,43 @@ function closeOpportunityCandidatesModal() {
   closeSurfaceDialog('#opportunityCandidatesModal');
 }
 
+function requestCandidateRejection(candidate) {
+  return new Promise((resolve) => {
+    const modal = document.createElement('div');
+    modal.className = 'modal-backdrop';
+    modal.id = 'candidateRejectionConfirm';
+    modal.style.zIndex = '20000';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', 'candidateRejectionTitle');
+    modal.innerHTML = '<section class="modal-card"><h2 id="candidateRejectionTitle">Reprovar candidato</h2><p data-rejection-summary></p><p>O histórico será preservado. O sistema tentará enviar o aviso e registrará o resultado.</p><form class="form-grid"><label class="full">Motivo (opcional)<textarea name="reason" rows="3"></textarea></label><div class="full"><button class="danger-action" type="submit">Confirmar reprovação</button> <button class="ghost-action" type="button" data-cancel-rejection>Cancelar</button></div></form></section>';
+    modal.querySelector('[data-rejection-summary]').textContent = 'Reprovar ' + (candidate.name || 'candidato') + ' somente nesta oportunidade?';
+    const reason = modal.querySelector('[name="reason"]');
+    const opportunity = state.opportunities.find(item => item.id === candidate.opportunityId);
+    if (opportunity?.status === 'Closed') reason.value = 'Oportunidade encerrada (Closed).';
+    let done = false;
+    const finish = (value) => {
+      if (done) return;
+      done = true;
+      document.removeEventListener('keydown', onKey);
+      modal.remove();
+      resolve(value);
+    };
+    const onKey = (event) => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); finish(null); }
+    };
+    modal.querySelector('form').addEventListener('submit', event => { event.preventDefault(); finish(reason.value.trim()); });
+    modal.querySelector('[data-cancel-rejection]').addEventListener('click', () => finish(null));
+    modal.addEventListener('click', event => { if (event.target === modal) finish(null); });
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(modal);
+    reason.focus();
+  });
+}
+
 async function rejectOpportunityCandidate(candidate) {
-  const reason = window.prompt(`Motivo da reprovação de ${candidate.name || 'candidato'} (opcional):`, '');
+  const reason = await requestCandidateRejection(candidate);
   if (reason === null) return;
-  if (!window.confirm(`Confirmar a reprovação de ${candidate.name || 'candidato'} somente nesta oportunidade?`)) return;
 
   const savedCandidate = await api(`/api/candidates/${candidate.id}`, {
     method: 'PATCH',

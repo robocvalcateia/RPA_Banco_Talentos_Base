@@ -53,7 +53,7 @@ test('botão principal aciona reprovação, atualiza lista e não abre painel in
   let saved;
   let message;
   const context = vm.createContext({ state: { editing: {} },
-    window: { prompt: () => ' Perfil ', confirm: () => true },
+    requestCandidateRejection: async () => ' Perfil ',
     api: async (url, options) => { request = { url, ...JSON.parse(options.body) }; return { id: 'c', stage: 'Reprovado', notification: { status: 'failed' } }; },
     upsertStateItem: (_, value) => { saved = value; }, render: () => renders++,
     renderOpportunityCandidatesModal: () => modalRenders++, toast: value => { message = value; },
@@ -142,4 +142,32 @@ test('reprovação em outra oportunidade não impede o aviso de encerramento', a
   ctx.db.candidates = [{ notifications: [{ type: 'rejected', opportunityId: 'b', to: 'candidate@example.test', status: 'sent' }] }];
   assert.equal((await ctx.invoke('rejected')).status, 'sent');
   assert.equal(ctx.sent.length, 1);
+});
+
+test('cancelar confirmação não altera candidato nem envia requisição', async () => {
+  let calls = 0;
+  const ctx = vm.createContext({ requestCandidateRejection: async () => null, api: async () => { calls++; } });
+  vm.runInContext(extract(app, 'rejectOpportunityCandidate'), ctx);
+  await ctx.rejectOpportunityCandidate({id:'c'});
+  assert.equal(calls, 0);
+});
+test('confirmação interna preserva motivo e resolve cancelar ou confirmar apenas uma vez', async () => {
+  for (const confirm of [true, false]) {
+    const events = {};
+    const reason = {value:'',focus(){}};
+    const summary = {};
+    let removed = false;
+    const modal = {style:{},setAttribute(){},remove(){removed=true;},addEventListener(){},
+      querySelector(selector) { return selector === '[name="reason"]' ? reason : selector === '[data-rejection-summary]' ? summary : {addEventListener(type,fn){events[selector + type]=fn;}}; }};
+    const doc = {createElement:()=>modal,body:{appendChild(){}},addEventListener(){},removeEventListener(){}};
+    const ctx=vm.createContext({document:doc,state:{opportunities:[{id:'o',status:'Closed'}]}});
+    vm.runInContext(extract(app,'requestCandidateRejection'),ctx);
+    const pending=ctx.requestCandidateRejection({name:'Teste',opportunityId:'o'});
+    assert.equal(reason.value,'Oportunidade encerrada (Closed).');
+    assert.match(summary.textContent,/somente nesta oportunidade/);
+    if(confirm) events['formsubmit']({preventDefault(){}});
+    else events['[data-cancel-rejection]click']();
+    assert.equal(await pending,confirm?'Oportunidade encerrada (Closed).':null);
+    assert.equal(removed,true);
+  }
 });
