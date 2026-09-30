@@ -2061,14 +2061,16 @@ function expandCityRadiusFilter(filter, radiusKm = 50) {
   };
 }
 
-export function buildCandidateLifecycleMessage(type, candidateName, opportunityName = '') {
+export function buildCandidateLifecycleMessage(type, candidateName, opportunityName = '', opportunityStatus = '') {
   const name = String(candidateName || 'Candidato').trim();
   const opportunity = String(opportunityName || '').trim();
   if (type === 'selected') {
     return [`Olá ${name}`, '', 'Tudo bem?', '', `Avaliamos o seu CV e nosso analista de RH entendeu que ele tem aderência à oportunidade ${opportunity}.`, '', 'Manteremos contato para atualização sobre a evolução do processo.', '', 'Atenciosamente'].join('\n');
   }
   if (type === 'rejected') {
-    return [`Olá ${name}`, '', 'Encaminhamos os seus dados para o cliente e, após criteriosa avaliação, ele decidiu seguir com outros candidatos.', '', 'Não se preocupe. Você continuará fazendo parte do nosso pool de candidatos e seu CV continuará sob avaliação. Em breve, assim que uma nova oportunidade tiver aderência ao seu perfil, entraremos em contato.', '', 'Atenciosamente'].join('\n');
+    return [`Olá ${name}`, '', String(opportunityStatus).toLowerCase() === 'closed'
+        ? `Informamos que a oportunidade ${opportunity || 'à qual você estava vinculado(a)'} foi encerrada. Por esse motivo, sua participação neste processo seletivo foi concluída.`
+        : 'Encaminhamos os seus dados para o cliente e, após criteriosa avaliação, ele decidiu seguir com outros candidatos.', '', 'Não se preocupe. Você continuará fazendo parte do nosso pool de candidatos e seu CV continuará sob avaliação. Em breve, assim que uma nova oportunidade tiver aderência ao seu perfil, entraremos em contato.', '', 'Atenciosamente'].join('\n');
   }
   throw new Error(`Tipo de mensagem de candidato inválido: ${type}`);
 }
@@ -2101,6 +2103,20 @@ async function sendCandidateLifecycleEmail({ db, record, type, persist }) {
     await persist();
     return notification;
   }
+  if (type === 'rejected' && String(opportunity?.status).toLowerCase() === 'closed') {
+    const prior = [...(db.candidates || []), ...(db.selectedCandidates || [])]
+      .flatMap(item => item.notifications || [])
+      .find(item => item !== notification && item.type === 'rejected'
+        && item.opportunityId === record.opportunityId
+        && String(item.to || '').trim().toLowerCase() === email
+        && item.status === 'sent');
+    if (prior) {
+      notification.status = 'skipped';
+      notification.error = 'Reprovação já enviada a este e-mail para esta oportunidade; duplicidade evitada.';
+      await persist();
+      return notification;
+    }
+  }
   const smtpConfig = getSmtpConfigFromEnv();
   if (!isSmtpAccountConfigured(smtpConfig)) {
     notification.status = 'failed';
@@ -2113,7 +2129,7 @@ async function sendCandidateLifecycleEmail({ db, record, type, persist }) {
       ...smtpConfig,
       to: email,
       subject: type === 'selected' ? `[Alcateia] Processo seletivo - ${opportunity?.opportunity || 'Oportunidade'}` : '[Alcateia] Atualização do processo seletivo',
-      text: buildCandidateLifecycleMessage(type, record.name || curriculum?.nome, opportunity?.opportunity)
+      text: buildCandidateLifecycleMessage(type, record.name || curriculum?.nome, opportunity?.opportunity, opportunity?.status)
     });
     notification.status = 'sent';
     notification.sentAt = toISODate();

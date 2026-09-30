@@ -84,7 +84,7 @@ function lifecycleContext({ email = 'candidate@example.test', configured = true,
   vm.runInContext(extract(server, 'buildCandidateLifecycleMessage') + '\n' + extract(server, 'sendCandidateLifecycleEmail'), context);
   const invoke = type => context.sendCandidateLifecycleEmail({ db, record, type,
     persist: async () => snapshots.push(JSON.parse(JSON.stringify(record))) });
-  return { record, invoke, sent, snapshots, audits };
+  return { record, db, invoke, sent, snapshots, audits };
 }
 
 test('seleção e reprovação disparam uma vez por ciclo e registram envio', async () => {
@@ -115,4 +115,31 @@ test('gatilho registra ausência de endereço, configuração e falha SMTP sem f
     assert.equal(ctx.audits.at(-1).status, status);
     assert.equal(ctx.snapshots.at(-1).notifications[0].status, status);
   }
+});
+
+test('Closed envia encerramento sem atribuir decisão de seleção ao cliente e não duplica', async () => {
+  const ctx = lifecycleContext();
+  ctx.db.opportunities[0].status = 'Closed';
+  assert.equal((await ctx.invoke('rejected')).status, 'sent');
+  assert.equal((await ctx.invoke('rejected')).status, 'sent');
+  assert.equal(ctx.sent.length, 1);
+  assert.match(ctx.sent[0].text, /oportunidade Desenvolvedor foi encerrada/);
+  assert.doesNotMatch(ctx.sent[0].text, /criteriosa avaliação|outros candidatos/);
+  assert.equal(ctx.audits.at(-1).type, 'rejected');
+});
+
+test('Closed não repete aviso para o mesmo destinatário em outro vínculo da mesma vaga', async () => {
+  const ctx = lifecycleContext();
+  ctx.db.opportunities[0].status = 'Closed';
+  ctx.db.candidates = [{ notifications: [{ type: 'rejected', opportunityId: 'a', to: 'candidate@example.test', status: 'sent' }] }];
+  assert.equal((await ctx.invoke('rejected')).status, 'skipped');
+  assert.equal(ctx.sent.length, 0);
+  assert.match(ctx.audits.at(-1).error, /duplicidade evitada/);
+});
+test('reprovação em outra oportunidade não impede o aviso de encerramento', async () => {
+  const ctx = lifecycleContext();
+  ctx.db.opportunities[0].status = 'Closed';
+  ctx.db.candidates = [{ notifications: [{ type: 'rejected', opportunityId: 'b', to: 'candidate@example.test', status: 'sent' }] }];
+  assert.equal((await ctx.invoke('rejected')).status, 'sent');
+  assert.equal(ctx.sent.length, 1);
 });
