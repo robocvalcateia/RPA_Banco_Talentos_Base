@@ -372,6 +372,8 @@ function consultantCanAccessApi(pathname, method = '') {
   if (pathname === '/api/bootstrap') return method === 'GET';
   if (pathname === '/api/logout') return method === 'POST';
   if (pathname === '/api/change-password') return method === 'POST';
+  if (pathname === '/api/work-hours') return method === 'POST';
+  if (/^\/api\/work-hours\/[^/]+$/.test(pathname)) return method === 'PATCH';
   if (/^\/api\/status-reports(\/[^/]+)?$/.test(pathname)) {
     return ['GET', 'POST', 'PATCH'].includes(String(method || '').toUpperCase());
   }
@@ -3856,7 +3858,7 @@ async function handleApi(request, response) {
       return;
     }
     if (isConsultantUser(auth.user) && !consultantCanAccessApi(pathname, request.method)) {
-      sendError(response, 403, 'Perfil consultor tem acesso apenas ao modulo de Status Report.');
+      sendError(response, 403, 'Perfil consultor tem acesso apenas ao Status Report e aos próprios apontamentos de Billing.');
       return;
     }
 

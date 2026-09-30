@@ -175,11 +175,11 @@ test('status report mensal separa formulario, parametros e gestao', () => {
   assert.match(serverSource, /canUseExternalUserEmail/);
   assert.match(serverSource, /perfis Admin\/Gestao/);
   assert.match(serverSource, /consultantCanAccessApi/);
-  assert.match(serverSource, /Perfil consultor tem acesso apenas ao modulo de Status Report/);
+  assert.match(serverSource, /Perfil consultor tem acesso apenas ao Status Report e aos próprios apontamentos de Billing/);
   assert.match(serverSource, /canUserAccessStatusReport/);
   assert.match(appSource, /currentConsultantDraftReport/);
   assert.match(appSource, /statusReportBelongsToCurrentConsultant/);
-  assert.match(appSource, /Acesso restrito ao Status Report/);
+  assert.match(appSource, /Acesse os serviços disponíveis na sua tela inicial/);
   assert.match(indexSource, /textarea name="tasks" rows="5" required/);
   assert.match(indexSource, /textarea name="nextSteps" rows="5" required/);
   assert.match(indexSource, /textarea name="attentionPoints" rows="5" required/);

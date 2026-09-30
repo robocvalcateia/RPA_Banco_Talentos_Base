@@ -577,7 +577,7 @@ function activeAllocatedsForCurrentUser() {
 }
 
 function canCurrentUserAccessWorkHours() {
-  return isCurrentUserAdmin() || activeAllocatedsForCurrentUser().length > 0;
+  return isCurrentUserAdmin() || workHourAllocatedOptions().length > 0;
 }
 
 function canCurrentUserAccessStatusReports() {
@@ -586,7 +586,8 @@ function canCurrentUserAccessStatusReports() {
 
 function canAccessLauncherNode(node) {
   if (isCurrentUserConsultant()) {
-    return node === launcherNodes.statusReports || node?.panel === 'consultant';
+    return node === launcherNodes.statusReports || node?.panel === 'consultant'
+      || (node === launcherNodes.billingReportEntry && canCurrentUserAccessWorkHours());
   }
   if (node?.roles?.length) {
     const role = currentUserRole().toLowerCase();
@@ -601,7 +602,10 @@ function canAccessLauncherNode(node) {
 }
 
 function canAccessView(viewId) {
-  if (isCurrentUserConsultant()) return viewId === 'statusReports';
+  if (isCurrentUserConsultant()) {
+    return viewId === 'dashboard' || viewId === 'statusReports'
+      || (viewId === 'billingReport' && canCurrentUserAccessWorkHours());
+  }
   if (viewId === 'faturamento') return isCurrentUserAdmin();
   if (viewId === 'taxReformSimulator') return isCurrentUserAdmin();
   if (viewId === 'allocationPrices') return isCurrentUserAdmin();
@@ -616,11 +620,14 @@ function canAccessView(viewId) {
 }
 
 function applyRoleVisibility() {
+  $$('[data-admin-only]').forEach((element) => { element.hidden = !isCurrentUserAdmin(); });
   if (isCurrentUserConsultant()) {
     $$('[data-view], [data-nav-group]').forEach((element) => {
       const viewId = element.dataset.view;
       const statusPanel = element.dataset.statusPanel || '';
-      element.hidden = !(viewId === 'statusReports' && !statusPanel);
+      const billingEntry = viewId === 'billingReport' && element.dataset.billingPanel === 'entry'
+        && canCurrentUserAccessWorkHours();
+      element.hidden = !((viewId === 'statusReports' && !statusPanel) || billingEntry);
     });
     $$('[data-view="statusReports"]').forEach((element) => {
       element.hidden = Boolean(element.dataset.statusPanel);
@@ -879,7 +886,7 @@ async function refresh() {
   render();
   showApp();
   if (isCurrentUserConsultant()) {
-    showView('statusReports');
+    showView('dashboard');
   } else {
     applyInitialRoute();
   }
@@ -7129,7 +7136,7 @@ function renderTimesheetProjectMaintenance() {
 }
 
 function renderBillingReportPanels() {
-  const activePanel = ['query', 'entry', 'registrations'].includes(state.activeBillingReportPanel)
+  const activePanel = isCurrentUserConsultant() ? 'entry' : ['query', 'entry', 'registrations'].includes(state.activeBillingReportPanel)
     ? state.activeBillingReportPanel
     : 'query';
   state.activeBillingReportPanel = activePanel;
@@ -8491,8 +8498,8 @@ function setDashboardInsightsVisible(visible) {
 
 function showView(viewId) {
   if (!canAccessView(viewId)) {
-    toast(isCurrentUserConsultant() ? 'Acesso restrito ao Status Report.' : 'Acesso restrito a administradores.');
-    showView(isCurrentUserConsultant() ? 'statusReports' : 'dashboard');
+    toast(isCurrentUserConsultant() ? 'Acesse os serviços disponíveis na sua tela inicial.' : 'Acesso restrito a administradores.');
+    showView('dashboard');
     return;
   }
   state.activeView = viewId;
@@ -9256,6 +9263,9 @@ function createLauncherCard(nodeId, className) {
 function renderFavoriteCards() {
   const grid = $('#favoriteCards');
   if (!grid) return;
+  const zone = grid.closest('.favorites-zone');
+  if (zone) zone.hidden = isCurrentUserConsultant();
+  if (isCurrentUserConsultant()) { grid.replaceChildren(); return; }
 
   grid.replaceChildren();
   readLauncherFavoriteIds().forEach((favoriteId) => {
@@ -9350,8 +9360,30 @@ function renderLauncherBreadcrumb(nodeId) {
   });
 }
 
+function renderConsultantHome() {
+  const cards = $('#moduleDrillCards');
+  if (!cards) return;
+  $('#moduleWorkspaceTitle').textContent = 'Meus lançamentos';
+  $('#moduleWorkspaceSubtitle').textContent = 'Escolha o serviço que deseja utilizar.';
+  $('#moduleBackButton').hidden = true;
+  $('#moduleBreadcrumb').replaceChildren();
+  cards.replaceChildren();
+  const statusCard = createLauncherCard('statusReports', 'module-card');
+  statusCard.querySelector('strong').textContent = 'Status Report';
+  statusCard.querySelector('small').textContent = 'Preencher e enviar seu relatório mensal.';
+  const billingCard = createLauncherCard('billingReportEntry', 'module-card');
+  billingCard.querySelector('strong').textContent = 'Billing';
+  const billingEnabled = canCurrentUserAccessWorkHours();
+  billingCard.disabled = !billingEnabled;
+  billingCard.querySelector('small').textContent = billingEnabled
+    ? 'Lançar horas conforme a modalidade definida pelo cliente.'
+    : 'Indisponível: requer alocação ativa em cliente com Timesheet habilitado.';
+  cards.append(statusCard, billingCard);
+}
+
 function renderLauncherDrill(nodeId = launcherRootId) {
   setDashboardInsightsVisible(false);
+  if (isCurrentUserConsultant()) { renderConsultantHome(); return; }
   const node = launcherNodes[nodeId] || launcherNodes[launcherRootId];
   const title = $('#moduleWorkspaceTitle');
   const subtitle = $('#moduleWorkspaceSubtitle');
