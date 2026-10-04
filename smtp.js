@@ -157,6 +157,7 @@ export function getSmtpConfigFromEnv(env = process.env) {
 }
 
 export async function sendMail({ host, port, secure = false, user, password, from, to, subject, text, timeoutMs = DEFAULT_TIMEOUT_MS }) {
+  if (process.env.LOCAL_INTAKE_MODE === 'true') throw new Error('Envio de e-mails bloqueado no piloto LOCAL.');
   const recipients = parseRecipients(to);
   if (!recipients.length) {
     throw new Error('Nenhum destinatario SMTP informado.');

@@ -210,6 +210,7 @@ function applyInitialRoute() {
 }
 
 const viewTitles = {
+  opportunityIntake: 'Deals/Solicitações DTT',
   dashboard: 'Alcateia',
   clients: 'Clientes',
   billingReport: 'Billing Report',
@@ -8434,6 +8435,9 @@ function updateRecordObservationButtons() {
 }
 
 function render() {
+  document.querySelectorAll('[data-local-intake]').forEach(el => { el.hidden = !state.localIntakeEnabled; });
+  const intakeButton = document.getElementById('openIntake');
+  if (intakeButton) intakeButton.onclick = () => showView('opportunityIntake');
   applyRoleVisibility();
   renderFavoriteCards();
   renderFavoriteMaintenance();
@@ -8530,6 +8534,10 @@ function setDashboardInsightsVisible(visible) {
 }
 
 function showView(viewId) {
+  if (viewId === 'opportunityIntake') {
+    if (!state.localIntakeEnabled) { toast('Tela de solicitações DTT não disponível neste ambiente.'); return; }
+    window.OpportunityIntake.mount();
+  }
   if (!canAccessView(viewId)) {
     toast(isCurrentUserConsultant() ? 'Acesse os serviços disponíveis na sua tela inicial.' : 'Acesso restrito a administradores.');
     showView('dashboard');

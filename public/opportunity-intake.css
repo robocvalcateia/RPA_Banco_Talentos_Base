@@ -1,0 +1,34 @@
+[data-local-intake][hidden] { display: none !important; }
+#opportunityIntake { --intake-accent: #007d69; }
+#opportunityIntake .intake-banner { padding: 16px 20px; background: #e7f5f1; border-left: 5px solid var(--intake-accent); border-radius: 8px; margin-bottom: 18px; color: #174d42; }
+#opportunityIntake .intake-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+#opportunityIntake label { display: flex; flex-direction: column; gap: 7px; color: #334750; }
+#opportunityIntake input, #opportunityIntake textarea, #opportunityIntake select { width: 100%; min-width: 0; padding: 11px; border: 1px solid #bed2d5; border-radius: 7px; background: white; color: #162a30; font: inherit; }
+#opportunityIntake textarea { min-height: 95px; resize: vertical; }
+#opportunityIntake .intake-wide { grid-column: 1 / -1; }
+#opportunityIntake .intake-actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 18px 0; }
+#opportunityIntake button { padding: 10px 16px; border: 1px solid #aacac4; border-radius: 7px; background: #fff; color: #174d42; font: inherit; font-weight: 600; cursor: pointer; }
+#opportunityIntake button.primary-action { background: #007d69; color: #fff; border-color: #007d69; }
+#opportunityIntake button:disabled { opacity: .5; cursor: not-allowed; }
+#opportunityIntake button:focus-visible, #opportunityIntake summary:focus-visible { outline: 3px solid #008b75; outline-offset: 3px; }
+#opportunityIntake .intake-warning { background: #fff7e5; border: 1px solid #ead09a; padding: 14px 18px; border-radius: 8px; color: #68430e; }
+#opportunityIntake .intake-warning:empty { display: none; }
+#opportunityIntake .intake-error { color: #a52626; font-weight: 600; }
+#opportunityIntake pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; line-height: 1.55; background: #f6f9fa; padding: 18px; border-radius: 8px; max-height: 440px; overflow: auto; }
+#opportunityIntake .intake-candidate { border: 1px solid #c9dddd; border-radius: 10px; padding: 18px; margin: 12px 0; }
+#opportunityIntake .intake-candidate.selected { border: 2px solid var(--intake-accent); background: #f2fbf8; }
+#opportunityIntake .intake-candidate h3 { margin: 0; }
+#opportunityIntake .intake-candidate ul { padding-left: 22px; line-height: 1.55; }
+#opportunityIntake .intake-candidate button[aria-pressed=true] { background: #007d69; color: white; }
+#opportunityIntake .intake-check { flex-direction: row; align-items: flex-start; }
+#opportunityIntake .intake-check input { width: auto; margin-top: 5px; }
+#opportunityIntake fieldset { border: 0; margin: 0; padding: 0; }
+#opportunityIntake .intake-status { min-height: 24px; margin-top: 12px; }
+#opportunityIntake .intake-analysis { margin: 14px 0; padding: 14px; background: #f2faf7; border: 1px solid #bedbd2; border-radius: 8px; line-height: 1.5; }
+#opportunityIntake .intake-analysis a { color: #006c58; }
+#opportunityIntake .intake-comparison { overflow-x: auto; margin: 12px 0; }
+#opportunityIntake .intake-comparison table { width: 100%; min-width: 620px; table-layout: fixed; border-collapse: collapse; }
+#opportunityIntake .intake-comparison th, #opportunityIntake .intake-comparison td { text-align: left; vertical-align: top; white-space: normal; overflow-wrap: anywhere; padding: 12px; border-bottom: 1px solid #cadcd6; }
+#opportunityIntake input[readonly] { background: #edf4f2; color: #395c51; }
+@media (max-width: 1000px) { #opportunityIntake .intake-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 640px) { #opportunityIntake .intake-grid { grid-template-columns: 1fr; } }

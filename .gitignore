@@ -6,3 +6,5 @@ public/uploads/
 *.log
 .DS_Store
 Thumbs.db
+
+data/intake-local/

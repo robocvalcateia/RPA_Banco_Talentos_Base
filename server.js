@@ -1,5 +1,20 @@
 import { writeEmailLog, readEmailLogs, lifecycleLog, legacyEmailLogs, queryEmailLogs, receivedMessageLog } from './email-logs.js';
 import http from 'node:http';
+import { createIntakeStore } from './opportunity-intake.js';
+import { createMongoIntakeAdapter } from './intake-mongo.js';
+import { createHourlyIntake, DTT_MAILBOX, HOUR_MS } from './intake-hourly.js';
+import { getMongoTalentosCollection, mongoCandidateToCurriculum } from './mongo_talentos.js';
+import { DATA_FILE } from './db.js';
+const productionIntake = process.env.LOCAL_INTAKE_MODE !== 'true' && Boolean(process.env.MONGODB_URL || process.env.MONGODB_URI);
+const intakeAdapter = productionIntake ? createMongoIntakeAdapter({loadTalent:async()=> (await (await getMongoTalentosCollection()).find({}, {projection:{arquivo_base64:0,base64:0}}).toArray()).map(mongoCandidateToCurriculum)}) : undefined;
+const intakeStore = createIntakeStore(DATA_FILE, productionIntake ? {adapter:intakeAdapter,simulated:false,baseUrl:process.env.APP_BASE_URL || process.env.RENDER_EXTERNAL_URL || 'https://rpa-banco-talentos-5v5r.onrender.com'} : {});
+const dttHourly = createHourlyIntake({ store:intakeStore, getToken:getGraphAccessTokenForDiagnostics, send:async message=>{
+  const smtp=getSmtpConfigFromEnv(); if(!smtp.host || !smtp.user || !smtp.password || !smtp.from)throw Error('SMTP não configurado.');
+  await sendMail({...smtp,...message});
+},log:writeEmailLog });
+async function runDttHourlyIfEnabled() {
+  if(productionIntake && (await intakeStore.schedulerStatus())?.enabled) return dttHourly.run();
+}
 import { summarizeCandidateEmails, summarizeSentMessages } from './email-diagnostics.js';
 import { CvSearchJobs, uniqueApproved, recommendedCandidates, APPROVED_TARGET } from './cv-search-jobs.js';
 const cvSearchJobs = new CvSearchJobs();
@@ -3746,6 +3761,17 @@ async function handleApi(request, response) {
     : route.pathname;
 
   try {
+    // Local pilot is fail-closed: only intake writes and session operations are enabled.
+    if (process.env.LOCAL_INTAKE_MODE === 'true') {
+      const allowed = ['/api/health', '/api/login', '/api/logout', '/api/change-password', '/api/bootstrap', '/api/intake/config'];
+      const intakeWrite = request.method === 'POST' && /^\/api\/intake\/(receive|[a-f0-9-]+\/(review|select|confirm|cancel))$/.test(pathname);
+      const intakeRead = request.method === 'GET' && /^\/api\/intake\/(drafts|notifications|[a-f0-9-]+)$/.test(pathname);
+      const cvRead = request.method === 'GET' && /^\/api\/curriculums\/[^/]+$/.test(pathname);
+      if (!allowed.includes(pathname) && !intakeWrite && !intakeRead && !cvRead) {
+        sendError(response, 403, 'Piloto LOCAL: esta operação está desativada. Use a revisão de solicitações DTT.');
+        return;
+      }
+    }
     if (request.method === 'GET' && pathname === '/api/health') {
       sendJson(response, 200, {
         ok: true,
@@ -3867,6 +3893,65 @@ async function handleApi(request, response) {
 
     const auth = await authenticateRequest(request, response);
     if (!auth) return;
+
+    if (pathname.startsWith('/api/intake/')) {
+      if (pathname === '/api/intake/config' && request.method === 'GET') {
+        sendJson(response, 200, { enabled: (productionIntake || process.env.LOCAL_INTAKE_MODE === 'true') && !isConsultantUser(auth.user) });
+        return;
+      }
+      if (!productionIntake && process.env.LOCAL_INTAKE_MODE !== 'true') { sendError(response, 404, 'Solicitações DTT não configuradas.'); return; }
+      if (isConsultantUser(auth.user) || auth.user.mustChangePassword) { sendError(response, 403, 'Acesso restrito à equipe interna.'); return; }
+      if (pathname === '/api/intake/scheduler' && request.method === 'GET') {
+        if(requireAdmin(response,auth.user,'Apenas ADMIN pode consultar a rotina.'))return;
+        sendJson(response,200,{production:productionIntake,intervalMinutes:60,mailbox:DTT_MAILBOX,runtime:await intakeStore.schedulerStatus()});return;
+      }
+      if (pathname === '/api/intake/preflight' && request.method === 'GET') {
+        if(requireAdmin(response,auth.user,'Apenas ADMIN pode verificar a integração.'))return;
+        const token=await getGraphAccessTokenForDiagnostics();
+        const res=await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(DTT_MAILBOX)}/messages?$top=1&$select=id`,{headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(30000)});
+        const smtp=getSmtpConfigFromEnv();
+        sendJson(response,200,{mailbox:DTT_MAILBOX,mailboxAccessible:res.ok,graphStatus:res.status,smtpConfigured:Boolean(smtp.host&&smtp.user&&smtp.password&&smtp.from),production:productionIntake});return;
+      }
+      if (pathname === '/api/intake/activate' && request.method === 'POST') {
+        if(requireAdmin(response,auth.user,'Apenas ADMIN pode ativar a rotina.'))return;
+        if(!productionIntake) {sendError(response,422,'Ativação real disponível somente com banco de produção.');return;}
+        const token=await getGraphAccessTokenForDiagnostics();
+        const check=await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(DTT_MAILBOX)}/messages?$top=1&$select=id`,{headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(30000)});
+        if(!check.ok){sendError(response,422,`Graph não permite ler a caixa do Gerson: HTTP ${check.status}.`);return;}
+        const smtp=getSmtpConfigFromEnv();if(!smtp.host||!smtp.user||!smtp.password||!smtp.from){sendError(response,422,'SMTP não configurado.');return;}
+        const runtime=await intakeStore.activate(new Date().toISOString(),auth.user);
+        sendJson(response,200,{enabled:true,intervalMinutes:60,runtime});
+        runDttHourlyIfEnabled().catch(error=>console.error('Rotina DTT:',error.message));return;
+      }
+      if (pathname === '/api/intake/drafts' && request.method === 'GET') {
+        sendJson(response, 200, { drafts: await intakeStore.list() }); return;
+      }
+      if (pathname === '/api/intake/notifications' && request.method === 'GET') {
+        if (requireAdmin(response, auth.user, 'Apenas ADMIN pode consultar prévias de envio.')) return;
+        sendJson(response, 200, { notifications: await intakeStore.notifications(), simulated: !productionIntake }); return;
+      }
+      if (/^\/api\/intake\/[a-f0-9-]+$/.test(pathname) && request.method === 'GET') {
+        sendJson(response, 200, await intakeStore.get(pathname.split('/').at(-1))); return;
+      }
+      if (request.method !== 'POST') { sendError(response, 405, 'Método não permitido.'); return; }
+      const payload = await readJsonBody(request);
+      if (pathname === '/api/intake/receive') {
+        if(productionIntake){sendError(response,403,'Recebimento manual de teste indisponível em produção.');return;}
+        if (requireAdmin(response, auth.user, 'Apenas ADMIN pode simular o recebimento.')) return;
+        sendJson(response, 200, await intakeStore.receive(payload, auth.user)); return;
+      }
+      const match = pathname.match(/^\/api\/intake\/([a-f0-9-]+)\/(review|select|confirm|cancel)$/);
+      if (!match) { sendError(response, 404, 'Solicitação não encontrada.'); return; }
+      const [, id, action] = match;
+      const result = action === 'review'
+        ? await intakeStore.review(id, payload.fields, payload.revision, auth.user)
+        : action === 'select'
+          ? await intakeStore.select(id, payload.revision, payload.selectedIds, auth.user)
+        : action === 'confirm'
+          ? await intakeStore.confirm(id, payload.revision, payload.selectedIds, auth.user, payload.acknowledged)
+          : await intakeStore.cancel(id, payload.revision, auth.user);
+      sendJson(response, 200, result); return;
+    }
 
     const canAccessBeforePasswordChange = pathname === '/api/change-password' || pathname === '/api/logout';
     if (auth.user.mustChangePassword && !canAccessBeforePasswordChange) {
@@ -4056,7 +4141,9 @@ async function handleApi(request, response) {
       auth.user.passwordHash = hashPassword(newPassword);
       auth.user.mustChangePassword = false;
       auth.user.passwordChangedAt = toISODate();
-      await withTimeout(writeUserRecord(auth.user), 10000, 'Tempo esgotado ao gravar nova senha.');
+      await withTimeout(process.env.LOCAL_INTAKE_MODE === 'true'
+        ? intakeStore.changePassword(auth.user.id, previousPasswordHash, auth.user.passwordHash)
+        : writeUserRecord(auth.user), 10000, 'Tempo esgotado ao gravar nova senha.');
 
       sendJson(response, 200, {
         user: sanitizeUser(auth.user)
@@ -4470,6 +4557,7 @@ async function handleApi(request, response) {
         candidatePoolStatuses: CANDIDATE_POOL_STATUSES,
         candidatePoolSkillFields: CANDIDATE_POOL_SKILL_FIELDS,
         opportunityModels: OPPORTUNITY_MODELS,
+        localIntakeEnabled: (productionIntake || process.env.LOCAL_INTAKE_MODE === 'true') && !consultantOnly,
         opportunityStatuses: OPPORTUNITY_STATUSES,
         opportunityContractTypes: OPPORTUNITY_CONTRACT_TYPES,
         opportunityWorkModels: OPPORTUNITY_WORK_MODELS,
@@ -7468,11 +7556,21 @@ const server = http.createServer((request, response) => {
 });
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  await syncAllocatedConsultantUsersOnStartup();
-  server.listen(PORT, () => {
+  const localIntake = process.env.LOCAL_INTAKE_MODE === 'true';
+  if (localIntake && (isProductionRuntime() || process.env.MONGODB_URL || process.env.MONGODB_URI || process.env.GRAPH_CLIENT_SECRET || process.env.SMTP_PASSWORD)) throw new Error('Piloto LOCAL não permite credenciais de integração ou ambiente de produção. Use npm run dev:intake.');
+  if (localIntake) console.log('Atualização do piloto:', await intakeStore.upgradePending());
+  if (!localIntake) await syncAllocatedConsultantUsersOnStartup();
+  server.listen(PORT, localIntake ? '127.0.0.1' : undefined, () => {
+    if (!localIntake) {
     startFormRequestReminderJob();
     startStatusReportReminderJob();
     startScheduledInboxEmailProcessingJob();
+    if(productionIntake){
+      const tick=()=>runDttHourlyIfEnabled().catch(error=>console.error('Rotina DTT:',error.message));
+      // Check due time each minute; the persistent lease permits inbox reads only hourly.
+      tick(); setInterval(tick,60000).unref();
+    }
+    }
     console.log(`Gestão do Negócio Alcateia MVP em http://localhost:${PORT}`);
   });
 }

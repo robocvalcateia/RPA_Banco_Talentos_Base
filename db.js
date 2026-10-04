@@ -1,11 +1,11 @@
-﻿import { promises as fs } from 'node:fs';
+import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { sanitizeUnicodeValue } from './text-utils.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const DATA_FILE = path.join(__dirname, 'data', 'database.json');
+export const DATA_FILE = path.join(__dirname, 'data', ...(process.env.LOCAL_INTAKE_MODE === 'true' ? ['intake-local'] : []), 'database.json');
 
 export const CANDIDATE_STAGES = [
   'Triagem',

@@ -8,6 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/styles.css?v=20260925-candidate-rejection" />
+      <link rel="stylesheet" href="/opportunity-intake.css?v=20261004" />
   </head>
   <body class="auth-locked">
     <section class="auth-screen" id="authScreen">
@@ -88,7 +89,7 @@
           </button>
           <div class="nav-submenu" data-nav-submenu="deals" hidden>
             <button class="nav-item nav-subitem" data-view="opportunities" data-parent-group="deals">Oportunidades</button>
-            <button class="nav-item nav-subitem" data-view="cvFilters" data-parent-group="deals">Filtro de CVs</button>
+            <button class="nav-item nav-subitem" data-view="opportunityIntake" data-parent-group="deals" data-local-intake hidden>Solicitações DTT</button><button class="nav-item nav-subitem" data-view="cvFilters" data-parent-group="deals">Filtro de CVs</button>
             <button class="nav-item nav-subitem" data-view="selectedCandidates" data-parent-group="deals">Candidatos Selecionados</button>
             <button class="nav-item nav-subitem" data-view="candidates" data-parent-group="deals">Candidatos Entrevistados</button>
           </div>
@@ -770,6 +771,7 @@
       </section>
 
       <section class="view" id="opportunities">
+<section class="panel" data-local-intake hidden><h2>Solicitações recebidas por e-mail</h2><p>Revise a vaga e os candidatos antes de cadastrar a oportunidade.</p><button class="primary-action" type="button" id="openIntake">Revisar solicitação DTT</button></section>
         <section class="panel">
           <div class="panel-heading">
             <h2>Cadastrar oportunidade</h2>
@@ -2061,6 +2063,7 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="/vendor/fflate.js"></script>
     <script src="/email-logs.js?v=20260925-email-log"></script>
-    <script src="/app.js?v=20260930-rejection-confirm"></script>
+    <script src="/opportunity-intake.js?v=20261004"></script>
+    <script src="/app.js?v=20261004-dtt-hourly"></script>
   </body>
 </html>
