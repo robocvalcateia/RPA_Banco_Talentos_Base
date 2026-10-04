@@ -3,7 +3,7 @@ const readCollections = ['clients','users','opportunities','selectedCandidates',
 const writeCollections = ['opportunities','selectedCandidates','candidateMovements','opportunityIntakes','intakeNotifications','intakeRuntime'];
 const clean = ({_id,...row}) => row;
 // This adapter never replaces an entire collection or deletes unrelated records.
-export function createMongoIntakeAdapter({ env=process.env, loadTalent }) {
+export function createMongoIntakeAdapter({ env=process.env, loadTalent, searchCandidates }) {
   let connection;
   async function connect() {
     if (!connection) connection=(async()=>{
@@ -23,7 +23,7 @@ export function createMongoIntakeAdapter({ env=process.env, loadTalent }) {
     for(const name of readCollections) state[name]=(await collection(name).find({},{session}).toArray()).map(clean);
     const results=(await collection('intakeSearchResults').find({},{session}).toArray()).map(clean);
     for(const draft of state.opportunityIntakes) if(draft.search) draft.search.candidates=results.filter(r=>r.draftId===draft.id).sort((a,b)=>a.position-b.position).map(r=>r.candidate);
-    state.curriculums=await loadTalent();
+    state.curriculums=await loadTalent([...new Set(results.map(r=>String(r.candidate.id)))]);
     return state;
   }
   function documents(state) {
@@ -37,6 +37,7 @@ export function createMongoIntakeAdapter({ env=process.env, loadTalent }) {
     return output;
   }
   return {
+    searchCandidates,
     async readRuntime(){const {collection}=await connect();const row=await collection('intakeRuntime').findOne({id:'hourly'});return row?clean(row):null;},
     async read(){const {collection}=await connect();return snapshot(collection);},
     async transaction(operation){

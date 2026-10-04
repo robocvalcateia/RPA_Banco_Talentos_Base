@@ -127,12 +127,13 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
     return run;
   };
   const find = (db, id) => db.opportunityIntakes.find(d => d.id === id) || fail('Solicitação não encontrada.', 404);
-  const prepareSearch = (db, draft) => {
-    const candidates = matchIntakeCandidates(db.curriculums || [], draft.fields);
+  const prepareSearch = async (db, draft, prepared) => {
+    const search = prepared || (adapter?.searchCandidates ? await adapter.searchCandidates(draft.fields) : {candidates:matchIntakeCandidates(db.curriculums || [], draft.fields),totalEvaluated:(db.curriculums || []).length});
+    const {candidates} = search;
     const valid = new Set(candidates.filter(c => !c.blocked).map(c => c.id));
     const removedIds = (draft.selectedIds || []).filter(id => !valid.has(id));
     draft.selectedIds = (draft.selectedIds || []).filter(id => valid.has(id));
-    draft.search = { version: INTAKE_MATCH_VERSION, candidates, totalEvaluated: (db.curriculums || []).length, searchedAt: new Date().toISOString(), fieldsHash: hash(JSON.stringify(draft.fields)) };
+    draft.search = { version: INTAKE_MATCH_VERSION, candidates, totalEvaluated: search.totalEvaluated, searchedAt: new Date().toISOString(), fieldsHash: hash(JSON.stringify(draft.fields)) };
     return removedIds;
   };
   const view = (db, draft) => ({
@@ -201,7 +202,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
       });
     },
     upgradePending() {
-      return transaction(db => {
+      return transaction(async db => {
         let updated = 0;
         for (const draft of db.opportunityIntakes.filter(d => d.status === 'pending' && (d.search?.version !== INTAKE_MATCH_VERSION || !d.subjectLabelVersion))) {
           const before = draft.fields;
@@ -210,7 +211,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
           draft.subjectLabelVersion = 1;
           draft.seniorityAssessment = applySeniority(draft.fields, draft.seniorityAssessment, before);
           draft.email.sender = INTAKE_SENDER;
-          const removedIds = prepareSearch(db, draft);
+          const removedIds = await prepareSearch(db, draft);
           draft.revision++;
           draft.audit.push({ action: 'matching_rules_updated', version: INTAKE_MATCH_VERSION, at: new Date().toISOString(), removedIds });
           updated++;
@@ -234,11 +235,11 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
     async receive(email, user) {
       if (!String(email.subject || '').trim()) fail('O recebimento exige assunto no padrão SOLICITAÇÃO DE COTAÇÃO -.');
       const result = await this.create(email, user);
-      return transaction(db => {
+      return transaction(async db => {
         const draft = find(db, result.draft.id);
         db.intakeNotifications ||= [];
         // Resends never overwrite another review or generate another invitation.
-        if (draft.status === 'pending' && !draft.search) prepareSearch(db, draft);
+        if (draft.status === 'pending' && !draft.search) await prepareSearch(db, draft);
         if (draft.status === 'pending' && !draft.receivedAt) {
           const recipients = ['gerson@alcateiaconsulting.com.br', 'bruno@alcateiaconsulting.com.br'].map(address => {
             const account = (db.users || []).find(u => norm(u.email) === address && u.active !== false);
@@ -262,8 +263,16 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
         return { ...view(db, draft), duplicate: result.duplicate, changed: result.changed || false, notifications: db.intakeNotifications.filter(n => n.draftId === draft.id), simulated };
       });
     },
-    create(email, user) {
-      return transaction(db => {
+    async create(email, user) {
+      let prepared;
+      if (adapter?.searchCandidates) {
+        const snapshot = await read();
+        const fields = cleanIntakeFields(extractIntake(email));
+        const existing = (snapshot.opportunityIntakes || []).find(d => (email.messageId && d.emailKey === emailKey(email)) || (fields.requestId && requestNumber(d.fields.requestId) === requestNumber(fields.requestId)));
+        // Search before starting the Mongo transaction; deduplication is checked again inside.
+        if (!existing && !duplicateOpportunity(snapshot, {clientId:dttClient(snapshot).id}, fields)) prepared = await adapter.searchCandidates(fields);
+      }
+      return transaction(async db => {
         if (norm(email.mailbox) !== 'gerson@alcateiaconsulting.com.br' || norm(email.sender) !== 'poolterceiros@deloitte.com') fail('Caixa ou remetente fora da regra DTT.');
         if (email.subject && !/^(?:(?:re|fw|fwd|enc):\s*)*solicitacao de cotacao\s*[-–—]/i.test(norm(email.subject))) fail('Assunto fora da regra SOLICITAÇÃO DE COTAÇÃO -.');
         if (!String(email.body || '').trim() || String(email.body).length > 100000) fail('Informe o corpo do e-mail (até 100 mil caracteres).');
@@ -278,7 +287,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
         const draft = { id: randomUUID(), clientId: client.id, clientName: client.customerName || client.name, emailKey: key, bodyHash, email: { mailbox: email.mailbox, sender: INTAKE_SENDER, subject: String(email.subject || ''), messageId: String(email.messageId || ''), body: email.body }, fields, seniorityAssessment: extracted.seniorityAssessment, status: 'pending', subjectLabelVersion: 1, revision: 1, selectedIds: [], createdAt: new Date().toISOString(), createdBy: user.id, audit: [] };
         const duplicate = duplicateOpportunity(db, draft, fields);
         if (duplicate) { draft.status = 'duplicate'; draft.opportunityId = duplicate.id; }
-        if (draft.status === 'pending') prepareSearch(db, draft);
+        if (draft.status === 'pending') await prepareSearch(db, draft, prepared);
         db.opportunityIntakes.push(draft);
         return { draft, duplicate: !!duplicate, warnings: intakeWarnings(fields) };
       });

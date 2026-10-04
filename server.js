@@ -3,10 +3,10 @@ import http from 'node:http';
 import { createIntakeStore } from './opportunity-intake.js';
 import { createMongoIntakeAdapter } from './intake-mongo.js';
 import { createHourlyIntake, DTT_MAILBOX, HOUR_MS } from './intake-hourly.js';
-import { getMongoTalentosCollection, mongoCandidateToCurriculum } from './mongo_talentos.js';
+import { createIntakeTalentReader } from './intake-talent.js';
 import { DATA_FILE } from './db.js';
 const productionIntake = process.env.LOCAL_INTAKE_MODE !== 'true' && Boolean(process.env.MONGODB_URL || process.env.MONGODB_URI);
-const intakeAdapter = productionIntake ? createMongoIntakeAdapter({loadTalent:async()=> (await (await getMongoTalentosCollection()).find({}, {projection:{arquivo_base64:0,base64:0}}).toArray()).map(mongoCandidateToCurriculum)}) : undefined;
+const intakeAdapter = productionIntake ? createMongoIntakeAdapter(createIntakeTalentReader()) : undefined;
 const intakeStore = createIntakeStore(DATA_FILE, productionIntake ? {adapter:intakeAdapter,simulated:false,baseUrl:process.env.APP_BASE_URL || process.env.RENDER_EXTERNAL_URL || 'https://rpa-banco-talentos-5v5r.onrender.com'} : {});
 const dttHourly = createHourlyIntake({ store:intakeStore, getToken:getGraphAccessTokenForDiagnostics, send:async message=>{
   const smtp=getSmtpConfigFromEnv(); if(!smtp.host || !smtp.user || !smtp.password || !smtp.from)throw Error('SMTP não configurado.');
