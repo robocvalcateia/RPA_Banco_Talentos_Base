@@ -62,3 +62,13 @@ test('no historical import before activation; simulated run never calls real tra
   const f=await fixture(t);f.setTime('2026-10-04T13:00:00.000Z');const r=await createHourlyIntake({...f.options,simulated:true}).run();
   assert.equal(r.received,0);assert.equal(f.sent.length,0);
 });
+
+test('admin recovery only retries failed enabled cycles, preserving the checkpoint and preventing duplicate schedules',async t=>{
+  const f=await fixture(t);await f.store.activate('2026-10-04T11:00:00.000Z',user);
+  await createHourlyIntake({...f.options,getToken:async()=>{throw Error('Temporary failure');}}).run();
+  const before=await f.store.schedulerStatus();await f.store.retryFailedCycle();
+  await assert.rejects(f.store.retryFailedCycle(),/Somente/);
+  assert.equal((await f.store.schedulerStatus()).checkpoint,before.checkpoint);
+  const result=await createHourlyIntake(f.options).run();assert.equal(result.received,1);assert.equal(result.sent,2);
+  await assert.rejects(f.store.retryFailedCycle(),/Somente/);
+});

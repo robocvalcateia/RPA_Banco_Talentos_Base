@@ -131,7 +131,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20261007-dtt-batch-write';
+const APP_VERSION = '20261007-dtt-retry-diagnostics';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -3904,6 +3904,13 @@ async function handleApi(request, response) {
       if (pathname === '/api/intake/scheduler' && request.method === 'GET') {
         if(requireAdmin(response,auth.user,'Apenas ADMIN pode consultar a rotina.'))return;
         sendJson(response,200,{production:productionIntake,intervalMinutes:60,mailbox:DTT_MAILBOX,runtime:await intakeStore.schedulerStatus()});return;
+      }
+      if (pathname === '/api/intake/retry' && request.method === 'POST') {
+        if(requireAdmin(response,auth.user,'Apenas ADMIN pode retomar a rotina.'))return;
+        if(!productionIntake){sendError(response,422,'Retomada disponível somente em produção.');return;}
+        const runtime=await intakeStore.retryFailedCycle();
+        sendJson(response,200,{scheduled:true,runtime});
+        runDttHourlyIfEnabled().catch(error=>console.error('Rotina DTT:',error.message));return;
       }
       if (pathname === '/api/intake/preflight' && request.method === 'GET') {
         if(requireAdmin(response,auth.user,'Apenas ADMIN pode verificar a integração.'))return;

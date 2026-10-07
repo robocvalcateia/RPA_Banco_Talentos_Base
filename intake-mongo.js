@@ -41,12 +41,16 @@ export function createMongoIntakeAdapter({ env=process.env, loadTalent, searchCa
     async readRuntime(){const {collection}=await connect();const row=await collection('intakeRuntime').findOne({id:'hourly'});return row?clean(row):null;},
     async read(){const {collection}=await connect();return snapshot(collection);},
     async transaction(operation){
-      const {client,collection}=await connect();const session=client.startSession();let result,phase='lock';
+      const {client,collection}=await connect();const session=client.startSession();let result,phase='lock',timings={};
       try {await session.withTransaction(async()=>{
+        const started=Date.now();timings={};phase='lock';
         // All DTT writes acquire the same transactional document before reading.
         await collection('intakeLocks').updateOne({_id:'transactions'},{$inc:{version:1}},{session});
+        timings.lock=Date.now()-started;
         phase='snapshot';const state=await snapshot(collection,session), before=documents(state);
-        phase='operation';result=await operation(state);const after=documents(state);
+        timings.snapshot=Date.now()-started;
+        phase='operation';result=await operation(state);timings.operation=Date.now()-started;const after=documents(state);
+        timings.documents=Date.now()-started;
         for(const [name,rows] of Object.entries(after)) {
           const old=new Map(before[name].map(row=>[row.id,JSON.stringify(row)]));
           // Bound network round trips without parallel commands on one session.
@@ -64,7 +68,7 @@ export function createMongoIntakeAdapter({ env=process.env, loadTalent, searchCa
         }
         phase='commit';
       },{readConcern:{level:'snapshot'},writeConcern:{w:'majority'}});return result;
-      }catch(error){error.message=`DTT Mongo [${phase}]: ${error.message}`;throw error;}
+      }catch(error){error.message=`DTT Mongo [${phase}; ms=${JSON.stringify(timings)}]: ${error.message}`;throw error;}
       finally{await session.endSession();}
     }
   };

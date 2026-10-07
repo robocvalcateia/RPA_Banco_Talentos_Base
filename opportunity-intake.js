@@ -162,6 +162,14 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
       });
     },
     schedulerStatus() { return adapter?.readRuntime ? adapter.readRuntime() : read().then(db => (db.intakeRuntime || []).find(r => r.id === 'hourly') || null); },
+    retryFailedCycle() {
+      return transaction(db => {
+        const runtime=(db.intakeRuntime || []).find(r=>r.id==='hourly');
+        if(!runtime?.enabled || runtime.status!=='error') fail('Somente uma execução encerrada com erro pode ser retomada.',409);
+        runtime.status='retry_scheduled';runtime.leaseUntil=null;delete runtime.lastStartedAt;
+        return runtime;
+      });
+    },
     claimCycle(now, owner, startAt) {
       return transaction(db => {
         db.intakeRuntime ||= [];
