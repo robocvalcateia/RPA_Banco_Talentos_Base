@@ -3,13 +3,13 @@ const readCollections = ['clients','users','opportunities','selectedCandidates',
 const writeCollections = ['opportunities','selectedCandidates','candidateMovements','opportunityIntakes','intakeNotifications','intakeRuntime'];
 const clean = ({_id,...row}) => row;
 // This adapter never replaces an entire collection or deletes unrelated records.
-export function createMongoIntakeAdapter({ env=process.env, loadTalent, searchCandidates }) {
+export function createMongoIntakeAdapter({ env=process.env, loadTalent, searchCandidates, clientFactory=url=>new MongoClient(url,{serverSelectionTimeoutMS:10000}) }) {
   let connection;
   async function connect() {
     if (!connection) connection=(async()=>{
       const url=env.MONGODB_URL || env.MONGODB_URI;
       if(!url)throw Error('MongoDB obrigatório para solicitações DTT em produção.');
-      const client=await new MongoClient(url,{serverSelectionTimeoutMS:10000}).connect();
+      const client=await clientFactory(url).connect();
       const db=client.db(env.MONGODB_DB || 'Banco_de_Talentos'); const prefix=env.MONGODB_APP_COLLECTION_PREFIX || '';
       const collection=name=>db.collection(prefix+name);
       for(const name of ['opportunityIntakes','intakeNotifications','intakeRuntime','intakeSearchResults'])await collection(name).createIndex({id:1},{unique:true});
@@ -41,21 +41,31 @@ export function createMongoIntakeAdapter({ env=process.env, loadTalent, searchCa
     async readRuntime(){const {collection}=await connect();const row=await collection('intakeRuntime').findOne({id:'hourly'});return row?clean(row):null;},
     async read(){const {collection}=await connect();return snapshot(collection);},
     async transaction(operation){
-      const {client,collection}=await connect();const session=client.startSession();let result;
+      const {client,collection}=await connect();const session=client.startSession();let result,phase='lock';
       try {await session.withTransaction(async()=>{
         // All DTT writes acquire the same transactional document before reading.
         await collection('intakeLocks').updateOne({_id:'transactions'},{$inc:{version:1}},{session});
-        const state=await snapshot(collection,session), before=documents(state);
-        result=await operation(state);const after=documents(state);
+        phase='snapshot';const state=await snapshot(collection,session), before=documents(state);
+        phase='operation';result=await operation(state);const after=documents(state);
         for(const [name,rows] of Object.entries(after)) {
           const old=new Map(before[name].map(row=>[row.id,JSON.stringify(row)]));
-          for(const row of rows)if(old.get(row.id)!==JSON.stringify(row))await collection(name).replaceOne({id:row.id},row,{upsert:true,session});
+          // Bound network round trips without parallel commands on one session.
+          // All batches still belong to the same atomic transaction.
+          phase=`write:${name}`;let batch=[];
+          for(const row of rows)if(old.get(row.id)!==JSON.stringify(row)) {
+            batch.push({replaceOne:{filter:{id:row.id},replacement:row,upsert:true}});
+            if(batch.length===100){await collection(name).bulkWrite(batch,{ordered:true,session});batch=[];}
+          }
+          if(batch.length)await collection(name).bulkWrite(batch,{ordered:true,session});
           if(name==='intakeSearchResults'){
             const ids=new Set(rows.map(row=>row.id));const removed=before[name].filter(row=>!ids.has(row.id)).map(row=>row.id);
             if(removed.length)await collection(name).deleteMany({id:{$in:removed}},{session});
           }
         }
-      },{readConcern:{level:'snapshot'},writeConcern:{w:'majority'}});return result;}finally{await session.endSession();}
+        phase='commit';
+      },{readConcern:{level:'snapshot'},writeConcern:{w:'majority'}});return result;
+      }catch(error){error.message=`DTT Mongo [${phase}]: ${error.message}`;throw error;}
+      finally{await session.endSession();}
     }
   };
 }
