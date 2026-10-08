@@ -128,7 +128,8 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
   };
   const find = (db, id) => db.opportunityIntakes.find(d => d.id === id) || fail('Solicitação não encontrada.', 404);
   const prepareSearch = async (db, draft, prepared) => {
-    const search = prepared || (adapter?.searchCandidates ? await adapter.searchCandidates(draft.fields) : {candidates:matchIntakeCandidates(db.curriculums || [], draft.fields),totalEvaluated:(db.curriculums || []).length});
+    if(adapter?.searchCandidates && !prepared) fail('Pesquisa deve ser preparada antes da transação.',409);
+    const search = prepared || {candidates:matchIntakeCandidates(db.curriculums || [], draft.fields),totalEvaluated:(db.curriculums || []).length};
     const {candidates} = search;
     const valid = new Set(candidates.filter(c => !c.blocked).map(c => c.id));
     const removedIds = (draft.selectedIds || []).filter(id => !valid.has(id));
@@ -243,11 +244,17 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
     async receive(email, user) {
       if (!String(email.subject || '').trim()) fail('O recebimento exige assunto no padrão SOLICITAÇÃO DE COTAÇÃO -.');
       const result = await this.create(email, user);
+      const searchFieldsHash=hash(JSON.stringify(result.draft.fields));
+      const recoveredSearch=adapter?.searchCandidates && result.draft.status==='pending' && !result.draft.search
+        ? await adapter.searchCandidates(result.draft.fields) : undefined;
       return transaction(async db => {
         const draft = find(db, result.draft.id);
         db.intakeNotifications ||= [];
         // Resends never overwrite another review or generate another invitation.
-        if (draft.status === 'pending' && !draft.search) await prepareSearch(db, draft);
+        if (draft.status === 'pending' && !draft.search) {
+          if(recoveredSearch && hash(JSON.stringify(draft.fields))!==searchFieldsHash) fail('Solicitação alterada durante a pesquisa; tente novamente.',409);
+          await prepareSearch(db, draft, recoveredSearch);
+        }
         if (draft.status === 'pending' && !draft.receivedAt) {
           const recipients = ['gerson@alcateiaconsulting.com.br', 'bruno@alcateiaconsulting.com.br'].map(address => {
             const account = (db.users || []).find(u => norm(u.email) === address && u.active !== false);
@@ -272,10 +279,11 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
       });
     },
     async create(email, user) {
+      const extracted=extractIntake(email), fields=cleanIntakeFields(extracted);
+      const key=emailKey(email), bodyHash=fingerprint(email);
       let prepared;
       if (adapter?.searchCandidates) {
         const snapshot = await read();
-        const fields = cleanIntakeFields(extractIntake(email));
         const existing = (snapshot.opportunityIntakes || []).find(d => (email.messageId && d.emailKey === emailKey(email)) || (fields.requestId && requestNumber(d.fields.requestId) === requestNumber(fields.requestId)));
         // Search before starting the Mongo transaction; deduplication is checked again inside.
         if (!existing && !duplicateOpportunity(snapshot, {clientId:dttClient(snapshot).id}, fields)) prepared = await adapter.searchCandidates(fields);
@@ -284,8 +292,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
         if (norm(email.mailbox) !== 'gerson@alcateiaconsulting.com.br' || norm(email.sender) !== 'poolterceiros@deloitte.com') fail('Caixa ou remetente fora da regra DTT.');
         if (email.subject && !/^(?:(?:re|fw|fwd|enc):\s*)*solicitacao de cotacao\s*[-–—]/i.test(norm(email.subject))) fail('Assunto fora da regra SOLICITAÇÃO DE COTAÇÃO -.');
         if (!String(email.body || '').trim() || String(email.body).length > 100000) fail('Informe o corpo do e-mail (até 100 mil caracteres).');
-        const client = dttClient(db), extracted = extractIntake(email), fields = cleanIntakeFields(extracted);
-        const key = emailKey(email), bodyHash = fingerprint(email);
+        const client = dttClient(db);
         const existing = db.opportunityIntakes.find(d => d.clientId === client.id && (
           (email.messageId && d.emailKey === key) ||
           (fields.requestId && requestNumber(d.fields.requestId) === requestNumber(fields.requestId)) ||

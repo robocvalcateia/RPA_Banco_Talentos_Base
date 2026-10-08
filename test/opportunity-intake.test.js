@@ -14,6 +14,18 @@ const cvs = [
   { id_controle: '1', nome: 'Consultor de teste FI', endereco: 'Rio de Janeiro/RJ', texto_integral_original: 'Consultor funcional SAP FI: implementação, configuração de FI-GL, FI-AR, FI-AP e FI-AA para cliente final. Inglês avançado. Rio de Janeiro/RJ.' },
   { id_controle: '2', nome: 'Consultor de teste MM', texto_integral_original: 'Consultor SAP MM: implementação, configuração de compras e materiais.' }
 ];
+
+test('production receipt and recovery never search CVs inside a transaction',async()=>{
+  let state={clients:[{id:'dtt',customerName:'DTT'}],users:reviewers,curriculums:cvs,opportunities:[],opportunityIntakes:[],intakeNotifications:[]};
+  let inside=false,searches=0;
+  const adapter={read:async()=>structuredClone(state),searchCandidates:async fields=>{assert.equal(inside,false);searches++;return{candidates:matchIntakeCandidates(cvs,fields),totalEvaluated:2};},transaction:async fn=>{inside=true;try{const next=structuredClone(state);const result=await fn(next);state=next;return result;}finally{inside=false;}}};
+  const store=createIntakeStore('',{adapter,simulated:false,baseUrl:'https://example.test'});
+  await store.receive(receivedEmail,user);assert.equal(searches,1);assert.equal(state.opportunityIntakes.length,1);
+  // Recover an older partial draft without doing the slow search under a lock.
+  delete state.opportunityIntakes[0].search;delete state.opportunityIntakes[0].receivedAt;
+  await store.receive(receivedEmail,user);assert.equal(searches,2);assert.equal(state.opportunityIntakes.length,1);
+  await store.receive(receivedEmail,user);assert.equal(searches,2);assert.equal(state.intakeNotifications.length,2);
+});
 async function fixture(t, extra = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'alcateia-intake-test-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
