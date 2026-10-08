@@ -41,7 +41,7 @@ test('extracts the email with traceable market seniority, PJ fixed and no respon
   assert.equal(f.seniority, 'Sênior'); assert.equal('responseDeadline' in f, false); assert.equal(f.requestId, '');
   assert.equal(f.contractType, 'PJ'); assert.equal(f.seniorityAssessment.origin, 'market');
   assert.equal(f.seniorityAssessment.sources.length, 3);
-  assert.equal(f.language, 'English – Avançado'); assert.equal(f.coreSkill, 'SAP FI');
+  assert.equal(f.language, 'English – Avançado'); assert.equal(f.coreSkill, f.profile);
   assert.match(f.mandatorySkills, /FA-GL/); assert.match(f.requirements, /Waterfall/);
   assert.match(f.desirable, /Agile/); assert.match(f.desirable, /Certificação SAP/);
   assert.match(f.instructions, /não incluir logos/); assert.match(f.instructions, /resumo da entrevista/);
@@ -283,4 +283,18 @@ test('upgrading pending drafts preserves links, selections and history while app
   assert.ok(current.draft.audit.some(a => a.action === 'selection'));
   assert.equal((await store.notifications()).length, 2);
   assert.equal((await store.upgradePending()).updated, 0);
+});
+
+
+test('refresh searches outside transaction and rejects concurrent revisions without overwriting',async()=>{
+  let state={clients:[{id:'dtt',customerName:'DTT'}],users:reviewers,curriculums:cvs,opportunities:[],opportunityIntakes:[],intakeNotifications:[]};
+  let inside=false,race=false;
+  const adapter={read:async()=>structuredClone(state),searchCandidates:async fields=>{assert.equal(inside,false);if(race)state.opportunityIntakes[0].revision++;return{candidates:matchIntakeCandidates(cvs,fields),totalEvaluated:2};},transaction:async fn=>{inside=true;try{const next=structuredClone(state);const result=await fn(next);state=next;return result;}finally{inside=false;}}};
+  const store=createIntakeStore('',{adapter,simulated:false,baseUrl:'https://example.test'});
+  const created=await store.receive(receivedEmail,user);
+  const refreshed=await store.refreshSearch(created.draft.id,1,user);
+  assert.equal(refreshed.draft.revision,2);assert.equal(state.opportunityIntakes.length,1);
+  race=true;await assert.rejects(store.refreshSearch(created.draft.id,2,user),/durante a pesquisa/);
+  assert.equal(state.opportunityIntakes[0].revision,3);
+  assert.equal(state.opportunityIntakes[0].audit.filter(a=>a.action==='search_refreshed').length,1);
 });

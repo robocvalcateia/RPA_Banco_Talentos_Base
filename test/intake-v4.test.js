@@ -66,3 +66,31 @@ test('related troubleshooting phrases share one scoring group and FA spelling do
   assert.equal(a.score,b.score);
   assert.ok(a.comparison.some(c=>c.status==='ambiguous'));
 });
+
+
+test('remote intake clears stale locality, uses subject title and permits distant or unknown residence', () => {
+  const f=extractIntake({subject:'SOLICITAÇÃO DE COTAÇÃO - VAGA 2059 - SuccessFactors EC/Benefits/Onboarding',body:'Vaga: perfil incorreto\nModelo de trabalho: Remoto\nCidade: REMOTO\nEstado: REMOTO\nConhecimento Técnico Requerido:\nSuccessFactors EC/Benefits/Onboarding'});
+  assert.equal(f.profile,'SuccessFactors EC/Benefits/Onboarding'); assert.equal(f.coreSkill,f.profile);
+  assert.equal(f.city,null); assert.equal(f.state,null);
+  assert.ok(!intakeWarnings(f).some(w=>w.includes('Cidade')));
+  const rows=matchIntakeCandidates([
+    {id:'1',endereco:'Manaus/AM',experiencia_profissional:'Implementei SAP SuccessFactors Employee Central, Global Benefits e Onboarding.'},
+    {id:'2',experiencia_profissional:'Atuei com SAP Success Factors EC.'},
+    {id:'3',experiencia_profissional:'Conduzi onboarding de novos funcionários e benefícios de RH.'}
+  ],f);
+  assert.deepEqual(rows.map(r=>r.id),['1','2']);
+  assert.ok(rows.every(r=>!r.blocked && r.location.allowed));
+  assert.ok(rows[0].comparison.filter(c=>c.criterionId?.startsWith('sf-')).every(c=>c.status==='evidence'));
+  assert.equal(rows[1].comparison.find(c=>c.criterionId==='sf-benefits').status,'unknown');
+  assert.ok(rows[1].evidenceCoverage<100);
+  const revised=cleanIntakeFields({...f,profile:'Consultor Kubernetes Pleno',coreSkill:'wrong',city:'São Paulo',state:'SP'});
+  assert.equal(revised.coreSkill,revised.profile); assert.equal(revised.city,null);
+  assert.equal(matchIntakeCandidates([{id:'k',experiencia_profissional:'Implementei Kubernetes para o cliente.'}],revised).length,1);
+});
+
+
+test('immediate start retains original instruction and uses received month in client timezone',()=>{
+  const f=cleanIntakeFields({start:'IMEDIATO'},'2026-10-01T01:00:00Z');
+  assert.equal(f.start,'09/2026');assert.match(f.observation,/IMEDIATO/);
+  assert.equal(cleanIntakeFields({start:'IMEDIATO'},'2026-10-07T12:00:00Z').start,'10/2026');
+});

@@ -1165,12 +1165,15 @@ function renderOptions() {
     select.innerHTML = statusOptions;
   });
   $$('select[name="model"]').forEach((select) => {
+    if (select.closest('#opportunityIntake')) return;
     select.innerHTML = modelOptions;
   });
   $$('select[name="contractType"]').forEach((select) => {
+    if (select.closest('#opportunityIntake')) return;
     select.innerHTML = contractTypeOptions;
   });
   $$('select[name="workModel"]').forEach((select) => {
+    if (select.closest('#opportunityIntake')) return;
     select.innerHTML = workModelOptions;
   });
   $$('select[name="owner"]').forEach((select) => {

@@ -62,6 +62,7 @@ window.OpportunityIntake = (() => {
       const control = key === 'contractType' ? '<input name="contractType" value="PJ" readonly aria-label="Tipo de contratação fixo PJ">' : options[key] ? `<select name="${key}">${options[key].map(v => `<option value="${e(v)}" ${v === d.fields[key] ? 'selected' : ''}>${e(v || 'Não informado')}</option>`).join('')}</select>` : long.has(key) ? `<textarea name="${key}" rows="${key === 'requirements' ? 9 : 3}">${value}</textarea>` : `<input name="${key}" value="${value}" ${['quantity', 'minimumYears'].includes(key) ? 'type="number" min="0" step="1"' : ''}>`;
       return `<label class="${long.has(key) ? 'intake-wide' : ''}">${e(label)}${control}</label>`;
     }).join('');
+    syncDerivedFields();
     const startInput = q('#intakeFields [name=start]'); startInput.placeholder = 'MM/AAAA'; startInput.pattern = '(0[1-9]|1[0-2])/[0-9]{4}'; startInput.maxLength = 7;
     q('#intakeFields').disabled = d.status !== 'pending';
     q('#intakeWarnings').innerHTML = (warnings.length ? `<strong>Conferir antes de confirmar</strong><ul>${warnings.map(w => `<li>${e(w)}</li>`).join('')}</ul>` : '') + (result.duplicateOpportunity ? '<p>Já existe oportunidade para esta solicitação. Confirmação bloqueada.</p>' : '');
@@ -72,9 +73,20 @@ window.OpportunityIntake = (() => {
     renderCandidates();
     controls();
   }
+  function syncDerivedFields() {
+    const remote = q('[name=workModel]').value === 'Remoto';
+    for (const key of ['city','state']) {
+      const input = q('[name=' + key + ']');
+      input.disabled = remote;
+      if (remote) input.value = '';
+      input.placeholder = remote ? 'Não se aplica — trabalho remoto' : '';
+    }
+    const core = q('[name=coreSkill]');
+    core.value = q('[name=profile]').value; core.readOnly = true;
+  }
   function renderCandidates() {
     const rows = candidates.slice(page * 20, (page + 1) * 20);
-    q('#intakeCandidates').innerHTML = `<p>${candidates.length} profissional(is) com evidência relacionada. O percentual de aderência considera apenas requisitos técnicos identificados. A cobertura mostra quanto da vaga pôde ser avaliado; percentual alto com cobertura baixa exige conferência. Comportamentais e diferenciais ficam fora da nota. Localização não identificada bloqueia a seleção.</p>
+    q('#intakeCandidates').innerHTML = `<p>${candidates.length} profissional(is) com evidência relacionada. O percentual de aderência considera apenas requisitos técnicos identificados. A cobertura mostra quanto da vaga pôde ser avaliado; percentual alto com cobertura baixa exige conferência. Comportamentais e diferenciais ficam fora da nota. Em vagas presenciais ou híbridas, localização não identificada bloqueia a seleção e o limite é de 100 km. Vagas remotas não têm filtro geográfico.</p>
       ${rows.map(c => `<article class="intake-candidate ${selected.has(c.id) ? 'selected' : ''}"><div class="intake-actions"><h3>${e(c.name)} · ID ${e(c.id)}</h3><button type="button" data-select="${e(c.id)}" data-blocked="${c.blocked}" aria-pressed="${selected.has(c.id)}">${selected.has(c.id) ? '✓ Selecionado' : 'Selecionado'}</button><button type="button" data-wapp="${e(c.id)}" data-available="${Boolean(curriculumWhatsappUrl(c.contact))}" title="${curriculumWhatsappUrl(c.contact) ? 'Abrir conversa no WhatsApp' : 'Celular válido com DDD não cadastrado'}">Wapp</button></div>
         <p>${c.classification === 'approved' ? 'Triagem técnica favorável' : 'Requer conferência técnica'} · Aderência nos requisitos identificados: ${c.score === null ? 'A confirmar' : `${c.score}%`} · Cobertura dos requisitos técnicos: ${c.evidenceCoverage}%${c.blocked ? ' · Seleção bloqueada: confira a localização e os impedimentos cadastrais' : ''}</p>
         <p>${e(c.location?.detail || '')}</p>
@@ -119,7 +131,7 @@ window.OpportunityIntake = (() => {
       <label class="intake-check"><input id="intakeAcknowledge" type="checkbox">Revisei os dados e as pendências. A seleção é uma indicação para avaliação, sujeita à confirmação dos requisitos com o profissional.</label>
       <div class="intake-actions"><button id="intakeConfirm" class="primary-action" type="button">Confirmar</button><button id="intakeCancel" type="button">Cancelar</button><strong id="selectedCount"></strong></div></section>`;
     q('#intakeForm').onsubmit = ev => ev.preventDefault();
-    q('#intakeFields').oninput = () => { dirty = true; q('#intakeAcknowledge').checked = false; controls(); message('Dados alterados: salve a revisão antes de confirmar. A pesquisa existente será preservada.'); };
+    q('#intakeFields').oninput = () => { syncDerivedFields(); dirty = true; q('#intakeAcknowledge').checked = false; controls(); message('Dados alterados: salve a revisão antes de confirmar. A pesquisa existente será preservada.'); };
     q('#intakeReload').onclick = () => run(load);
     q('#intakeJump').onclick = () => q('#intakeCandidates').scrollIntoView({ behavior: 'smooth', block: 'start' });
     q('#intakeSearch').onclick = () => run(review);

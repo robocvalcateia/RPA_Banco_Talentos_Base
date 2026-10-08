@@ -72,3 +72,20 @@ test('admin recovery only retries failed enabled cycles, preserving the checkpoi
   const result=await createHourlyIntake(f.options).run();assert.equal(result.received,1);assert.equal(result.sent,2);
   await assert.rejects(f.store.retryFailedCycle(),/Somente/);
 });
+
+
+test('explicit refreshed review resends once per revision and normal hourly reminders retain interval',async t=>{
+  const f=await fixture(t),worker=createHourlyIntake(f.options);
+  await worker.run(); const d=(await f.store.list())[0];
+  assert.ok(f.sent.every(m=>!m.text.includes('Gerson e Bruno acessam')));
+  await assert.rejects(worker.notify(d.id,d.revision),/sem pesquisa/);
+  const refreshed=await f.store.refreshSearch(d.id,d.revision,user);
+  assert.equal(refreshed.draft.fields.coreSkill,refreshed.draft.fields.profile);
+  assert.equal((await worker.notify(d.id,refreshed.draft.revision)).sent,2);
+  assert.equal((await worker.notify(d.id,refreshed.draft.revision)).sent,0);
+  assert.equal(f.sent.length,4); assert.equal(f.logs.length,4);
+  await assert.rejects(f.store.refreshSearch(d.id,d.revision,user),/alterada/);
+  assert.equal((await f.read()).opportunities.length,0);
+  await f.store.cancel(d.id,refreshed.draft.revision,user);
+  assert.equal((await worker.notify(d.id,refreshed.draft.revision)).sent,0);
+});

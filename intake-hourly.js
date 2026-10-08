@@ -26,6 +26,24 @@ export function createHourlyIntake({ store, getToken, send, log, fetchMessages =
   let running = false;
   const actor = { id:'dtt-hourly', name:'Rotina horária DTT', email:DTT_MAILBOX };
   return {
+    async notify(draftId, refreshRevision, started=now(), owner=randomUUID()) {
+      const draft=(await store.get(draftId)).draft;
+      const errors=[]; let sent=0;
+      for(const recipient of draft.reviewRecipients || []) {
+            const attempt=await store.claimReminder(draft.id,recipient.email,started,owner,refreshRevision);
+            if (!attempt) continue;
+            let status='failed',error='';
+            try {
+              // Recheck immediately before dispatch: a different reviewer may have completed it.
+              if ((await store.get(draft.id)).draft.status !== 'pending') status='cancelled';
+              else if (simulated) status='simulated';
+              else { await send({to:attempt.to,subject:attempt.subject,text:attempt.text}); status='sent';sent++; }
+            } catch(e) { error='Falha no transporte de e-mail; consultar configuração e disponibilidade.'; errors.push(error); }
+            const result=await store.finishReminder(attempt.id,owner,status,now(),error);
+            try { await log({...result, id:`dtt:${result.id}`,provider:'SMTP',source:'dtt_hourly'}); } catch(e) { errors.push('Falha ao espelhar histórico de envio; tentativa preservada na solicitação.'); }
+      }
+      return {sent,errors};
+    },
     async run() {
       if (running) return { skipped:true };
       running = true; const owner=randomUUID(), started=now(); let claimed=false, checkpoint, failure=''; const errors=[]; let received=0,sent=0;
@@ -45,17 +63,9 @@ export function createHourlyIntake({ store, getToken, send, log, fetchMessages =
         } catch(error) { errors.push(error.message); }
         for (const draft of (await store.list()).filter(d=>d.status==='pending' && d.receivedAt)) {
           for (const recipient of draft.reviewRecipients || []) {
-            const attempt=await store.claimReminder(draft.id,recipient.email,started,owner);
-            if (!attempt) continue;
-            let status='failed',error='';
-            try {
-              // Recheck immediately before dispatch: a different reviewer may have completed it.
-              if ((await store.get(draft.id)).draft.status !== 'pending') status='cancelled';
-              else if (simulated) status='simulated';
-              else { await send({to:attempt.to,subject:attempt.subject,text:attempt.text}); status='sent';sent++; }
-            } catch(e) { error='Falha no transporte de e-mail; consultar configuração e disponibilidade.'; errors.push(error); }
-            const result=await store.finishReminder(attempt.id,owner,status,now(),error);
-            try { await log({...result, id:`dtt:${result.id}`,provider:'SMTP',source:'dtt_hourly'}); } catch(e) { errors.push('Falha ao espelhar histórico de envio; tentativa preservada na solicitação.'); }
+            const dispatched = await this.notify(draft.id, undefined, started, owner);
+            sent += dispatched.sent; errors.push(...dispatched.errors);
+            break; // notify handles all configured recipients
           }
         }
         failure=[...new Set(errors)].join(' ');

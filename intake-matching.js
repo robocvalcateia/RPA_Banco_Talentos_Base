@@ -1,7 +1,7 @@
 import { normalize, skillAlternatives, experienceEvidence } from './candidate-screening.js';
 import { locationEligibility } from './intake-location.js';
 
-export const INTAKE_MATCH_VERSION = 'email-full-cv-v4';
+export const INTAKE_MATCH_VERSION = 'email-full-cv-v5';
 const labels = { texto_integral_original: 'Currículo integral', experiencia_profissional: 'Experiência profissional', experiencias: 'Experiências', experiences: 'Experiências', projetos: 'Projetos', skills: 'Competências', conhecimento_tecnico: 'Conhecimento técnico', cursos_certificacoes: 'Cursos e certificações', formacao_academica: 'Formação', observacoes_entrevista: 'Entrevista', feedback_entrevista_ingles: 'Entrevista de inglês', nivel_ingles: 'Nível de inglês', nivel_espanhol: 'Nível de espanhol', search_text_all: 'Texto consolidado', versoes: 'Versões do currículo' };
 const cvFields = ['texto_integral_original', 'experiencia_profissional', 'experiencias', 'experiences', 'atividades', 'atividades_exercidas', 'empresas', 'projetos', 'tecnologias', 'skills', 'conhecimento_tecnico', 'formacao_academica', 'cursos_certificacoes', 'idiomas', 'nivel_ingles', 'nivel_espanhol', 'englishLevel', 'observacoes_entrevista', 'feedback_entrevista_ingles', 'disponibilidade', 'disponibilidade_viagem', 'cargo_alvo', 'resumo', 'summary', 'endereco', 'city', 'state', 'versoes', 'search_text_all', 'search_text', 'texto_pesquisa', 'texto_pesquisavel'];
 const excluded = /^(idade|age|data_nascimento|birthdate|estado_civil|nacionalidade|sexo|genero|gender|religiao|raca|cpf|rg|email|telefone|phone|password|passwordHash|foto|photo|arquivo_base64|base64|oportunidade.*|jobDescription|observacao_busca|score_busca)$/i;
@@ -69,11 +69,28 @@ const filler = new Set('a o as os e de da do das dos em com no na nos nas para p
 export function compileIntakeRequirements(f) {
   const criteria = [], coverage = [];
   const core = f.coreSkill || f.profile || '';
-  const coreTerms = skillAlternatives(core);
+  // Titles are not limited to a fixed SAP module list. Remove only role/level
+  // qualifiers; retain the product/technology as the search anchor.
+  const technology = core.replace(/\b(consultor(?:a)?|analista|desenvolvedor(?:a)?|especialista|senior|sênior|pleno|junior|júnior|funcional|tecnico|técnico)\b/gi,' ').replace(/\s+/g,' ').trim();
+  const coreTerms = [...skillAlternatives(core), ...skillAlternatives(technology)].filter(Boolean);
+  const successFactors = /success\s*factors/i.test(core);
+  if (successFactors) coreTerms.push('successfactors','success factors','sap employee central');
+  const sapModule = technology.match(/\bsap\s+(fi(?:co)?|mm|sd|co|abap)\b/i)?.[0];
+  if (sapModule) coreTerms.push(...skillAlternatives(sapModule));
   if (/sap\s*fi/i.test(core)) coreTerms.push('sap finance', 'sap financial accounting', 'fi aa');
   if (core) criteria.push({ id: 'core', label: core, group: 'mandatory', weight: 5, re: regexOfTerms(coreTerms) });
   const full = `${f.requirements}\n${f.mandatorySkills}`;
   const normalized = normalize(full);
+  if (successFactors) {
+    // Reference: https://developers.sap.com/concepts/sap-successfactors-employee-central/
+    // EC, Global Benefits and Onboarding are distinct requirements, not synonyms.
+    const requested = normalize(core + ' ' + full);
+    for (const [id,label,requestedRe,aliases] of [
+      ['sf-ec','SuccessFactors Employee Central (EC)',/\bec\b|employee central/,['employee central','successfactors ec','success factors ec','sf ec']],
+      ['sf-benefits','SuccessFactors Global Benefits',/\bbenefits\b|beneficios/,['global benefits','benefits','beneficios']],
+      ['sf-onboarding','SuccessFactors Onboarding',/onboarding|on boarding/,['onboarding','on boarding']]
+    ]) if (requestedRe.test(requested)) criteria.push({id,label,group:'mandatory',weight:3,re:regexOfTerms(aliases),requiresSuccessFactors:true});
+  }
   for (const [module, aliases] of Object.entries(moduleAliases)) {
     if (new RegExp(`\\b(?:fa|fi) ${module.toLowerCase()}\\b`).test(normalized) || regexOfTerms(aliases).test(normalized)) {
       const ambiguous = new RegExp(`\\bfa ${module.toLowerCase()}\\b`).test(normalized);
@@ -106,7 +123,7 @@ export function compileIntakeRequirements(f) {
     if (behavioral.has(c.id)) { c.group = 'behavioral'; c.weight = 0; }
     else if (c.tokens) { c.group = 'review'; c.weight = 0; }
     else if (c.group === 'mandatory') {
-      const [group, weight] = scoringGroups[c.id] || [c.id, c.id.startsWith('module-') ? 3 : 1];
+      const [group, weight] = scoringGroups[c.id] || [c.id, (c.id.startsWith('module-') || c.id.startsWith('sf-')) ? 3 : 1];
       c.scoreGroup = group; c.weight = weight;
     }
   }
@@ -139,10 +156,11 @@ function compareCriterion(c, rows) {
       && new RegExp(`\\b${c.id.slice(7).toLowerCase()}\\b`).test(row.normalized);
     const hit = c.re ? c.re.test(row.normalized) || groupedModule : c.tokens.length && c.tokens.filter(token => row.normalized.includes(token)).length / c.tokens.length >= .65;
     if (!hit) continue;
+    if (c.requiresSuccessFactors && !/success\s*factors|sap|employee central|\bsf\b/.test(row.context)) continue;
     const negated = /\bsem (?:experiencia|conhecimento|atuacao|certificacao)|nao (?:possuo|tenho|atuei|trabalhei|sou certificado)|no experience|never worked/.test(row.normalized);
     const training = row.section === 'training' || (/\bcursos?\b|\bcourses?\b|\bacademia\b|\bacademy\b|\btreinamento\b|\btraining\b|\bcursando\b/.test(row.normalized) && !/ministr|conduz|treinou|trained|delivered training/.test(row.normalized));
     const list = row.section === 'list' || /^(skills|conhecimento|habilidades|tecnologias|tools and technologies|tools technologies)/.test(row.normalized);
-    const functionalCriterion = c.id === 'core' || c.id.startsWith('module-') || ['implementation', 'configuration', 'specification'].includes(c.id);
+    const functionalCriterion = (c.id === 'core' && /sap fi/.test(normalize(c.label))) || c.id.startsWith('module-');
     const unrelatedRole = /abap|developer|desenvolvedor|(?:project|program|programme) manager|gerente de (?:projetos|programas)|infrastructure|infraestrutura|cloud|sap basis|data warehouse|\betl\b|\bbw\b/.test(row.context);
     const functionalWork = /(?:consultor|consultant|analista) funcional|functional (?:consultant|analyst)|(?:configur\w*|parametriz\w*)[^.]{0,60}(?:sap fi\b|sap fico|fi (?:gl|ap|ar|aa)|contas a pagar|contas a receber)/.test(row.normalized);
     const broadFinanceOnly = c.id === 'core' && /sap finan/.test(row.normalized) && !/sap fi\b|sap fico\b|fi (?:gl|ar|ap|aa)\b/.test(row.normalized);
@@ -216,7 +234,7 @@ function operationalChecks(cv, f, sources, rows, coreCriterion) {
     const incompatible = explicit && /somente remoto|apenas remoto|remote only|nao.*presencial/.test(explicit.normalized) && f.workModel === 'Presencial';
     add(`Modalidade: ${f.workModel}`, incompatible ? 'conflict' : 'unknown', incompatible ? 'Disponibilidade declarada diverge da modalidade.' : 'Confirmar disponibilidade atual; histórico de trabalho não confirma disponibilidade.', explicit?.text || '', explicit?.source || '');
   }
-  if (f.city || f.state) add(`Local: ${[f.city, f.state].filter(Boolean).join('/')}`, 'unknown', 'Confirmar município e deslocamento. Endereço ou projeto anterior não comprova disponibilidade presencial.', textOf(cv.endereco || [cv.city, cv.state].filter(Boolean).join('/')), 'Endereço cadastrado');
+  if (normalize(f.workModel) !== 'remoto' && (f.city || f.state)) add(`Local: ${[f.city, f.state].filter(Boolean).join('/')}`, 'unknown', 'Confirmar município e deslocamento. Endereço ou projeto anterior não comprova disponibilidade presencial.', textOf(cv.endereco || [cv.city, cv.state].filter(Boolean).join('/')), 'Endereço cadastrado');
   if (f.start) add(`Início: ${f.start}`, 'unknown', 'Confirmar disponibilidade na data solicitada.');
   if (f.duration) add(`Duração: ${f.duration}`, 'unknown', 'Confirmar disponibilidade para todo o período.');
   add('Contratação: PJ', 'unknown', 'Confirmar aceite e condições para contratação PJ.');

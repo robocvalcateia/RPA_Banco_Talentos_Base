@@ -11,7 +11,7 @@ const intakeStore = createIntakeStore(DATA_FILE, productionIntake ? {adapter:int
 const dttHourly = createHourlyIntake({ store:intakeStore, getToken:getGraphAccessTokenForDiagnostics, send:async message=>{
   const smtp=getSmtpConfigFromEnv(); if(!smtp.host || !smtp.user || !smtp.password || !smtp.from)throw Error('SMTP não configurado.');
   await sendMail({...smtp,...message});
-},log:writeEmailLog });
+},log:writeEmailLog,simulated:!productionIntake });
 async function runDttHourlyIfEnabled() {
   if(productionIntake && (await intakeStore.schedulerStatus())?.enabled) return dttHourly.run();
 }
@@ -131,7 +131,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20261007-dtt-dedup-fix';
+const APP_VERSION = '20261008-dtt-remote-title';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -3946,6 +3946,15 @@ async function handleApi(request, response) {
         if(productionIntake){sendError(response,403,'Recebimento manual de teste indisponível em produção.');return;}
         if (requireAdmin(response, auth.user, 'Apenas ADMIN pode simular o recebimento.')) return;
         sendJson(response, 200, await intakeStore.receive(payload, auth.user)); return;
+      }
+      const maintenance = pathname.match(/^\/api\/intake\/([a-f0-9-]+)\/(refresh-search|resend-review)$/);
+      if (maintenance) {
+        if (requireAdmin(response,auth.user,'Apenas ADMIN pode atualizar a pesquisa e reenviar a revisão.')) return;
+        const [,id,action] = maintenance;
+        const result = action === 'refresh-search'
+          ? await intakeStore.refreshSearch(id,payload.revision,auth.user)
+          : await dttHourly.notify(id,Number(payload.revision));
+        sendJson(response,200,result); return;
       }
       const match = pathname.match(/^\/api\/intake\/([a-f0-9-]+)\/(review|select|confirm|cancel)$/);
       if (!match) { sendError(response, 404, 'Solicitação não encontrada.'); return; }
