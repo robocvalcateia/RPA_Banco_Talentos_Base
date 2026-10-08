@@ -1124,7 +1124,7 @@ function renderOptions() {
   const stageOptions = emptyOption + state.stages.map((stage) => `<option>${stage}</option>`).join('');
   const aderenciaOptions = emptyOption + state.aderenciaOptions.map((value) => `<option value="${value}">${value}</option>`).join('');
   const userOptions = emptyOption + state.users
-    .slice()
+    .filter((user) => String(user.role || '').trim().toLowerCase() === 'admin')
     .sort((first, second) => first.name.localeCompare(second.name, 'pt-BR', { sensitivity: 'base' }))
     .map((user) => `<option value="${escapeHtml(user.name)}">${escapeHtml(user.name)}</option>`)
     .join('');

@@ -131,7 +131,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20261008-dtt-remote-title';
+const APP_VERSION = '20261008-admin-opportunity-owner';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -3350,8 +3350,8 @@ function validateOpportunityBusinessRules(response, opportunity, db, existingId 
     sendError(response, 409, 'Ja existe oportunidade cadastrada com esse Id_Oportunidade.');
     return true;
   }
-  if (opportunity.owner && !findUserByName(db, opportunity.owner)) {
-    sendError(response, 422, 'Selecione um responsavel cadastrado em usuarios.');
+  if (opportunity.owner && !isAdminUser(findUserByName(db, opportunity.owner))) {
+    sendError(response, 422, 'Selecione um administrador do sistema como responsavel.');
     return true;
   }
   if (opportunity.model === 'Hunting' && !opportunity.contractType) {
