@@ -16,7 +16,7 @@ const cvs = [
 ];
 
 test('production receipt and recovery never search CVs inside a transaction',async()=>{
-  let state={clients:[{id:'dtt',customerName:'DTT'}],users:reviewers,curriculums:cvs,opportunities:[],opportunityIntakes:[],intakeNotifications:[]};
+  let state={clients:[{id:'dtt',customerName:'DTT'}],users:reviewers,curriculums:cvs,opportunities:[{id:'older-manual',clientId:'dtt',opportunity:'Unrelated manually entered vacancy'}],opportunityIntakes:[],intakeNotifications:[]};
   let inside=false,searches=0;
   const adapter={read:async()=>structuredClone(state),searchCandidates:async fields=>{assert.equal(inside,false);searches++;return{candidates:matchIntakeCandidates(cvs,fields),totalEvaluated:2};},transaction:async fn=>{inside=true;try{const next=structuredClone(state);const result=await fn(next);state=next;return result;}finally{inside=false;}}};
   const store=createIntakeStore('',{adapter,simulated:false,baseUrl:'https://example.test'});

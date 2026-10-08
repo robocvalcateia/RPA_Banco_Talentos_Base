@@ -96,7 +96,7 @@ function duplicateOpportunity(db, draft, fields) {
   return db.opportunities.find(o => o.clientId === draft.clientId && (
     (fields.requestId && requestNumber(o.clientOpportunityCode) === requestNumber(fields.requestId)) ||
     ((!fields.requestId || !o.clientOpportunityCode || requestNumber(fields.requestId) === requestNumber(o.clientOpportunityCode)) &&
-      (o.intakeSource?.emailKey === draft.emailKey || o.intakeSource?.bodyHash === draft.bodyHash))
+      ((draft.emailKey && o.intakeSource?.emailKey === draft.emailKey) || (draft.bodyHash && o.intakeSource?.bodyHash === draft.bodyHash)))
   ));
 }
 
@@ -286,7 +286,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
         const snapshot = await read();
         const existing = (snapshot.opportunityIntakes || []).find(d => (email.messageId && d.emailKey === emailKey(email)) || (fields.requestId && requestNumber(d.fields.requestId) === requestNumber(fields.requestId)));
         // Search before starting the Mongo transaction; deduplication is checked again inside.
-        if (!existing && !duplicateOpportunity(snapshot, {clientId:dttClient(snapshot).id}, fields)) prepared = await adapter.searchCandidates(fields);
+        if (!existing && !duplicateOpportunity(snapshot, {clientId:dttClient(snapshot).id,emailKey:key,bodyHash}, fields)) prepared = await adapter.searchCandidates(fields);
       }
       return transaction(async db => {
         if (norm(email.mailbox) !== 'gerson@alcateiaconsulting.com.br' || norm(email.sender) !== 'poolterceiros@deloitte.com') fail('Caixa ou remetente fora da regra DTT.');
