@@ -195,7 +195,14 @@ async function renderAllocatedDocx(templatePath, data) {
 }
 
 export async function renderAllocatedDocuments(allocateds, clients, templateIds, templateDirectory) {
-  const selectedTemplates = ALLOCATED_DOCUMENT_TEMPLATES.filter((template) => templateIds.includes(template.id));
+  const requestedIds = Array.isArray(templateIds) ? templateIds : [];
+  const knownIds = new Set(ALLOCATED_DOCUMENT_TEMPLATES.map((template) => template.id));
+  if (!requestedIds.length || requestedIds.some((id) => id !== 'all' && !knownIds.has(id))) {
+    const error = new Error('Selecione um modelo de formulário válido.');
+    error.statusCode = 422;
+    throw error;
+  }
+  const selectedTemplates = ALLOCATED_DOCUMENT_TEMPLATES.filter((template) => requestedIds.includes('all') || requestedIds.includes(template.id));
   const clientById = new Map(clients.map((client) => [client.id, client.customerName]));
   const documents = [];
 
@@ -212,6 +219,11 @@ export async function renderAllocatedDocuments(allocateds, clients, templateIds,
 }
 
 export function buildAllocatedDocumentsZip(documents) {
+  if (!documents.length) {
+    const error = new Error('Nenhum formulário foi gerado. Confira os alocados e modelos selecionados.');
+    error.statusCode = 422;
+    throw error;
+  }
   return Buffer.from(zipSync(Object.fromEntries(
     documents.map((document) => [document.filename, new Uint8Array(document.content)])
   ), { level: 6 }));
