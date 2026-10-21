@@ -60,7 +60,13 @@ export function createHourlyIntake({ store, getToken, send, log, fetchMessages =
             if (!isDttMessage(message)) continue;
             if(message.receivedDateTime && Date.parse(message.receivedDateTime)<Date.parse(cycle.activatedAt))continue;
             if (message.body?.contentType?.toLowerCase() !== 'text') throw Error('Graph não retornou corpo em texto; mensagem mantida para nova tentativa.');
-            await store.receive({ mailbox:DTT_MAILBOX, sender:DTT_SENDER, subject:message.subject, messageId:message.internetMessageId || message.id, body:message.body.content },actor); received++;
+            const receivedDraft=await store.receive({ mailbox:DTT_MAILBOX, sender:String(message.from?.emailAddress?.address || DTT_SENDER), subject:message.subject, messageId:message.internetMessageId || message.id, body:message.body.content },actor); received++;
+            // Do not hold the review email until every request in a backlog has
+            // completed its full candidate search.
+            if(receivedDraft?.draft?.status==='pending') {
+              const dispatched=await this.notify(receivedDraft.draft.id,undefined,started,owner);
+              sent+=dispatched.sent;errors.push(...dispatched.errors);
+            }
           }
           checkpoint=started;
         } catch(error) { errors.push(error.message); }

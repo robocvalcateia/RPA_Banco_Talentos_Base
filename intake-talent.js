@@ -17,13 +17,14 @@ export function createIntakeTalentReader({getCollection=getMongoTalentosCollecti
       return rows;
     },
     async searchCandidates(fields) {
-      const cursor=(await getCollection()).find({},{projection:{arquivo_base64:0,base64:0}}).batchSize(5);
+      // Larger batches avoid a network round-trip for every handful of CVs.
+      const cursor=(await getCollection()).find({},{projection:{arquivo_base64:0,base64:0}}).batchSize(100);
       const candidates=[],seen=new Set();let totalEvaluated=0;
       for await (const row of cursor) {
         totalEvaluated++;
         const cv=convert(row),id=String(cv.id_controle||cv.id||'');
         if (!seen.has(id)) {seen.add(id);candidates.push(...matchIntakeCandidates([cv],fields));}
-        if (totalEvaluated%10===0) await new Promise(resolve=>setImmediate(resolve));
+        if (totalEvaluated%250===0) await new Promise(resolve=>setImmediate(resolve));
       }
       candidates.sort((a,b)=>Number(b.location.allowed)-Number(a.location.allowed)||b.rankingScore-a.rankingScore||a.name.localeCompare(b.name,'pt-BR'));
       return {candidates,totalEvaluated};
