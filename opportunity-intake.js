@@ -174,7 +174,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
       });
     },
     schedulerStatus() { return adapter?.readRuntime ? adapter.readRuntime() : read().then(db => (db.intakeRuntime || []).find(r => r.id === 'hourly') || null); },
-    scheduleCycle(user) {
+    scheduleCycle(user, lookbackDays=45) {
       return transaction(db => {
         const runtime=(db.intakeRuntime || []).find(r=>r.id==='hourly');
         if(!runtime?.enabled) fail('A rotina DTT ainda não foi ativada.',409);
@@ -183,6 +183,9 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
         runtime.leaseUntil=null;
         runtime.manualRequestedAt=new Date().toISOString();
         runtime.manualRequestedBy=user.id;
+        const rewindTo=new Date(Date.now()-Math.max(1,Math.min(90,Number(lookbackDays)||45))*86400000).toISOString();
+        if(!runtime.checkpoint || Date.parse(runtime.checkpoint)>Date.parse(rewindTo)) runtime.checkpoint=rewindTo;
+        if(!runtime.activatedAt || Date.parse(runtime.activatedAt)>Date.parse(rewindTo)) runtime.activatedAt=rewindTo;
         delete runtime.lastStartedAt;
         return runtime;
       });
@@ -317,8 +320,8 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
         if (!existing && !duplicateOpportunity(snapshot, {clientId:dttClient(snapshot).id,emailKey:key,bodyHash}, fields)) prepared = await adapter.searchCandidates(fields);
       }
       return transaction(async db => {
-        if (norm(email.mailbox) !== 'gerson@alcateiaconsulting.com.br' || norm(email.sender) !== 'poolterceiros@deloitte.com') fail('Caixa ou remetente fora da regra DTT.');
-        if (email.subject && !/^(?:(?:re|fw|fwd|enc):\s*)*solicitacao de cotacao\s*[-–—]/i.test(norm(email.subject))) fail('Assunto fora da regra SOLICITAÇÃO DE COTAÇÃO -.');
+        if (norm(email.mailbox) !== 'gerson@alcateiaconsulting.com.br' || !/^pool[^@]*@deloitte\.com(?:\.br)?$/i.test(String(email.sender || '').trim())) fail('Caixa ou remetente fora da regra DTT.');
+        if (email.subject && !/solicitacao de cotacao[\s\S]*\bvaga\b/i.test(norm(email.subject))) fail('Assunto fora da regra de solicitação de cotação com identificação da vaga.');
         if (!String(email.body || '').trim() || String(email.body).length > 100000) fail('Informe o corpo do e-mail (até 100 mil caracteres).');
         const client = dttClient(db);
         const existing = db.opportunityIntakes.find(d => d.clientId === client.id && (
@@ -327,7 +330,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
           ((!fields.requestId || !d.fields.requestId) && (d.emailKey === key || d.bodyHash === bodyHash))
         ));
         if (existing) return { draft: existing, duplicate: true, changed: existing.bodyHash !== bodyHash, warnings: intakeWarnings(existing.fields) };
-        const draft = { id: randomUUID(), clientId: client.id, clientName: client.customerName || client.name, emailKey: key, bodyHash, email: { mailbox: email.mailbox, sender: INTAKE_SENDER, subject: String(email.subject || ''), messageId: String(email.messageId || ''), body: email.body }, fields, seniorityAssessment: extracted.seniorityAssessment, status: 'pending', subjectLabelVersion: 1, revision: 1, selectedIds: [], createdAt: new Date().toISOString(), createdBy: user.id, audit: [] };
+        const draft = { id: randomUUID(), clientId: client.id, clientName: client.customerName || client.name, emailKey: key, bodyHash, email: { mailbox: email.mailbox, sender: String(email.sender || INTAKE_SENDER), subject: String(email.subject || ''), messageId: String(email.messageId || ''), body: email.body }, fields, seniorityAssessment: extracted.seniorityAssessment, status: 'pending', subjectLabelVersion: 1, revision: 1, selectedIds: [], createdAt: new Date().toISOString(), createdBy: user.id, audit: [] };
         const duplicate = duplicateOpportunity(db, draft, fields);
         if (duplicate) { draft.status = 'duplicate'; draft.opportunityId = duplicate.id; }
         if (draft.status === 'pending') await prepareSearch(db, draft, prepared);

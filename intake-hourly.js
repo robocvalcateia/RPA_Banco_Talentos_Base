@@ -2,12 +2,15 @@ import { randomUUID } from 'node:crypto';
 export const DTT_MAILBOX = 'gerson@alcateiaconsulting.com.br';
 export const DTT_SENDER = 'poolterceiros@deloitte.com';
 export const HOUR_MS = 3600000;
+const DTT_POOL_SENDER = /^pool[^@]*@deloitte\.com(?:\.br)?$/i;
 export function isDttMessage(message) {
-  return String(message.from?.emailAddress?.address || '').toLowerCase() === DTT_SENDER && /^(?:(?:re|fw|fwd|enc):\s*)*solicita[çc][aã]o de cota[çc][aã]o\s*[-–—]\s*vaga\b/i.test(message.subject || '');
+  const sender=String(message.from?.emailAddress?.address || '').trim();
+  const subject=String(message.subject || '');
+  return (sender.toLowerCase()===DTT_SENDER || DTT_POOL_SENDER.test(sender)) && /solicita[çc][aã]o de cota[çc][aã]o[\s\S]*\bvaga\b/i.test(subject);
 }
 export async function listDttMessages({ token, since, until, fetchImpl = fetch }) {
   const from = new Date(Date.parse(since) - 5 * 60000).toISOString();
-  const query = new URLSearchParams({ '$select':'id,internetMessageId,subject,from,receivedDateTime,body', '$filter':`receivedDateTime ge ${from} and receivedDateTime le ${until} and from/emailAddress/address eq '${DTT_SENDER}'`, '$orderby':'receivedDateTime asc', '$top':'100' });
+  const query = new URLSearchParams({ '$select':'id,internetMessageId,subject,from,receivedDateTime,body', '$filter':`receivedDateTime ge ${from} and receivedDateTime le ${until}`, '$orderby':'receivedDateTime asc', '$top':'100' });
   let next = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(DTT_MAILBOX)}/messages?${query}`;
   const rows = [], seen = new Set();
   while (next) {

@@ -131,7 +131,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20261021-dtt-manual-scan';
+const APP_VERSION = '20261021-dtt-pool-rescan';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -3915,7 +3915,7 @@ async function handleApi(request, response) {
       if (pathname === '/api/intake/run' && request.method === 'POST') {
         if(requireAdmin(response,auth.user,'Apenas ADMIN pode executar a rotina.'))return;
         if(!productionIntake){sendError(response,422,'Varredura real disponível somente com banco de produção.');return;}
-        const runtime=await intakeStore.scheduleCycle(auth.user);
+        const runtime=await intakeStore.scheduleCycle(auth.user,45);
         sendJson(response,202,{scheduled:true,intervalMinutes:60,runtime});
         runDttHourlyIfEnabled().catch(error=>console.error('Rotina DTT:',error.message));return;
       }
