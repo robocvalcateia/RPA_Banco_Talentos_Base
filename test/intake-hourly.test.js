@@ -73,6 +73,18 @@ test('admin recovery only retries failed enabled cycles, preserving the checkpoi
   await assert.rejects(f.store.retryFailedCycle(),/Somente/);
 });
 
+test('admin can schedule an immediate cycle without changing the checkpoint',async t=>{
+  const f=await fixture(t);await f.store.activate('2026-10-04T11:00:00.000Z',user);
+  await createHourlyIntake(f.options).run();
+  const before=await f.store.schedulerStatus();
+  const scheduled=await f.store.scheduleCycle(user);
+  assert.equal(scheduled.status,'manual_scheduled');
+  assert.equal(scheduled.checkpoint,before.checkpoint);
+  const result=await createHourlyIntake(f.options).run();
+  assert.equal(result.received,1);
+  assert.equal((await f.store.schedulerStatus()).status,'finished');
+});
+
 
 test('explicit refreshed review resends once per revision and normal hourly reminders retain interval',async t=>{
   const f=await fixture(t),worker=createHourlyIntake(f.options);

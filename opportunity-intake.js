@@ -174,6 +174,19 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
       });
     },
     schedulerStatus() { return adapter?.readRuntime ? adapter.readRuntime() : read().then(db => (db.intakeRuntime || []).find(r => r.id === 'hourly') || null); },
+    scheduleCycle(user) {
+      return transaction(db => {
+        const runtime=(db.intakeRuntime || []).find(r=>r.id==='hourly');
+        if(!runtime?.enabled) fail('A rotina DTT ainda não foi ativada.',409);
+        if(runtime.status==='running' && runtime.leaseUntil && Date.parse(runtime.leaseUntil)>Date.now()) fail('A rotina DTT já está em execução.',409);
+        runtime.status='manual_scheduled';
+        runtime.leaseUntil=null;
+        runtime.manualRequestedAt=new Date().toISOString();
+        runtime.manualRequestedBy=user.id;
+        delete runtime.lastStartedAt;
+        return runtime;
+      });
+    },
     retryFailedCycle() {
       return transaction(db => {
         const runtime=(db.intakeRuntime || []).find(r=>r.id==='hourly');

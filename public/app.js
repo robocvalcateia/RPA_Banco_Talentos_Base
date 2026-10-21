@@ -8441,6 +8441,26 @@ function render() {
   document.querySelectorAll('[data-local-intake]').forEach(el => { el.hidden = !state.localIntakeEnabled; });
   const intakeButton = document.getElementById('openIntake');
   if (intakeButton) intakeButton.onclick = () => showView('opportunityIntake');
+  const runDttButton = document.getElementById('runDttIntake');
+  if (runDttButton && !runDttButton.dataset.bound) {
+    runDttButton.dataset.bound = 'true';
+    runDttButton.onclick = async () => {
+      if (runDttButton.disabled) return;
+      runDttButton.disabled = true;
+      runDttButton.textContent = 'Iniciando varredura...';
+      try {
+        await api('/api/intake/run', { method: 'POST' });
+        toast('Varredura DTT iniciada. E-mails já processados e códigos repetidos não serão duplicados.');
+        window.setTimeout(() => void refreshDttIntakeStatus(), 2500);
+      } catch (error) {
+        toast(error.message || 'Não foi possível iniciar a varredura DTT.');
+      } finally {
+        runDttButton.disabled = false;
+        runDttButton.textContent = 'Varrer DTT agora';
+      }
+    };
+    void refreshDttIntakeStatus();
+  }
   applyRoleVisibility();
   renderFavoriteCards();
   renderFavoriteMaintenance();
@@ -8490,6 +8510,19 @@ function render() {
   bindCurrencyInputs();
   initResizableTables();
   compactTableCells();
+}
+
+async function refreshDttIntakeStatus() {
+  const status = document.getElementById('dttIntakeStatus');
+  if (!status || !state.localIntakeEnabled || String(state.currentUser?.role || '').toLowerCase() !== 'admin') return;
+  try {
+    const result = await api('/api/intake/scheduler');
+    const runtime = result.runtime || {};
+    const finished = runtime.lastFinishedAt ? new Date(runtime.lastFinishedAt).toLocaleString('pt-BR') : 'ainda não executada';
+    status.textContent = `Rotina: ${runtime.enabled ? runtime.status || 'ativa' : 'inativa'} · última execução: ${finished}${runtime.error ? ` · erro: ${runtime.error}` : ''}`;
+  } catch (error) {
+    status.textContent = error.message || 'Não foi possível consultar a rotina DTT.';
+  }
 }
 
 function compactTableCells(root = document) {

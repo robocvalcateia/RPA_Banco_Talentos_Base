@@ -771,7 +771,15 @@
       </section>
 
       <section class="view" id="opportunities">
-<section class="panel" data-local-intake hidden><h2>Solicitações recebidas por e-mail</h2><p>Revise a vaga e os candidatos antes de cadastrar a oportunidade.</p><button class="primary-action" type="button" id="openIntake">Revisar solicitação DTT</button></section>
+        <section class="panel" data-local-intake hidden>
+          <h2>Solicitações recebidas por e-mail</h2>
+          <p>Revise a vaga e os candidatos antes de cadastrar a oportunidade.</p>
+          <div class="inline-actions">
+            <button class="primary-action" type="button" id="openIntake">Revisar solicitação DTT</button>
+            <button class="secondary-action" type="button" id="runDttIntake">Varrer DTT agora</button>
+          </div>
+          <p id="dttIntakeStatus" class="form-help">Consulte o estado da rotina.</p>
+        </section>
         <section class="panel">
           <div class="panel-heading">
             <h2>Cadastrar oportunidade</h2>
