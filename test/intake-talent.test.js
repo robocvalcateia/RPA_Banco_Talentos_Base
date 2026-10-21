@@ -9,7 +9,7 @@ test('production search streams CVs, preserves complete matching and avoids a bu
   const reader=createIntakeTalentReader({convert:x=>x,getCollection:async()=>({find(){return {batchSize(n){batch=n;return this;},async *[Symbol.asyncIterator](){for(const row of rows){reads++;yield row;}},toArray(){throw Error('Bulk loading forbidden');}};}})});
   const fields={profile:'Consultor SAP FI',coreSkill:'SAP FI',requirements:'SAP FI implementação',workModel:'Remoto'};
   const result=await reader.searchCandidates(fields);
-  assert.equal(reads,2);assert.equal(batch,100);assert.equal(result.totalEvaluated,2);
+  assert.equal(reads,2);assert.equal(batch,5);assert.equal(result.totalEvaluated,2);
   assert.deepEqual(result.candidates,matchIntakeCandidates(rows,fields));
 });
 
