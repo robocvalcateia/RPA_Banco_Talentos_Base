@@ -174,18 +174,18 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
       });
     },
     schedulerStatus() { return adapter?.readRuntime ? adapter.readRuntime() : read().then(db => (db.intakeRuntime || []).find(r => r.id === 'hourly') || null); },
-    scheduleCycle(user, lookbackDays=45) {
+    scheduleCycle(user, lookbackDays=45, force=false) {
       return transaction(db => {
         const runtime=(db.intakeRuntime || []).find(r=>r.id==='hourly');
         if(!runtime?.enabled) fail('A rotina DTT ainda não foi ativada.',409);
-        if(runtime.status==='running' && runtime.leaseUntil && Date.parse(runtime.leaseUntil)>Date.now()) fail('A rotina DTT já está em execução.',409);
+        if(!force && runtime.status==='running' && runtime.leaseUntil && Date.parse(runtime.leaseUntil)>Date.now()) fail('A rotina DTT já está em execução.',409);
         runtime.status='manual_scheduled';
         runtime.leaseUntil=null;
         runtime.manualRequestedAt=new Date().toISOString();
         runtime.manualRequestedBy=user.id;
         const rewindTo=new Date(Date.now()-Math.max(1,Math.min(90,Number(lookbackDays)||45))*86400000).toISOString();
-        if(!runtime.checkpoint || Date.parse(runtime.checkpoint)>Date.parse(rewindTo)) runtime.checkpoint=rewindTo;
-        if(!runtime.activatedAt || Date.parse(runtime.activatedAt)>Date.parse(rewindTo)) runtime.activatedAt=rewindTo;
+        runtime.checkpoint=rewindTo;
+        runtime.activatedAt=rewindTo;
         delete runtime.lastStartedAt;
         return runtime;
       });

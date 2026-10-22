@@ -3915,7 +3915,7 @@ async function handleApi(request, response) {
       if (pathname === '/api/intake/run' && request.method === 'POST') {
         if(requireAdmin(response,auth.user,'Apenas ADMIN pode executar a rotina.'))return;
         if(!productionIntake){sendError(response,422,'Varredura real disponível somente com banco de produção.');return;}
-        const runtime=await intakeStore.scheduleCycle(auth.user,2);
+        const runtime=await intakeStore.scheduleCycle(auth.user,2,true);
         sendJson(response,202,{scheduled:true,intervalMinutes:60,runtime});
         runDttHourlyIfEnabled().catch(error=>console.error('Rotina DTT:',error.message));return;
       }
