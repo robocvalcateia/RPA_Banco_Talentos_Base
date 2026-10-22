@@ -7588,7 +7588,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     startFormRequestReminderJob();
     startStatusReportReminderJob();
     startScheduledInboxEmailProcessingJob();
-    if(productionIntake){
+    if(productionIntake && process.env.DTT_SCHEDULER_RUNTIME_ENABLED === 'true'){
       const tick=()=>runDttHourlyIfEnabled().catch(error=>console.error('Rotina DTT:',error.message));
       // Check due time each minute; the persistent lease permits inbox reads only hourly.
       tick(); setInterval(tick,60000).unref();
