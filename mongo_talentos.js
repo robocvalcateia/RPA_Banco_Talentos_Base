@@ -35,7 +35,7 @@ function readMongoConfig(env = process.env) {
   };
 }
 
-const CURRICULUM_BOOTSTRAP_PROJECTION = {
+export const CURRICULUM_BOOTSTRAP_PROJECTION = {
   _id: 1,
   id: 1,
   id_controle: 1,

@@ -1,5 +1,5 @@
 import { ObjectId } from 'mongodb';
-import { getMongoTalentosCollection, mongoCandidateToCurriculum } from './mongo_talentos.js';
+import { CURRICULUM_BOOTSTRAP_PROJECTION, getMongoTalentosCollection, mongoCandidateToCurriculum } from './mongo_talentos.js';
 import { matchIntakeCandidates } from './opportunity-intake.js';
 
 // Runtime and review operations load only current contact/eligibility data for
@@ -17,7 +17,7 @@ export function createIntakeTalentReader({getCollection=getMongoTalentosCollecti
       return rows;
     },
     async searchCandidates(fields) {
-      const cursor=(await getCollection()).find({},{projection:{arquivo_base64:0,base64:0}}).batchSize(100);
+      const cursor=(await getCollection()).find({},{projection:CURRICULUM_BOOTSTRAP_PROJECTION}).batchSize(100);
       const candidates=[],seen=new Set();let totalEvaluated=0;
       for await (const row of cursor) {
         totalEvaluated++;
