@@ -15,6 +15,61 @@ const dttHourly = createHourlyIntake({ store:intakeStore, getToken:getGraphAcces
 async function runDttHourlyIfEnabled() {
   if(productionIntake && (await intakeStore.schedulerStatus())?.enabled) return dttHourly.run();
 }
+
+async function notifyDttOpportunityCreated(result, user) {
+  if (!productionIntake || !result?.opportunity || result.repeated) return [];
+  const smtp = getSmtpConfigFromEnv();
+  const opportunity = result.opportunity;
+  const label = [opportunity.clientOpportunityCode, opportunity.opportunity].filter(Boolean).join(' - ');
+  const systemUrl = `${getPublicBaseUrl()}/?view=opportunities`;
+  const recipients = [
+    { name: 'Gerson', email: 'gerson@alcateiaconsulting.com.br' },
+    { name: 'Bruno', email: 'bruno@alcateiaconsulting.com.br' }
+  ];
+  const notifications = [];
+
+  for (const recipient of recipients) {
+    const notification = {
+      id: `dtt-created:${result.draft?.id || opportunity.id}:${recipient.email}`,
+      provider: 'SMTP',
+      source: 'dtt_opportunity_created',
+      type: 'dtt_opportunity_created',
+      to: recipient.email,
+      opportunityId: opportunity.id,
+      opportunityCode: opportunity.opportunityCode,
+      clientOpportunityCode: opportunity.clientOpportunityCode,
+      status: 'sending',
+      createdAt: toISODate(),
+      sentAt: '',
+      error: ''
+    };
+    try {
+      await sendMail({
+        ...smtp,
+        to: recipient.email,
+        subject: `Alcateia | Oportunidade DTT criada: ${label}`,
+        text: [
+          `Olá, ${recipient.name}.`,
+          '',
+          `A oportunidade DTT ${label} foi criada no sistema.`,
+          `Código interno: ${opportunity.opportunityCode}.`,
+          `Candidatos vinculados na confirmação: ${Number(result.selectedCount || 0)}.`,
+          `Confirmada por: ${user?.name || 'usuário do sistema'}.`,
+          '',
+          `Acesse: ${systemUrl}`
+        ].join('\n')
+      });
+      notification.status = 'sent';
+      notification.sentAt = toISODate();
+    } catch (error) {
+      notification.status = 'failed';
+      notification.error = String(error?.message || error);
+    }
+    try { await writeEmailLog(notification); } catch {}
+    notifications.push(notification);
+  }
+  return notifications;
+}
 import { summarizeCandidateEmails, summarizeSentMessages } from './email-diagnostics.js';
 import { CvSearchJobs, uniqueApproved, recommendedCandidates, APPROVED_TARGET } from './cv-search-jobs.js';
 const cvSearchJobs = new CvSearchJobs();
@@ -131,7 +186,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20261022-white-cv-background-fix';
+const APP_VERSION = '20261022-dtt-scheduler-always-on';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -3973,6 +4028,9 @@ async function handleApi(request, response) {
         : action === 'confirm'
           ? await intakeStore.confirm(id, payload.revision, payload.selectedIds, auth.user, payload.acknowledged)
           : await intakeStore.cancel(id, payload.revision, auth.user);
+      if (action === 'confirm') {
+        result.createdNotifications = await notifyDttOpportunityCreated(result, auth.user);
+      }
       sendJson(response, 200, result); return;
     }
 
@@ -7588,7 +7646,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     startFormRequestReminderJob();
     startStatusReportReminderJob();
     startScheduledInboxEmailProcessingJob();
-    if(productionIntake && process.env.DTT_SCHEDULER_RUNTIME_ENABLED === 'true'){
+    if(productionIntake){
       const tick=()=>runDttHourlyIfEnabled().catch(error=>console.error('Rotina DTT:',error.message));
       // Check due time each minute; the persistent lease permits inbox reads only hourly.
       tick(); setInterval(tick,60000).unref();
