@@ -21,7 +21,10 @@ export function createMongoIntakeAdapter({ env=process.env, loadTalent, searchCa
   async function snapshot(collection,session) {
     const state={};
     for(const name of readCollections) state[name]=(await collection(name).find({},{session}).toArray()).map(clean);
-    const results=(await collection('intakeSearchResults').find({},{session}).toArray()).map(clean);
+    const results=(await collection('intakeSearchResults').find({}, {
+      session,
+      projection:{'candidate.cvText':0}
+    }).toArray()).map(clean);
     for(const draft of state.opportunityIntakes) if(draft.search) draft.search.candidates=results.filter(r=>r.draftId===draft.id).sort((a,b)=>a.position-b.position).map(r=>r.candidate);
     state.curriculums=await loadTalent([...new Set(results.map(r=>String(r.candidate.id)))]);
     return state;
