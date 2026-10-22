@@ -10,7 +10,7 @@ export function isDttMessage(message) {
 }
 export async function listDttMessages({ token, since, until, fetchImpl = fetch }) {
   const from = new Date(Date.parse(since) - 5 * 60000).toISOString();
-  const query = new URLSearchParams({ '$select':'id,internetMessageId,subject,from,receivedDateTime,body', '$filter':`receivedDateTime ge ${from} and receivedDateTime le ${until}`, '$orderby':'receivedDateTime asc', '$top':'100' });
+  const query = new URLSearchParams({ '$select':'id,internetMessageId,subject,from,receivedDateTime,body', '$filter':`receivedDateTime ge ${from} and receivedDateTime le ${until}`, '$orderby':'receivedDateTime desc', '$top':'100' });
   let next = `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(DTT_MAILBOX)}/messages?${query}`;
   const rows = [], seen = new Set();
   while (next) {
@@ -60,7 +60,11 @@ export function createHourlyIntake({ store, getToken, send, log, fetchMessages =
             if (!isDttMessage(message)) continue;
             if(message.receivedDateTime && Date.parse(message.receivedDateTime)<Date.parse(cycle.activatedAt))continue;
             if (message.body?.contentType?.toLowerCase() !== 'text') throw Error('Graph não retornou corpo em texto; mensagem mantida para nova tentativa.');
-            await store.receive({ mailbox:DTT_MAILBOX, sender:DTT_SENDER, subject:message.subject, messageId:message.internetMessageId || message.id, body:message.body.content },actor); received++;
+            const result=await store.receive({ mailbox:DTT_MAILBOX, sender:DTT_SENDER, subject:message.subject, messageId:message.internetMessageId || message.id, body:message.body.content },actor); received++;
+            if(result?.draft?.status==='pending') {
+              const dispatched=await this.notify(result.draft.id,undefined,started,owner);
+              sent+=dispatched.sent;errors.push(...dispatched.errors);
+            }
           }
           checkpoint=started;
         } catch(error) { errors.push(error.message); }
