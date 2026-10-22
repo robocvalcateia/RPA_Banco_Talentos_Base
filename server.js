@@ -4818,7 +4818,14 @@ async function handleApi(request, response) {
         return;
       }
 
-      if (templateId === 'alcateia' || templateId === 'dtt') {
+      if (templateId === 'alcateia') {
+        const generated = await generateCurriculumDocx('cv_alcateia', curriculumPayload);
+        const fileName = generated.filename || `${safeDocxFileName(curriculumPayload.nome)}_CV_Alcateia.docx`;
+        await sendDocxFile(response, generated.path, fileName);
+        return;
+      }
+
+      if (templateId === 'dtt') {
         const generatedContent = await generateCurriculumContent(curriculumPayload);
         const documents = await renderCurriculumDocuments(
           curriculumPayload,
@@ -4827,21 +4834,11 @@ async function handleApi(request, response) {
         );
         const filenameBase = safeDocxFileName(curriculumPayload.nome || curriculumPayload.id_controle);
 
-        if (templateId === 'dtt') {
-          sendBufferDownload(
-            response,
-            `${filenameBase}-DTT.zip`,
-            buildDttZip(filenameBase, documents),
-            'application/zip'
-          );
-          return;
-        }
-
         sendBufferDownload(
           response,
-          `${filenameBase}-CV-Alcateia-PT.docx`,
-          documents.alcateia,
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          `${filenameBase}-DTT.zip`,
+          buildDttZip(filenameBase, documents),
+          'application/zip'
         );
         return;
       }

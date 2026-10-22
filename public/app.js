@@ -4102,7 +4102,7 @@ async function exportSelectedCurriculumTemplate(templateId, button) {
   const generationButtons = [$('#exportAlcateiaButton'), $('#exportDttButton')].filter(Boolean);
   try {
     generationButtons.forEach((item) => { item.disabled = true; });
-    if (button) button.textContent = 'Gerando com IA...';
+    if (button) button.textContent = templateId === 'dtt' ? 'Gerando com IA...' : 'Gerando...';
 
     const curriculumPayload = $('#curriculumDetailForm') ? readCurriculumDetailForm() : current;
     await apiDownload(`/api/curriculums/${encodeURIComponent(curriculumIdentifier(current))}/export-template`, {
