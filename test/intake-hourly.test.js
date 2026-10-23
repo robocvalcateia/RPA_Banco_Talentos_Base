@@ -7,7 +7,7 @@ import { createIntakeStore } from '../opportunity-intake.js';
 import { createHourlyIntake, listDttMessages, isDttMessage } from '../intake-hourly.js';
 import { INTAKE_EXAMPLE } from '../intake-example.js';
 const message={id:'immutable-1',internetMessageId:'mail-1',subject:'SOLICITAÇÃO DE COTAÇÃO -VAGA 2054 - SAP FI',from:{emailAddress:{address:'poolterceiros@deloitte.com'}},receivedDateTime:'2026-10-04T12:00:00.000Z',body:{contentType:'text',content:INTAKE_EXAMPLE}};
-const user={id:'reviewer',name:'Gerson'};
+const user={id:'bruno',name:'Bruno',email:'bruno@alcateiaconsulting.com.br'};
 async function fixture(t){
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'dtt-hourly-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));
   const file=path.join(dir,'db.json'); await fs.writeFile(file,JSON.stringify({clients:[{id:'dtt',customerName:'DTT'}],users:['gerson','bruno'].map(id=>({id,name:id,email:`${id}@alcateiaconsulting.com.br`,active:true})),curriculums:[],opportunities:[]}));
@@ -15,38 +15,39 @@ async function fixture(t){
   const options={store,getToken:async()=> 'fake-token',fetchMessages:async()=>[message],send:async m=>sent.push(m),log:async m=>logs.push(m),now:()=>time};
   return{store,sent,logs,options,read:async()=>JSON.parse(await fs.readFile(file,'utf8')),setTime:value=>{time=value;}};
 }
-test('hourly receipt sends same link to both reviewers, persists across restarts and stops after confirmation',async t=>{
+test('six-hourly receipt alerts only Bruno and stops after his confirmation',async t=>{
   const f=await fixture(t);const worker=createHourlyIntake(f.options);
-  const first=await worker.run();assert.equal(first.sent,2);assert.equal((await f.store.list()).length,1);
-  assert.deepEqual(f.sent.map(m=>m.to),['gerson@alcateiaconsulting.com.br','bruno@alcateiaconsulting.com.br']);
-  assert.equal(f.sent[0].text,f.sent[1].text);assert.match(f.sent[0].subject,/2054 - SAP FI/);
-  assert.equal((await worker.run()).skipped,true);assert.equal(f.sent.length,2);
-  f.setTime('2026-10-04T13:00:00.000Z');await createHourlyIntake(f.options).run();assert.equal(f.sent.length,4);assert.equal((await f.store.list()).length,1);
+  const first=await worker.run();assert.equal(first.sent,1);assert.equal((await f.store.list()).length,1);
+  assert.deepEqual(f.sent.map(m=>m.to),['bruno@alcateiaconsulting.com.br']);
+  assert.match(f.sent[0].subject,/2054 - SAP FI/);assert.match(f.sent[0].text,/cada 6 horas/);
+  assert.equal((await worker.run()).skipped,true);assert.equal(f.sent.length,1);
+  f.setTime('2026-10-04T13:00:00.000Z');assert.equal((await createHourlyIntake(f.options).run()).skipped,true);assert.equal(f.sent.length,1);
+  f.setTime('2026-10-04T18:00:00.000Z');await createHourlyIntake(f.options).run();assert.equal(f.sent.length,2);assert.equal((await f.store.list()).length,1);
   const draft=(await f.store.list())[0];await f.store.confirm(draft.id,draft.revision,[],user,true);
   assert.equal((await f.read()).opportunities[0].clientOpportunityCode,'2054');
-  f.setTime('2026-10-04T14:00:00.000Z');await worker.run();assert.equal(f.sent.length,4);assert.equal(f.logs.length,4);
+  f.setTime('2026-10-05T00:00:00.000Z');await worker.run();assert.equal(f.sent.length,2);assert.equal(f.logs.length,2);
 });
 test('cancellation stops reminders; same vacancy with changed title remains one draft',async t=>{
   const f=await fixture(t);await createHourlyIntake(f.options).run();
   const draft=(await f.store.list())[0];
   f.setTime('2026-10-04T13:00:00.000Z');await createHourlyIntake({...f.options,fetchMessages:async()=>[{...message,id:'other',internetMessageId:'other',subject:'SOLICITAÇÃO DE COTAÇÃO -VAGA 2054 - Título alterado'}]}).run();
   assert.equal((await f.store.list()).length,1);await f.store.cancel(draft.id,draft.revision,user);
-  f.setTime('2026-10-04T14:00:00.000Z');await createHourlyIntake(f.options).run();assert.equal(f.sent.length,4);
+  f.setTime('2026-10-04T18:00:00.000Z');await createHourlyIntake(f.options).run();assert.equal(f.sent.length,1);
 });
-test('SMTP failure affects only recipient, is recorded, and retries no sooner than next hour',async t=>{
-  const f=await fixture(t);const run=createHourlyIntake({...f.options,send:async m=>{if(m.to.startsWith('gerson'))throw Error('do not expose transport secrets');f.sent.push(m);}});
-  await run.run();assert.equal(f.sent.length,1);assert.equal(f.logs.filter(l=>l.status==='failed').length,1);assert.ok(!JSON.stringify(f.logs).includes('transport secrets'));
-  f.setTime('2026-10-04T12:59:59.000Z');assert.equal((await run.run()).skipped,true);
-  f.setTime('2026-10-04T13:00:00.000Z');await run.run();assert.equal(f.sent.length,2);
+test('SMTP failure is recorded and retries no sooner than six hours',async t=>{
+  const f=await fixture(t);const failed=createHourlyIntake({...f.options,send:async()=>{throw Error('do not expose transport secrets');}});
+  await failed.run();assert.equal(f.sent.length,0);assert.equal(f.logs.filter(l=>l.status==='failed').length,1);assert.ok(!JSON.stringify(f.logs).includes('transport secrets'));
+  f.setTime('2026-10-04T17:59:59.000Z');assert.equal((await failed.run()).skipped,true);
+  f.setTime('2026-10-04T18:00:00.000Z');await createHourlyIntake(f.options).run();assert.equal(f.sent.length,1);
 });
 test('concurrent workers share durable cycle claim and reminders are not duplicated',async t=>{
   const f=await fixture(t);const results=await Promise.all([createHourlyIntake(f.options).run(),createHourlyIntake(f.options).run()]);
-  assert.equal(results.filter(r=>r.skipped).length,1);assert.equal(f.sent.length,2);
+  assert.equal(results.filter(r=>r.skipped).length,1);assert.equal(f.sent.length,1);
 });
 test('mailbox failure leaves checkpoint unchanged and still reminds existing pending drafts',async t=>{
   const f=await fixture(t);await createHourlyIntake(f.options).run();const before=await f.store.schedulerStatus();
-  f.setTime('2026-10-04T13:00:00.000Z');await createHourlyIntake({...f.options,getToken:async()=>{throw Error('Graph unavailable');}}).run();
-  const after=await f.store.schedulerStatus();assert.equal(after.checkpoint,before.checkpoint);assert.equal(after.status,'error');assert.equal(f.sent.length,4);
+  f.setTime('2026-10-04T18:00:00.000Z');await createHourlyIntake({...f.options,getToken:async()=>{throw Error('Graph unavailable');}}).run();
+  const after=await f.store.schedulerStatus();assert.equal(after.checkpoint,before.checkpoint);assert.equal(after.status,'error');assert.equal(f.sent.length,2);
 });
 test('Graph pagination requests text, filters sender and subject, and rejects permission errors and untrusted links',async()=>{
   let count=0;
@@ -71,7 +72,7 @@ test('admin recovery only retries failed enabled cycles, preserving the checkpoi
   const before=await f.store.schedulerStatus();await f.store.retryFailedCycle();
   await assert.rejects(f.store.retryFailedCycle(),/Somente/);
   assert.equal((await f.store.schedulerStatus()).checkpoint,before.checkpoint);
-  const result=await createHourlyIntake(f.options).run();assert.equal(result.received,1);assert.equal(result.sent,2);
+  const result=await createHourlyIntake(f.options).run();assert.equal(result.received,1);assert.equal(result.sent,1);
   await assert.rejects(f.store.retryFailedCycle(),/Somente/);
 });
 
@@ -88,16 +89,16 @@ test('admin can schedule an immediate cycle without changing the checkpoint',asy
 });
 
 
-test('explicit refreshed review resends once per revision and normal hourly reminders retain interval',async t=>{
+test('explicit refreshed review resends once per revision and normal reminders retain six-hour interval',async t=>{
   const f=await fixture(t),worker=createHourlyIntake(f.options);
   await worker.run(); const d=(await f.store.list())[0];
   assert.ok(f.sent.every(m=>!m.text.includes('Gerson e Bruno acessam')));
   await assert.rejects(worker.notify(d.id,d.revision),/sem pesquisa/);
   const refreshed=await f.store.refreshSearch(d.id,d.revision,user);
   assert.equal(refreshed.draft.fields.coreSkill,refreshed.draft.fields.profile);
-  assert.equal((await worker.notify(d.id,refreshed.draft.revision)).sent,2);
+  assert.equal((await worker.notify(d.id,refreshed.draft.revision)).sent,1);
   assert.equal((await worker.notify(d.id,refreshed.draft.revision)).sent,0);
-  assert.equal(f.sent.length,4); assert.equal(f.logs.length,4);
+  assert.equal(f.sent.length,2); assert.equal(f.logs.length,2);
   await assert.rejects(f.store.refreshSearch(d.id,d.revision,user),/alterada/);
   assert.equal((await f.read()).opportunities.length,0);
   await f.store.cancel(d.id,refreshed.draft.revision,user);

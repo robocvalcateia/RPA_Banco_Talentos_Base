@@ -2,7 +2,7 @@ import { writeEmailLog, readEmailLogs, lifecycleLog, legacyEmailLogs, queryEmail
 import http from 'node:http';
 import { createIntakeStore } from './opportunity-intake.js';
 import { createMongoIntakeAdapter } from './intake-mongo.js';
-import { createHourlyIntake, DTT_MAILBOX, HOUR_MS } from './intake-hourly.js';
+import { createHourlyIntake, DTT_MAILBOX, DTT_ALERT_INTERVAL_MS } from './intake-hourly.js';
 import { createIntakeTalentReader } from './intake-talent.js';
 import { DATA_FILE } from './db.js';
 const productionIntake = process.env.LOCAL_INTAKE_MODE !== 'true' && Boolean(process.env.MONGODB_URL || process.env.MONGODB_URI);
@@ -3958,7 +3958,7 @@ async function handleApi(request, response) {
       if (isConsultantUser(auth.user) || auth.user.mustChangePassword) { sendError(response, 403, 'Acesso restrito à equipe interna.'); return; }
       if (pathname === '/api/intake/scheduler' && request.method === 'GET') {
         if(requireAdmin(response,auth.user,'Apenas ADMIN pode consultar a rotina.'))return;
-        sendJson(response,200,{production:productionIntake,intervalMinutes:60,mailbox:DTT_MAILBOX,runtime:await intakeStore.schedulerStatus()});return;
+        sendJson(response,200,{production:productionIntake,intervalMinutes:DTT_ALERT_INTERVAL_MS / 60000,mailbox:DTT_MAILBOX,runtime:await intakeStore.schedulerStatus()});return;
       }
       if (pathname === '/api/intake/retry' && request.method === 'POST') {
         if(requireAdmin(response,auth.user,'Apenas ADMIN pode retomar a rotina.'))return;
@@ -7648,7 +7648,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     startScheduledInboxEmailProcessingJob();
     if(productionIntake){
       const tick=()=>runDttHourlyIfEnabled().catch(error=>console.error('Rotina DTT:',error.message));
-      // Check due time each minute; the persistent lease permits inbox reads only hourly.
+      // Check due time each minute; the persistent lease permits inbox reads and reminders only every 6 hours.
       tick(); setInterval(tick,60000).unref();
     }
     }

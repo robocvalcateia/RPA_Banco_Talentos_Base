@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 export const DTT_MAILBOX = 'gerson@alcateiaconsulting.com.br';
 export const DTT_SENDER = 'poolterceiros@deloitte.com';
-export const HOUR_MS = 3600000;
+export const DTT_ALERT_INTERVAL_MS = 6 * 3600000;
+export const HOUR_MS = DTT_ALERT_INTERVAL_MS;
+export const DTT_REVIEWER_EMAIL = 'bruno@alcateiaconsulting.com.br';
 const DTT_POOL_SENDER = /^pool[^@]*@deloitte\.com(?:\.br)?$/i;
 export function isDttMessage(message) {
   const sender=String(message.from?.emailAddress?.address || '').trim();
@@ -27,12 +29,12 @@ export async function listDttMessages({ token, since, until, fetchImpl = fetch }
 }
 export function createHourlyIntake({ store, getToken, send, log, fetchMessages = listDttMessages, now = () => new Date().toISOString(), startAt, simulated = false }) {
   let running = false;
-  const actor = { id:'dtt-hourly', name:'Rotina horária DTT', email:DTT_MAILBOX };
+  const actor = { id:'dtt-six-hourly', name:'Rotina DTT a cada 6 horas', email:DTT_MAILBOX };
   return {
     async notify(draftId, refreshRevision, started=now(), owner=randomUUID()) {
       const draft=(await store.get(draftId)).draft;
       const errors=[]; let sent=0;
-      for(const recipient of draft.reviewRecipients || []) {
+      for(const recipient of (draft.reviewRecipients || []).filter(item => item.email === DTT_REVIEWER_EMAIL)) {
             const attempt=await store.claimReminder(draft.id,recipient.email,started,owner,refreshRevision);
             if (!attempt) continue;
             let status='failed',error='';
@@ -69,7 +71,7 @@ export function createHourlyIntake({ store, getToken, send, log, fetchMessages =
           checkpoint=started;
         } catch(error) { errors.push(error.message); }
         for (const draft of (await store.list()).filter(d=>d.status==='pending' && d.receivedAt)) {
-          for (const recipient of draft.reviewRecipients || []) {
+          for (const recipient of (draft.reviewRecipients || []).filter(item => item.email === DTT_REVIEWER_EMAIL)) {
             const dispatched = await this.notify(draft.id, undefined, started, owner);
             sent += dispatched.sent; errors.push(...dispatched.errors);
             break; // notify handles all configured recipients
@@ -81,7 +83,7 @@ export function createHourlyIntake({ store, getToken, send, log, fetchMessages =
       finally { try { if(claimed) await store.finishCycle(owner,now(),checkpoint,failure); } finally { running=false; } }
     },
     start(onError = () => {}) {
-      const tick=()=>this.run().catch(onError); tick(); const timer=setInterval(tick,HOUR_MS); timer.unref?.(); return ()=>clearInterval(timer);
+      const tick=()=>this.run().catch(onError); tick(); const timer=setInterval(tick,DTT_ALERT_INTERVAL_MS); timer.unref?.(); return ()=>clearInterval(timer);
     }
   };
 }
