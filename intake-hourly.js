@@ -3,7 +3,10 @@ export const DTT_MAILBOX = 'gerson@alcateiaconsulting.com.br';
 export const DTT_SENDER = 'poolterceiros@deloitte.com';
 export const DTT_ALERT_INTERVAL_MS = 6 * 3600000;
 export const HOUR_MS = DTT_ALERT_INTERVAL_MS;
-export const DTT_REVIEWER_EMAIL = 'bruno@alcateiaconsulting.com.br';
+export const DTT_REVIEWERS = [
+  { name: 'Gerson', email: 'gerson@alcateiaconsulting.com.br' },
+  { name: 'Bruno', email: 'bruno@alcateiaconsulting.com.br' }
+];
 const DTT_POOL_SENDER = /^pool[^@]*@deloitte\.com(?:\.br)?$/i;
 export function isDttMessage(message) {
   const sender=String(message.from?.emailAddress?.address || '').trim();
@@ -34,7 +37,7 @@ export function createHourlyIntake({ store, getToken, send, log, fetchMessages =
     async notify(draftId, refreshRevision, started=now(), owner=randomUUID()) {
       const draft=(await store.get(draftId)).draft;
       const errors=[]; let sent=0;
-      for(const recipient of (draft.reviewRecipients || []).filter(item => item.email === DTT_REVIEWER_EMAIL)) {
+      for(const recipient of DTT_REVIEWERS) {
             const attempt=await store.claimReminder(draft.id,recipient.email,started,owner,refreshRevision);
             if (!attempt) continue;
             let status='failed',error='';
@@ -71,7 +74,7 @@ export function createHourlyIntake({ store, getToken, send, log, fetchMessages =
           checkpoint=started;
         } catch(error) { errors.push(error.message); }
         for (const draft of (await store.list()).filter(d=>d.status==='pending' && d.receivedAt)) {
-          for (const recipient of (draft.reviewRecipients || []).filter(item => item.email === DTT_REVIEWER_EMAIL)) {
+          for (const recipient of DTT_REVIEWERS) {
             const dispatched = await this.notify(draft.id, undefined, started, owner);
             sent += dispatched.sent; errors.push(...dispatched.errors);
             break; // notify handles all configured recipients

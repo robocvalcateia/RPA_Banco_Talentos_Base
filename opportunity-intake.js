@@ -4,7 +4,10 @@ import { compileIntakeRequirements, compareIntakeCurriculum, INTAKE_MATCH_VERSIO
 import { applySeniority } from './intake-seniority.js';
 import { normalizePlace, locationEligibility } from './intake-location.js';
 export const INTAKE_SENDER = 'poolterceiros@deloitte.com';
-export const DTT_REVIEWER_EMAIL = 'bruno@alcateiaconsulting.com.br';
+export const DTT_REVIEWER_EMAILS = [
+  'gerson@alcateiaconsulting.com.br',
+  'bruno@alcateiaconsulting.com.br'
+];
 const DTT_ALERT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 import { normalizeSelectedCandidate, normalizeCandidateMovement } from './db.js';
 
@@ -222,7 +225,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
       return transaction(db => {
         const draft = find(db, draftId);
         if (draft.status !== 'pending' || duplicateOpportunity(db, draft, draft.fields)) return null;
-        if (to !== DTT_REVIEWER_EMAIL || !(draft.reviewRecipients || []).some(r => r.email === to)) fail('Destinatário fora da revisão.');
+        if (!DTT_REVIEWER_EMAILS.includes(to)) fail('Destinatário fora da revisão.');
         db.intakeNotifications ||= [];
         const prior = db.intakeNotifications.filter(n => n.draftId === draftId && n.to === to && n.attempt).sort((a,b) => b.createdAt.localeCompare(a.createdAt))[0];
         if (refreshRevision !== undefined) {
@@ -232,7 +235,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
         } else if (prior && Date.parse(now) - Date.parse(prior.createdAt) < DTT_ALERT_INTERVAL_MS) return null;
         const entry = { id: randomUUID(), draftId, to, owner, refreshRevision, type: 'dtt_opportunity_review', attempt: true, status: 'sending', createdAt: now, sentAt: null, link: reviewLink(draftId), opportunityName: draft.fields.requestId || draft.fields.profile, opportunityCode: requestNumber(draft.fields.requestId), simulated };
         db.intakeNotifications.push(entry);
-        return { ...entry, subject: `Alcateia | Revisão pendente DTT: ${entry.opportunityName}`, text: `Uma oportunidade DTT aguarda sua revisão:\n${entry.opportunityName}\n\nConfira os dados e os candidatos já pesquisados:\n${entry.link}\n\nO acesso exige login. Os lembretes são enviados ao Bruno a cada 6 horas e encerrados após a aprovação e gravação da oportunidade ou o cancelamento da solicitação.` };
+        return { ...entry, subject: `Alcateia | Revisão pendente DTT: ${entry.opportunityName}`, text: `Uma oportunidade DTT aguarda a aprovação do Bruno:\n${entry.opportunityName}\n\nConfira os dados e os candidatos já pesquisados:\n${entry.link}\n\nO acesso exige login. Os lembretes são enviados ao Gerson e ao Bruno a cada 6 horas e encerrados após a aprovação e gravação da oportunidade ou o cancelamento da solicitação.` };
       });
     },
     finishReminder(id, owner, status, now, error = '') {
@@ -289,7 +292,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
           await prepareSearch(db, draft, recoveredSearch);
         }
         if (draft.status === 'pending' && !draft.receivedAt) {
-          const recipients = [DTT_REVIEWER_EMAIL].map(address => {
+          const recipients = DTT_REVIEWER_EMAILS.map(address => {
             const account = (db.users || []).find(u => norm(u.email) === address && u.active !== false);
             if (!account) fail(`Destinatário não cadastrado/ativo na base local: ${address}`);
             return { name: account.name, email: address };
