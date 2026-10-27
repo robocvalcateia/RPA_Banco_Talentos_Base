@@ -1,8 +1,23 @@
 // Evidence-based screening. Unknown information is never treated as confirmation.
-export const VACANCY_RULE_VERSION = 'technical-triage-v2';
+export const VACANCY_RULE_VERSION = 'technical-triage-v3';
 export const normalize = (value = '') => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9+#]+/g, ' ').trim().replace(/\s+/g, ' ');
 export const phrases = (value = '') => [...new Set(String(value).split(/[,;\n]+/).map(s => s.trim()).filter(Boolean))];
 const aliases = {
+  'tax one': ['TaxOne', 'Mastersaf DW', 'Mastersaf Data Warehouse'],
+  'mastersaf dw': ['Tax One', 'TaxOne', 'Mastersaf Data Warehouse'],
+  datasul: ['TOTVS Datasul'],
+  protheus: ['TOTVS Protheus'],
+  'totvs rm': ['RM TOTVS', 'Linha RM'],
+  fluig: ['TOTVS Fluig'],
+  winthor: ['TOTVS WinThor'],
+  'totvs fiscal': ['fiscal totvs'],
+  'totvs financeiro': ['financeiro totvs'],
+  'totvs contábil': ['contabil totvs', 'totvs contabil'],
+  'totvs compras': ['compras totvs'],
+  'totvs estoque': ['estoque totvs'],
+  'totvs faturamento': ['faturamento totvs'],
+  'totvs manufatura': ['manufatura totvs'],
+  'totvs rh': ['rh totvs', 'totvs recursos humanos'],
   'sap fi': ['sap fico', 'fi co', 'fi ap', 'fi ar', 'fi gl'],
   'sap ap': ['fi ap', 'accounts payable', 'contas a pagar'],
   'sap ar': ['fi ar', 'accounts receivable', 'contas a receber'],
@@ -42,11 +57,15 @@ export function hasSkill(text, skill) {
 }
 export function coreKeyword(filter) {
   const explicit = phrases(filter.coreSkill)[0] || phrases(filter.mandatorySkills)[0];
-  if (explicit) return explicit.match(/\bSAP\s*[- ]?\s*(?:FI(?:CO)?|MM|SD|ABAP|CO)\b/i)?.[0].replace(/SAP\s*[- ]?\s*/i, 'SAP ') || explicit;
-  return String(filter.jobDescription || '').match(/\bSAP\s+(?:FI(?:CO)?|MM|SD|ABAP|CO)\b/i)?.[0] || concepts.find(term => hasSkill(filter.jobDescription || '', term)) || '';
+  if (explicit) return concepts.find(term => hasSkill(explicit, term)) || explicit;
+  return concepts.find(term => hasSkill(filter.jobDescription || '', term)) || '';
 }
-const technicalCatalog = ['SAP FI', 'SAP MM', 'SAP SD', 'SAP CO', 'SAP ECC', 'S/4HANA', 'contas a pagar', 'contas a receber', 'razão geral', 'plano de contas', 'impostos retidos', 'reforma tributária', 'localização Brasil', 'J1BTAX', 'OBYC', 'CNAB', 'R2R', 'P2P', 'CBT', 'TAXBRA', 'TAXBRJ', 'CFOP', 'CST', 'ICMS', 'PIS', 'COFINS', 'IPI', 'CBS', 'IBS', 'revisão de faturas', 'SAP Activate', 'ASAP', 'Agile', 'rollout', 'greenfield', 'brownfield', 'SPED', 'ECF', 'SAP DRC', 'SAP TDF', 'Synchro', 'Avalara', 'debug'];
-const concepts = ['SAP FI', 'SAP AP', 'SAP AR', 'SAP GL', ...technicalCatalog.filter(term => !['SAP FI', 'contas a pagar', 'contas a receber', 'razão geral'].includes(term)), 'fechamento contábil', 'conciliação', 'integração FI MM', 'integração FI SD', 'suporte AMS', 'implementação', 'estrutura organizacional', 'Python', 'Java', 'JavaScript', 'TypeScript', 'C#', '.NET', 'SQL Server', 'PostgreSQL', 'Oracle', 'AWS', 'Azure', 'Kubernetes', 'Docker', 'React', 'Angular', 'Node.js', 'CI/CD', 'REST', 'Git'];
+const productCatalog = ['Tax One', 'Mastersaf DW', 'Datasul', 'Protheus', 'TOTVS RM', 'Fluig', 'WinThor', 'SAP FI', 'SAP MM', 'SAP SD', 'SAP CO', 'SAP ABAP', 'SAP ECC', 'S/4HANA', 'Synchro', 'Avalara'];
+const totvsCatalog = ['TOTVS Fiscal', 'TOTVS Financeiro', 'TOTVS Contábil', 'TOTVS Compras', 'TOTVS Estoque', 'TOTVS Faturamento', 'TOTVS Manufatura', 'TOTVS RH', 'ADVPL', 'Progress 4GL', 'TSS'];
+const taxCatalog = ['SPED', 'ECF', 'EFD', 'NFe', 'NFSe', 'CTe', 'eSocial', 'Reinf', 'GIA', 'DCTF', 'DCTFWeb', 'J1BTAX', 'OBYC', 'CNAB', 'R2R', 'P2P', 'CBT', 'TAXBRA', 'TAXBRJ', 'CFOP', 'CST', 'ICMS', 'ISS', 'PIS', 'COFINS', 'IPI', 'CBS', 'IBS', 'SAP DRC', 'SAP TDF'];
+const deliveryCatalog = ['levantamento de requisitos', 'mapeamento de processos', 'parametrização', 'configuração', 'implementação', 'implantação', 'sustentação', 'suporte funcional', 'testes integrados', 'UAT', 'homologação', 'treinamento de usuários', 'migração de dados', 'integração', 'API', 'rollout', 'greenfield', 'brownfield', 'Agile', 'Scrum'];
+const technicalCatalog = [...productCatalog, ...totvsCatalog, ...taxCatalog, ...deliveryCatalog, 'contas a pagar', 'contas a receber', 'razão geral', 'plano de contas', 'impostos retidos', 'reforma tributária', 'localização Brasil', 'fechamento contábil', 'conciliação', 'revisão de faturas', 'suporte AMS', 'Python', 'Java', 'JavaScript', 'TypeScript', 'C#', '.NET', 'SQL Server', 'PostgreSQL', 'Oracle', 'PL/SQL', 'AWS', 'Azure', 'Kubernetes', 'Docker', 'React', 'Angular', 'Node.js', 'CI/CD', 'REST', 'Git', 'debug'];
+const concepts = ['SAP AP', 'SAP AR', 'SAP GL', ...technicalCatalog];
 function canonical(term) {
   return concepts.find(item => skillAlternatives(item).some(alias => normalize(alias) === normalize(term))) || term.trim();
 }
@@ -90,7 +109,7 @@ export function interpretVacancy(filter) {
   phrases(filter.technicalSkills).forEach(term => add(term, 'central'));
   const ranking = [...ranked.values()].filter(item => !mandatory.some(term => normalize(term) === normalize(item.term)));
   return { version: VACANCY_RULE_VERSION, core, mandatory, ranking,
-    retrievalTerms: [...new Set([core, ...(normalize(core) === 'sap fi' ? ['SAP FICO', 'FI-AP', 'FI-AR', 'FI-GL'] : [])])],
+    retrievalTerms: [...new Set([core, ...skillAlternatives(core)].filter(Boolean))],
     operational: { englishLevel: filter.englishLevel || ['', 'Básico', 'Intermediário', 'Avançado', 'Fluente'][englishEvidence(filter.jobDescription || '')], locations: filter.locations || [filter.city, filter.state].filter(Boolean).join('/'), minimumYears: Number(String(filter.jobDescription || '').match(/\b(\d+)\s*(?:\+\s*)?anos\b/i)?.[1] || 0), availability: /viagens|exclusiv|presencial|h[ií]brid/i.test(filter.jobDescription || '') },
     warnings: core ? [] : ['Informe o skill obrigatório; a descrição não substitui a definição da competência principal.'] };
 }

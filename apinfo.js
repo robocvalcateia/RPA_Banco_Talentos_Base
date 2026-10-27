@@ -1134,7 +1134,7 @@ async function searchApinfoRegionCandidates(filter, credentials, limit = 10, con
 export async function searchApinfoCandidates(filter, credentials, limit = 10, control = {}) {
   const alternatives = [...String(filter.locations || '').matchAll(/\b(AC|AL|AP|AM|BA|CE|DF|ES|GO|MA|MT|MS|MG|PA|PB|PR|PE|PI|RJ|RN|RS|RO|RR|SC|SP|SE|TO)\b/gi)].map(match => match[1].toUpperCase());
   const states = [...new Set(alternatives.length ? alternatives : [filter.state || ''])];
-  const keywords = filter.vacancyAnalysis?.core === 'SAP FI' ? ['SAP FI', 'SAP FICO'] : [buildKeyword(filter)];
+  const keywords = [...new Set((filter.vacancyAnalysis?.retrievalTerms || [buildKeyword(filter)]).filter(Boolean))];
   const searches = keywords.flatMap(keyword => states.map(state => ({ keyword, state })));
   const combined = { results: [], rejectedResults: [], inspected: [], totalFound: 0, warnings: [], pagesRead: 0, failedDetails: [], exhausted: true, keyword: buildKeyword(filter) };
   const seen = new Set();

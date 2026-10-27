@@ -92,3 +92,38 @@ test('BI BW ETL and knowledge lists cannot substitute functional FI experience',
     'Consultor SAP FI.\nCustomização de módulos SAP para recuperar dados nos módulos AP, AR, FI, GL e transferir para outra base.'
   ]) assert.notEqual(screenCandidate(cv, vacancy).classification, 'approved', cv);
 });
+
+test('builds a Tax One vacancy without inheriting SAP requirements', () => {
+  const filter = {
+    coreSkill: 'Tax One',
+    mandatorySkills: 'Tax One; levantamento de requisitos; implementação; suporte funcional',
+    jobDescription: 'Consultor funcional Tax One pleno. Experiência em levantamento, implementação e suporte. Desejável conhecimento contábil e fiscal.'
+  };
+  const plan = interpretVacancy(filter);
+  assert.equal(plan.core, 'Tax One');
+  assert.ok(plan.mandatory.includes('Tax One'));
+  assert.ok(plan.retrievalTerms.includes('Mastersaf DW'));
+  assert.ok(!plan.mandatory.some(term => /^SAP\b/.test(term)));
+  assert.ok(!plan.ranking.some(item => /^SAP\b/.test(item.term)));
+});
+
+test('treats Mastersaf DW as Tax One evidence only for the relevant vacancy', () => {
+  const filter = {
+    coreSkill: 'Tax One',
+    mandatorySkills: 'Tax One',
+    jobDescription: 'Consultor funcional Tax One pleno para implementação e suporte.'
+  };
+  assert.equal(screenCandidate('Consultor funcional Mastersaf DW: implementação, parametrização e suporte aos usuários.', filter).classification, 'approved');
+  assert.equal(screenCandidate('Consultor funcional SAP FI: implementação e suporte aos usuários.', filter).classification, 'rejected');
+});
+
+test('builds independent Datasul and Protheus vacancy matrices', () => {
+  const datasul = interpretVacancy({ coreSkill: 'Datasul', mandatorySkills: 'Datasul; Progress 4GL', jobDescription: 'Atuação técnica em TOTVS Datasul e Progress 4GL.' });
+  const protheus = interpretVacancy({ coreSkill: 'Protheus', mandatorySkills: 'Protheus; ADVPL', jobDescription: 'Atuação técnica em TOTVS Protheus e ADVPL.' });
+  assert.deepEqual(datasul.mandatory.sort(), ['Datasul', 'Progress 4GL'].sort());
+  assert.deepEqual(protheus.mandatory.sort(), ['Protheus', 'ADVPL'].sort());
+  assert.ok(!datasul.mandatory.includes('Protheus'));
+  assert.ok(!protheus.mandatory.includes('Datasul'));
+  assert.ok(!datasul.mandatory.some(term => /^SAP\b/.test(term)));
+  assert.ok(!protheus.mandatory.some(term => /^SAP\b/.test(term)));
+});
