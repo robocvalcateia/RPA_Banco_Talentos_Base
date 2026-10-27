@@ -4050,13 +4050,16 @@ async function handleApi(request, response) {
         if (requireAdmin(response, auth.user, 'Apenas ADMIN pode simular o recebimento.')) return;
         sendJson(response, 200, await intakeStore.receive(payload, auth.user)); return;
       }
-      const maintenance = pathname.match(/^\/api\/intake\/([a-f0-9-]+)\/(refresh-search|resend-review)$/);
+      const maintenance = pathname.match(/^\/api\/intake\/([a-f0-9-]+)\/(refresh-search|resend-review|resend-review-now)$/);
       if (maintenance) {
         if (requireAdmin(response,auth.user,'Apenas ADMIN pode atualizar a pesquisa e reenviar a revisão.')) return;
         const [,id,action] = maintenance;
+        if (action === 'resend-review-now' && !String(payload.reason || '').trim()) { sendError(response,422,'Informe o motivo único do reenvio.'); return; }
         const result = action === 'refresh-search'
           ? await intakeStore.refreshSearch(id,payload.revision,auth.user)
-          : await dttHourly.notify(id,Number(payload.revision));
+          : action === 'resend-review-now'
+            ? await dttHourly.notify(id,undefined,undefined,undefined,String(payload.reason || '').trim())
+            : await dttHourly.notify(id,Number(payload.revision));
         sendJson(response,200,result); return;
       }
       const match = pathname.match(/^\/api\/intake\/([a-f0-9-]+)\/(review|select|confirm|cancel)$/);

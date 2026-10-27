@@ -34,11 +34,11 @@ export function createHourlyIntake({ store, getToken, send, log, fetchMessages =
   let running = false;
   const actor = { id:'dtt-six-hourly', name:'Rotina DTT a cada 6 horas', email:DTT_MAILBOX };
   return {
-    async notify(draftId, refreshRevision, started=now(), owner=randomUUID()) {
+    async notify(draftId, refreshRevision, started=now(), owner=randomUUID(), manualReason='') {
       const draft=(await store.get(draftId)).draft;
       const errors=[]; let sent=0;
       for(const recipient of DTT_REVIEWERS) {
-            const attempt=await store.claimReminder(draft.id,recipient.email,started,owner,refreshRevision);
+            const attempt=await store.claimReminder(draft.id,recipient.email,started,owner,refreshRevision,manualReason);
             if (!attempt) continue;
             let status='failed',error='';
             try {

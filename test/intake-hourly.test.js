@@ -40,6 +40,14 @@ test('SMTP failure is recorded and retries no sooner than six hours',async t=>{
   f.setTime('2026-10-04T17:59:59.000Z');assert.equal((await failed.run()).skipped,true);
   f.setTime('2026-10-04T18:00:00.000Z');await createHourlyIntake(f.options).run();assert.equal(f.sent.length,2);
 });
+test('manual review resend preserves the draft and is idempotent by reason',async t=>{
+  const f=await fixture(t);const worker=createHourlyIntake(f.options);await worker.run();
+  const draft=(await f.store.list())[0];const revision=draft.revision;
+  const first=await worker.notify(draft.id,undefined,undefined,undefined,'missing-delivery-2054');
+  const duplicate=await worker.notify(draft.id,undefined,undefined,undefined,'missing-delivery-2054');
+  const after=(await f.store.get(draft.id)).draft;
+  assert.equal(first.sent,2);assert.equal(duplicate.sent,0);assert.equal(after.revision,revision);assert.equal(after.status,'pending');
+});
 test('concurrent workers share durable cycle claim and reminders are not duplicated',async t=>{
   const f=await fixture(t);const results=await Promise.all([createHourlyIntake(f.options).run(),createHourlyIntake(f.options).run()]);
   assert.equal(results.filter(r=>r.skipped).length,1);assert.equal(f.sent.length,2);

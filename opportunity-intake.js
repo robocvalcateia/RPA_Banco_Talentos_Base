@@ -221,19 +221,22 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
         Object.assign(runtime, { status: error ? 'error' : 'finished', lastFinishedAt: now, error, leaseUntil: now });
       });
     },
-    claimReminder(draftId, to, now, owner, refreshRevision) {
+    claimReminder(draftId, to, now, owner, refreshRevision, manualReason = '') {
       return transaction(db => {
         const draft = find(db, draftId);
         if (draft.status !== 'pending' || duplicateOpportunity(db, draft, draft.fields)) return null;
         if (!DTT_REVIEWER_EMAILS.includes(to)) fail('Destinatário fora da revisão.');
         db.intakeNotifications ||= [];
         const prior = db.intakeNotifications.filter(n => n.draftId === draftId && n.to === to && n.attempt).sort((a,b) => b.createdAt.localeCompare(a.createdAt))[0];
-        if (refreshRevision !== undefined) {
+        if (manualReason) {
+          if (db.intakeNotifications.some(n => n.draftId === draftId && n.to === to && n.manualReason === manualReason)) return null;
+          if (prior?.status === 'sending' && Date.parse(now)-Date.parse(prior.createdAt)<DTT_ALERT_INTERVAL_MS) return null;
+        } else if (refreshRevision !== undefined) {
           if (draft.revision !== refreshRevision || !draft.audit.some(a => a.action === 'search_refreshed' && a.revision === refreshRevision)) fail('Revisão alterada ou sem pesquisa atualizada.',409);
           if (db.intakeNotifications.some(n => n.draftId === draftId && n.to === to && n.refreshRevision === refreshRevision)) return null;
           if (prior?.status === 'sending' && Date.parse(now)-Date.parse(prior.createdAt)<DTT_ALERT_INTERVAL_MS) return null;
         } else if (prior && Date.parse(now) - Date.parse(prior.createdAt) < DTT_ALERT_INTERVAL_MS) return null;
-        const entry = { id: randomUUID(), draftId, to, owner, refreshRevision, type: 'dtt_opportunity_review', attempt: true, status: 'sending', createdAt: now, sentAt: null, link: reviewLink(draftId), opportunityName: draft.fields.requestId || draft.fields.profile, opportunityCode: requestNumber(draft.fields.requestId), simulated };
+        const entry = { id: randomUUID(), draftId, to, owner, refreshRevision, manualReason, type: 'dtt_opportunity_review', attempt: true, status: 'sending', createdAt: now, sentAt: null, link: reviewLink(draftId), opportunityName: draft.fields.requestId || draft.fields.profile, opportunityCode: requestNumber(draft.fields.requestId), simulated };
         db.intakeNotifications.push(entry);
         return { ...entry, subject: `Alcateia | Revisão pendente DTT: ${entry.opportunityName}`, text: `Uma oportunidade DTT aguarda a aprovação do Bruno:\n${entry.opportunityName}\n\nConfira os dados e os candidatos já pesquisados:\n${entry.link}\n\nO acesso exige login. Os lembretes são enviados ao Gerson e ao Bruno a cada 6 horas e encerrados após a aprovação e gravação da oportunidade ou o cancelamento da solicitação.` };
       });
