@@ -74,7 +74,7 @@ import { summarizeCandidateEmails, summarizeSentMessages } from './email-diagnos
 import { CvSearchJobs, uniqueApproved, recommendedCandidates, APPROVED_TARGET } from './cv-search-jobs.js';
 const cvSearchJobs = new CvSearchJobs();
 import { coreKeyword, screeningStats, interpretVacancy } from './candidate-screening.js';
-import { notifyNewCurriculumFits } from './candidate-fit-alerts.js';
+import { notifyNewCurriculumFits, recentCurriculumIds } from './candidate-fit-alerts.js';
 import { promises as fs } from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -4128,6 +4128,25 @@ async function handleApi(request, response) {
     if (request.method === 'POST' && pathname === '/api/logout') {
       sessions.delete(auth.token);
       sendJson(response, 200, { ok: true });
+      return;
+    }
+
+    if (pathname === '/api/admin/candidate-fit/reconcile' && request.method === 'POST') {
+      if (requireAdmin(response, auth.user, 'Apenas ADMIN pode reprocessar a aderência dos currículos.')) return;
+      const payload = await readJsonBody(request);
+      const since = String(payload.since || new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString());
+      const mongoResponse = await getCurriculumsFromMongo({ all: true });
+      const identifiers = recentCurriculumIds(mongoResponse.curriculums || [], since);
+      const results = await triggerNewCurriculumFitAlerts(identifiers);
+      sendJson(response, 200, {
+        since,
+        evaluated: identifiers.length,
+        sent: results.filter(item => item.sent).length,
+        noMatch: results.filter(item => item.status === 'no_match').length,
+        alreadySent: results.filter(item => item.status === 'already_sent').length,
+        failed: results.filter(item => item.status === 'failed' || item.status === 'not_found').length,
+        results
+      });
       return;
     }
 

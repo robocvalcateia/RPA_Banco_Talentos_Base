@@ -64,6 +64,19 @@ export function candidateFitAlertId(curriculum, opportunity) {
   return `candidate-fit:${curriculumId}:${opportunity?.id || opportunity?.opportunityCode || 'sem-vaga'}`;
 }
 
+export function recentCurriculumIds(curriculums = [], since) {
+  const sinceTime = new Date(since).getTime();
+  if (!Number.isFinite(sinceTime)) throw new Error('Data inicial inválida.');
+  return curriculums
+    .filter(curriculum => {
+      const timestamp = new Date(curriculum?.data_criacao || curriculum?.data_atualizacao || curriculum?.data_origem || 0).getTime();
+      return Number.isFinite(timestamp) && timestamp >= sinceTime;
+    })
+    .sort((left, right) => new Date(left.data_criacao || left.data_atualizacao || left.data_origem || 0) - new Date(right.data_criacao || right.data_atualizacao || right.data_origem || 0))
+    .map(curriculum => String(curriculum.id_controle || curriculum.id || curriculum.mongoId || '').trim())
+    .filter(Boolean);
+}
+
 export function buildCandidateFitAlert({ curriculum, matches, baseUrl }) {
   const curriculumId = curriculum.id_controle || curriculum.id || curriculum.mongoId;
   const url = new URL(String(baseUrl || 'https://rpa-banco-talentos-5v5r.onrender.com'));

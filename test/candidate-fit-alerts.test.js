@@ -5,8 +5,18 @@ import {
   candidateFitAlertId,
   matchingOpenOpportunities,
   notifyNewCurriculumFits,
-  opportunityFitFilter
+  opportunityFitFilter,
+  recentCurriculumIds
 } from '../candidate-fit-alerts.js';
+
+test('selects newly created curricula for catch-up processing', () => {
+  const ids = recentCurriculumIds([
+    { id_controle: '10', data_criacao: '2026-10-26T23:59:59Z' },
+    { id_controle: '11', data_criacao: '2026-10-27T01:00:00Z' },
+    { id_controle: '12', data_atualizacao: '2026-10-27T02:00:00Z' }
+  ], '2026-10-27T00:00:00Z');
+  assert.deepEqual(ids, ['11', '12']);
+});
 
 const curriculum = {
   id_controle: 'CV-900',
