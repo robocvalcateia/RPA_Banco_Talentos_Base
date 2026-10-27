@@ -74,6 +74,7 @@ import { summarizeCandidateEmails, summarizeSentMessages } from './email-diagnos
 import { CvSearchJobs, uniqueApproved, recommendedCandidates, APPROVED_TARGET } from './cv-search-jobs.js';
 const cvSearchJobs = new CvSearchJobs();
 import { coreKeyword, screeningStats, interpretVacancy } from './candidate-screening.js';
+import { notifyNewCurriculumFits } from './candidate-fit-alerts.js';
 import { promises as fs } from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -364,6 +365,37 @@ function getPublicBaseUrl() {
   const configured = String(process.env.APP_BASE_URL || process.env.PUBLIC_BASE_URL || '').trim();
   if (configured) return configured.replace(/\/+$/, '');
   return 'https://rpa-banco-talentos-5v5r.onrender.com';
+}
+
+async function triggerNewCurriculumFitAlert(curriculum) {
+  if (!curriculum) return { status: 'missing_curriculum', sent: false, matches: [] };
+  const db = await readDatabase();
+  const smtp = getSmtpConfigFromEnv();
+  if (!smtp.host || !smtp.user || !smtp.password || !smtp.from) {
+    return { status: 'smtp_not_configured', sent: false, matches: [] };
+  }
+  return notifyNewCurriculumFits({
+    curriculum,
+    opportunities: db.opportunities || [],
+    baseUrl: getPublicBaseUrl(),
+    readLogs: () => readEmailLogs(),
+    writeLog: entry => writeEmailLog(entry),
+    send: message => sendMail({ ...smtp, ...message })
+  });
+}
+
+async function triggerNewCurriculumFitAlerts(curriculumIds = []) {
+  const uniqueIds = [...new Set(curriculumIds.map(value => String(value || '').trim()).filter(Boolean))];
+  const results = [];
+  for (const identifier of uniqueIds) {
+    const curriculum = await getCurriculumFromMongo(identifier).catch(() => null);
+    if (!curriculum) {
+      results.push({ identifier, status: 'not_found', sent: false, matches: [] });
+      continue;
+    }
+    results.push({ identifier, ...(await triggerNewCurriculumFitAlert(curriculum)) });
+  }
+  return results;
 }
 
 function buildFormRequestUrl(requestItem) {
@@ -2674,6 +2706,15 @@ function startLegacyEmailProcessing(options = {}) {
             message: `${result.message || 'Processamento finalizado.'} ${emailProcessing.erro}`,
             sync_error: error.message
           };
+        }
+      }
+
+      if (result.success && Array.isArray(result.new_candidate_ids) && result.new_candidate_ids.length) {
+        try {
+          const fitAlerts = await triggerNewCurriculumFitAlerts(result.new_candidate_ids);
+          emailProcessing.resultado = { ...emailProcessing.resultado, fitAlerts };
+        } catch (error) {
+          emailProcessing.resultado = { ...emailProcessing.resultado, fit_alert_error: String(error?.message || error) };
         }
       }
 
@@ -6539,7 +6580,8 @@ async function handleApi(request, response) {
       if (isMongoTalentosConfigured()) {
         try {
           const curriculum = await createCurriculumInMongo(payload);
-          sendJson(response, 201, curriculum);
+          const fitAlert = await triggerNewCurriculumFitAlert(curriculum);
+          sendJson(response, 201, { ...curriculum, fitAlert });
           return;
         } catch (error) {
           if (/Ja existe/.test(error.message || '')) {
@@ -6572,7 +6614,8 @@ async function handleApi(request, response) {
 
       db.curriculums.push(curriculum);
       await writeDatabaseCollections(db, ['curriculums']);
-      sendJson(response, 201, curriculum);
+      const fitAlert = await triggerNewCurriculumFitAlert(curriculum);
+      sendJson(response, 201, { ...curriculum, fitAlert });
       return;
     }
 

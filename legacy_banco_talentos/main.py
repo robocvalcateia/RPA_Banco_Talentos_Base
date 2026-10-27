@@ -49,6 +49,7 @@ class BancoTalentosOrchestrator:
             'erros_por_tipo': {},
             'detalhes_erros': []
         }
+        self.new_candidate_ids = []
 
 
 
@@ -300,6 +301,8 @@ class BancoTalentosOrchestrator:
                     Move_Folder = Folder_Mail_Sucesso
                     if result['status'] == 'novo':
                         self.stats['novos_candidatos'] += 1
+                        if result.get('id'):
+                            self.new_candidate_ids.append(str(result['id']))
                         self.logger.info(f" Novo candidato: {result['nome']}")
                     elif result['status'] == 'atualizado':
                         self.stats['candidatos_atualizados'] += 1
@@ -412,7 +415,8 @@ class BancoTalentosOrchestrator:
                 "success": True,
                 "message": "Processamento concluído com sucesso.",
                 "stats": self.stats,
-                "total_candidatos": total_candidatos
+                "total_candidatos": total_candidatos,
+                "new_candidate_ids": self.new_candidate_ids
             }
             
         except Exception as e:
@@ -428,7 +432,8 @@ class BancoTalentosOrchestrator:
                 "success": False,
                 "message": f"Erro crítico durante o processamento: {str(e)}",
                 "stats": self.stats,
-                "total_candidatos": total_candidatos
+                "total_candidatos": total_candidatos,
+                "new_candidate_ids": self.new_candidate_ids
             }
     
     def _print_summary(self):

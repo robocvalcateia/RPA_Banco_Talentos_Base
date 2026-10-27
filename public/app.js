@@ -206,6 +206,9 @@ function applyInitialRoute() {
   if (viewId && viewTitles[viewId]) {
     rememberLauncherReturnForView(viewId, formsPanel);
     showView(viewId);
+    if (viewId === 'curriculums' && params.get('curriculumId')) {
+      window.setTimeout(() => openCurriculumFromLink(params.get('curriculumId')), 0);
+    }
   }
 }
 
