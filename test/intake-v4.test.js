@@ -5,6 +5,15 @@ import { extractIntake, cleanIntakeFields, matchIntakeCandidates, intakeWarnings
 import { compileIntakeRequirements, compareIntakeCurriculum } from '../intake-matching.js';
 import { INTAKE_EXAMPLE } from '../intake-example.js';
 const fields = extractIntake({ subject: 'SOLICITAÇÃO DE COTAÇÃO -VAGA 2054 - SAP FI', body: INTAKE_EXAMPLE });
+
+test('extracts plural technical requirement and desirable section headings', () => {
+  const result = extractIntake({
+    subject: 'SOLICITAÇÃO DE COTAÇÃO VAGA - 1381 - Senior SAP CI-DS',
+    body: 'Conhecimentos Técnicos Requeridos\n5+ years of SAP CI-DS.\nConhecimentos Técnicos Desejáveis:\nSAP IBP.'
+  });
+  assert.equal(result.requirements, '5+ years of SAP CI-DS.');
+  assert.equal(result.desirable, 'SAP IBP.');
+});
 const cv = { id: '1', endereco: 'Niterói/RJ', experiencia_profissional: 'Consultor funcional SAP FI. Implementação SAP FI, configuração FI-GL e FI-AP para clientes.' };
 test('request number comes only after VAGA in subject; text profile fallback and leading zeros preserved', () => {
   for (const subject of ['SOLICITAÇÃO DE COTAÇÃO -VAGA 2054 - SAP Successfactors EC', 'RE: SOLICITAÇÃO DE COTAÇÃO - vaga: 2054 - SAP Successfactors EC']) {

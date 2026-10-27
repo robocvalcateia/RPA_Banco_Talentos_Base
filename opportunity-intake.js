@@ -40,7 +40,7 @@ export function extractIntake(email) {
     return [lines[a].split(':').slice(1).join(':'), ...lines.slice(a + 1, b < 0 ? undefined : b)].join('\n').trim();
   };
   const profile = String(email.subject || '').match(/\bvaga\s*[:#-]?\s*\d+\s*[-–—]\s*(.+)/i)?.[1]?.trim() || field(/^vaga$|^perfil$/) || '';
-  const requirements = section(/^conhecimento tecnico requerido/, /^conhecimento tecnico desejavel|^atenciosamente|^importante recebermos|^- importante recebermos/);
+  const requirements = section(/^conhecimentos? tecnicos? requeridos?/, /^conhecimentos? tecnicos? desejave(?:l|is)|^atenciosamente|^importante recebermos|^- importante recebermos/);
   const requestId = requestLabelFromSubject(email.subject);
   const fields = {
     requestId, profile, seniority: field(/^senioridade$/), quantity: field(/^quantidade$/).match(/\d+/)?.[0] || '',
@@ -50,7 +50,7 @@ export function extractIntake(email) {
     language: field(/^idioma$/), minimumYears: requirements.match(/m[ií]nimo\s*(?:de\s*)?(\d+)\s*anos/i)?.[1] || '',
     coreSkill: profile,
     mandatorySkills: requirements.match(/subm[oó]dulos\s+([^\n.]+)/i)?.[1] || '',
-    requirements, desirable: [section(/^conhecimento tecnico desejavel/), ...lines.filter(line => /diferencial/i.test(line) && /agile/i.test(line))].filter(Boolean).join('\n'),
+    requirements, desirable: [section(/^conhecimentos? tecnicos? desejave(?:l|is)/), ...lines.filter(line => /diferencial/i.test(line) && /agile/i.test(line))].filter(Boolean).join('\n'),
     instructions: lines.filter(line => /modelo em anexo|logos|identifique a consultoria|resumo da entrevista/i.test(line)).join('\n'),
     attachments: /anexo/i.test(body) ? 'Modelos mencionados no e-mail; arquivos não fornecidos neste teste.' : '',
     model: 'Alocação', contractType: 'PJ', observation: ''
