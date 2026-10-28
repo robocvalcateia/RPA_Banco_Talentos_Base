@@ -2710,9 +2710,15 @@ function startLegacyEmailProcessing(options = {}) {
         }
       }
 
-      if (result.success && Array.isArray(result.new_candidate_ids) && result.new_candidate_ids.length) {
+      const fitAlertIdentifiers = [
+        ...(Array.isArray(result.new_candidate_ids) ? result.new_candidate_ids : []),
+        ...(Array.isArray(emailProcessing.resultado?.sync?.insertedIdentifiers)
+          ? emailProcessing.resultado.sync.insertedIdentifiers
+          : [])
+      ];
+      if (result.success && fitAlertIdentifiers.length) {
         try {
-          const fitAlerts = await triggerNewCurriculumFitAlerts(result.new_candidate_ids);
+          const fitAlerts = await triggerNewCurriculumFitAlerts(fitAlertIdentifiers);
           emailProcessing.resultado = { ...emailProcessing.resultado, fitAlerts };
         } catch (error) {
           emailProcessing.resultado = { ...emailProcessing.resultado, fit_alert_error: String(error?.message || error) };

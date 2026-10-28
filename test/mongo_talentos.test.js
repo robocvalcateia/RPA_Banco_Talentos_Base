@@ -148,7 +148,8 @@ test('busca de curriculo por identificador prioriza id_controle antes de id lega
   assert.deepEqual(queries, [
     { id_controle: '1952' },
     { idControle: '1952' },
-    { id: '1952' }
+    { id: '1952' },
+    { legacy_candidato_id: '1952' }
   ]);
 
   const collection = createFakeCollection([

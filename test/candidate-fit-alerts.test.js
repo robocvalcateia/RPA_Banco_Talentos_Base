@@ -18,6 +18,12 @@ test('selects newly created curricula for catch-up processing', () => {
   assert.deepEqual(ids, ['11', '12']);
 });
 
+test('legacy collection identifiers remain usable after synchronization', async () => {
+  const sourceId = '6900abcdefabcdefabcdef12';
+  const queries = (await import('../mongo_talentos.js')).__mongoTalentosTest.buildCandidateIdentifierQueries(sourceId);
+  assert.ok(queries.some(query => query.legacy_candidato_id === sourceId));
+});
+
 const curriculum = {
   id_controle: 'CV-900',
   nome: 'Pessoa Tax',

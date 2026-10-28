@@ -503,6 +503,7 @@ export async function syncLegacyCandidatesIntoCurriculums() {
   }
 
   let inserted = 0;
+  const insertedIdentifiers = [];
   let updated = 0;
   let skipped = 0;
   let conflicts = 0;
@@ -533,8 +534,9 @@ export async function syncLegacyCandidatesIntoCurriculums() {
     payloadToSave.data_atualizacao = payloadToSave.data_atualizacao || now;
 
     try {
-      await target.insertOne(payloadToSave);
+      const insertResult = await target.insertOne(payloadToSave);
       inserted += 1;
+      insertedIdentifiers.push(String(payloadToSave.id_controle || insertResult.insertedId || '').trim());
     } catch (error) {
       if (error?.code === 11000) {
         const result = await recoverLegacySyncDuplicate(target, payloadToSave, error);
@@ -556,6 +558,7 @@ export async function syncLegacyCandidatesIntoCurriculums() {
     targetName: config.collectionName,
     sourceTotal,
     inserted,
+    insertedIdentifiers,
     updated,
     skipped,
     conflicts,
@@ -597,6 +600,7 @@ function buildCandidateIdentifierQueries(identifier) {
   queries.push({ id_controle: value });
   queries.push({ idControle: value });
   queries.push({ id: value });
+  queries.push({ legacy_candidato_id: cleanMongoId });
   return queries;
 }
 
