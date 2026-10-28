@@ -138,6 +138,7 @@ import {
   readLocalDatabase,
   sanitizeUser,
   syncCandidatesWithOpportunityClosures,
+  fillMissingFinalOpportunityClosingDates,
   toISODate,
   verifyPassword,
   writeDatabase,
@@ -4149,6 +4150,43 @@ async function handleApi(request, response) {
         alreadySent: results.filter(item => item.status === 'already_sent').length,
         failed: results.filter(item => item.status === 'failed' || item.status === 'not_found').length,
         results
+      });
+      return;
+    }
+
+    if (pathname === '/api/admin/final-opportunities/fill-missing-closing-dates' && request.method === 'POST') {
+      if (requireAdmin(response, auth.user, 'Apenas ADMIN pode corrigir datas de oportunidades encerradas.')) return;
+      const payload = await readJsonBody(request);
+      if (String(payload.confirm || '').trim() !== 'PREENCHER_DATAS_ENCERRADAS') {
+        sendError(response, 422, 'Confirmação inválida para preenchimento das datas.');
+        return;
+      }
+      const closingDate = String(payload.closingDate || '').trim();
+      const db = await readDatabaseCollections(['opportunities', 'candidates']);
+      const targetIds = new Set((db.opportunities || [])
+        .filter(item => ['Closed', 'LOST'].includes(item.status) && !String(item.closingDate || '').trim())
+        .map(item => item.id));
+      const pendingCandidatesBefore = (db.candidates || []).filter(candidate =>
+        targetIds.has(candidate.opportunityId) && candidate.stage !== 'Reprovado'
+      ).length;
+      let updated;
+      try {
+        updated = fillMissingFinalOpportunityClosingDates(db, closingDate);
+      } catch (error) {
+        sendError(response, 422, String(error.message || error));
+        return;
+      }
+      await writeDatabaseCollections(db, ['opportunities', 'candidates']);
+      const pendingCandidatesAfter = (db.candidates || []).filter(candidate =>
+        targetIds.has(candidate.opportunityId) && candidate.stage !== 'Reprovado'
+      ).length;
+      sendJson(response, 200, {
+        ok: true,
+        closingDate,
+        updatedCount: updated.length,
+        updated,
+        candidatesRejected: pendingCandidatesBefore - pendingCandidatesAfter,
+        pendingCandidatesAfter
       });
       return;
     }

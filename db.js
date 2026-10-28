@@ -2122,6 +2122,22 @@ export function syncCandidatesWithOpportunityClosures(db, now = new Date()) {
   return db;
 }
 
+export function fillMissingFinalOpportunityClosingDates(db, closingDate, now = new Date()) {
+  const normalizedDate = String(closingDate || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate) || Number.isNaN(Date.parse(`${normalizedDate}T00:00:00Z`))) {
+    throw new Error('Data de fechamento inválida. Use AAAA-MM-DD.');
+  }
+  const updated = [];
+  for (const opportunity of db.opportunities || []) {
+    if (!['Closed', 'LOST'].includes(opportunity.status) || String(opportunity.closingDate || '').trim()) continue;
+    opportunity.closingDate = normalizedDate;
+    opportunity.updatedAt = toISODate(now);
+    updated.push({ id: opportunity.id, opportunityCode: opportunity.opportunityCode, opportunity: opportunity.opportunity, status: opportunity.status, closingDate: normalizedDate });
+  }
+  syncCandidatesWithOpportunityClosures(db, now);
+  return updated;
+}
+
 export function moveCandidateStage(candidate, nextStage, now = new Date()) {
   normalizeStage(nextStage);
   const timestamp = toISODate(now);

@@ -40,6 +40,7 @@ import {
   readDatabaseCollections,
   sanitizeUser,
   syncCandidatesWithOpportunityClosures,
+  fillMissingFinalOpportunityClosingDates,
   verifyPassword,
   writeDatabaseCollections,
   writeDatabaseDocument,
@@ -375,6 +376,30 @@ test('oportunidade aberta com data de fechamento nao reprova candidato aprovado'
   assert.equal(db.candidates[0].stage, 'Aprovado');
   assert.equal(db.candidates[0].status, 'Aprovado');
   assert.equal(db.candidates[0].approved, true);
+});
+
+test('preenche data ausente de Closed e LOST e reprova todos os candidatos vinculados', () => {
+  const db = sampleDb();
+  db.opportunities = [
+    { id: 'closed', opportunityCode: '1', opportunity: 'Fechada', status: 'Closed', closingDate: '' },
+    { id: 'lost', opportunityCode: '2', opportunity: 'Perdida', status: 'LOST', closingDate: '' },
+    { id: 'open', opportunityCode: '3', opportunity: 'Aberta', status: 'Open', closingDate: '' },
+    { id: 'closed-dated', opportunityCode: '4', opportunity: 'Fechada datada', status: 'Closed', closingDate: '2026-09-01' }
+  ];
+  db.candidates = [
+    normalizeCandidate({ id: 'c1', name: 'Closed', opportunityId: 'closed', stage: 'Aprovado', status: 'Aprovado', approved: true }),
+    normalizeCandidate({ id: 'c2', name: 'Lost', opportunityId: 'lost', stage: 'Triagem', status: 'Em andamento' }),
+    normalizeCandidate({ id: 'c3', name: 'Open', opportunityId: 'open', stage: 'Triagem', status: 'Em andamento' })
+  ];
+  const updated = fillMissingFinalOpportunityClosingDates(db, '2026-10-01', new Date('2026-10-28T12:00:00Z'));
+  assert.deepEqual(updated.map(item => item.id), ['closed', 'lost']);
+  assert.equal(db.opportunities.find(item => item.id === 'closed').closingDate, '2026-10-01');
+  assert.equal(db.opportunities.find(item => item.id === 'lost').closingDate, '2026-10-01');
+  assert.equal(db.opportunities.find(item => item.id === 'open').closingDate, '');
+  assert.equal(db.opportunities.find(item => item.id === 'closed-dated').closingDate, '2026-09-01');
+  assert.equal(db.candidates.find(item => item.id === 'c1').stage, 'Reprovado');
+  assert.equal(db.candidates.find(item => item.id === 'c2').stage, 'Reprovado');
+  assert.equal(db.candidates.find(item => item.id === 'c3').stage, 'Triagem');
 });
 
 test('status de oportunidade usa apenas valores permitidos', () => {
