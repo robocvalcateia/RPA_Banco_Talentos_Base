@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 export const DTT_MAILBOX = 'gerson@alcateiaconsulting.com.br';
 export const DTT_SENDER = 'poolterceiros@deloitte.com';
-export const DTT_ALERT_INTERVAL_MS = 6 * 3600000;
-export const HOUR_MS = DTT_ALERT_INTERVAL_MS;
+export const DTT_INBOX_INTERVAL_MS = 15 * 60000;
+export const DTT_REMINDER_INTERVAL_MS = 6 * 3600000;
+export const DTT_ALERT_INTERVAL_MS = DTT_REMINDER_INTERVAL_MS;
+export const HOUR_MS = DTT_REMINDER_INTERVAL_MS;
 export const DTT_REVIEWERS = [
   { name: 'Gerson', email: 'gerson@alcateiaconsulting.com.br' },
   { name: 'Bruno', email: 'bruno@alcateiaconsulting.com.br' }
@@ -32,7 +34,7 @@ export async function listDttMessages({ token, since, until, fetchImpl = fetch }
 }
 export function createHourlyIntake({ store, getToken, send, log, fetchMessages = listDttMessages, now = () => new Date().toISOString(), startAt, simulated = false }) {
   let running = false;
-  const actor = { id:'dtt-six-hourly', name:'Rotina DTT a cada 6 horas', email:DTT_MAILBOX };
+  const actor = { id:'dtt-inbox-fifteen-minutes', name:'Rotina DTT a cada 15 minutos', email:DTT_MAILBOX };
   return {
     async notify(draftId, refreshRevision, started=now(), owner=randomUUID(), manualReason='') {
       const draft=(await store.get(draftId)).draft;
@@ -86,7 +88,7 @@ export function createHourlyIntake({ store, getToken, send, log, fetchMessages =
       finally { try { if(claimed) await store.finishCycle(owner,now(),checkpoint,failure); } finally { running=false; } }
     },
     start(onError = () => {}) {
-      const tick=()=>this.run().catch(onError); tick(); const timer=setInterval(tick,DTT_ALERT_INTERVAL_MS); timer.unref?.(); return ()=>clearInterval(timer);
+      const tick=()=>this.run().catch(onError); tick(); const timer=setInterval(tick,DTT_INBOX_INTERVAL_MS); timer.unref?.(); return ()=>clearInterval(timer);
     }
   };
 }

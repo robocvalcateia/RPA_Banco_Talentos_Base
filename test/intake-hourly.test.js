@@ -4,10 +4,15 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createIntakeStore } from '../opportunity-intake.js';
-import { createHourlyIntake, listDttMessages, isDttMessage } from '../intake-hourly.js';
+import { createHourlyIntake, listDttMessages, isDttMessage, DTT_INBOX_INTERVAL_MS, DTT_REMINDER_INTERVAL_MS } from '../intake-hourly.js';
 import { INTAKE_EXAMPLE } from '../intake-example.js';
 const message={id:'immutable-1',internetMessageId:'mail-1',subject:'SOLICITAÇÃO DE COTAÇÃO -VAGA 2054 - SAP FI',from:{emailAddress:{address:'poolterceiros@deloitte.com'}},receivedDateTime:'2026-10-04T12:00:00.000Z',body:{contentType:'text',content:INTAKE_EXAMPLE}};
 const user={id:'bruno',name:'Bruno',email:'bruno@alcateiaconsulting.com.br'};
+const gersonUser={id:'gerson',name:'Gerson',email:'gerson@alcateiaconsulting.com.br'};
+test('inbox polling and pending reminders use independent intervals',()=>{
+  assert.equal(DTT_INBOX_INTERVAL_MS,15*60*1000);
+  assert.equal(DTT_REMINDER_INTERVAL_MS,6*60*60*1000);
+});
 async function fixture(t){
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'dtt-hourly-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));
   const file=path.join(dir,'db.json'); await fs.writeFile(file,JSON.stringify({clients:[{id:'dtt',customerName:'DTT'}],users:['gerson','bruno'].map(id=>({id,name:id,email:`${id}@alcateiaconsulting.com.br`,active:true})),curriculums:[],opportunities:[]}));
@@ -15,15 +20,15 @@ async function fixture(t){
   const options={store,getToken:async()=> 'fake-token',fetchMessages:async()=>[message],send:async m=>sent.push(m),log:async m=>logs.push(m),now:()=>time};
   return{store,sent,logs,options,read:async()=>JSON.parse(await fs.readFile(file,'utf8')),setTime:value=>{time=value;}};
 }
-test('six-hourly receipt alerts Gerson and Bruno and stops after Bruno confirmation',async t=>{
+test('reads the inbox every fifteen minutes, reminds every six hours and stops after Gerson or Bruno confirms',async t=>{
   const f=await fixture(t);const worker=createHourlyIntake(f.options);
   const first=await worker.run();assert.equal(first.sent,2);assert.equal((await f.store.list()).length,1);
   assert.deepEqual(f.sent.map(m=>m.to),['gerson@alcateiaconsulting.com.br','bruno@alcateiaconsulting.com.br']);
   assert.match(f.sent[0].subject,/2054 - SAP FI/);assert.match(f.sent[0].text,/cada 6 horas/);
   assert.equal((await worker.run()).skipped,true);assert.equal(f.sent.length,2);
-  f.setTime('2026-10-04T13:00:00.000Z');assert.equal((await createHourlyIntake(f.options).run()).skipped,true);assert.equal(f.sent.length,2);
+  f.setTime('2026-10-04T13:00:00.000Z');assert.equal((await createHourlyIntake(f.options).run()).received,1);assert.equal(f.sent.length,2);
   f.setTime('2026-10-04T18:00:00.000Z');await createHourlyIntake(f.options).run();assert.equal(f.sent.length,4);assert.equal((await f.store.list()).length,1);
-  const draft=(await f.store.list())[0];await f.store.confirm(draft.id,draft.revision,[],user,true);
+  const draft=(await f.store.list())[0];await f.store.confirm(draft.id,draft.revision,[],gersonUser,true);
   assert.equal((await f.read()).opportunities[0].clientOpportunityCode,'2054');
   f.setTime('2026-10-05T00:00:00.000Z');await worker.run();assert.equal(f.sent.length,4);assert.equal(f.logs.length,4);
 });
@@ -37,8 +42,8 @@ test('cancellation stops reminders; same vacancy with changed title remains one 
 test('SMTP failure is recorded and retries no sooner than six hours',async t=>{
   const f=await fixture(t);const failed=createHourlyIntake({...f.options,send:async()=>{throw Error('do not expose transport secrets');}});
   await failed.run();assert.equal(f.sent.length,0);assert.equal(f.logs.filter(l=>l.status==='failed').length,2);assert.ok(!JSON.stringify(f.logs).includes('transport secrets'));
-  f.setTime('2026-10-04T17:59:59.000Z');assert.equal((await failed.run()).skipped,true);
-  f.setTime('2026-10-04T18:00:00.000Z');await createHourlyIntake(f.options).run();assert.equal(f.sent.length,2);
+  f.setTime('2026-10-04T17:59:59.000Z');await failed.run();assert.equal(f.sent.length,0);
+  f.setTime('2026-10-04T18:15:00.000Z');await createHourlyIntake(f.options).run();assert.equal(f.sent.length,2);
 });
 test('manual review resend preserves the draft and is idempotent by reason',async t=>{
   const f=await fixture(t);const worker=createHourlyIntake(f.options);await worker.run();

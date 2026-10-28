@@ -2,7 +2,7 @@ import { writeEmailLog, readEmailLogs, lifecycleLog, legacyEmailLogs, queryEmail
 import http from 'node:http';
 import { createIntakeStore } from './opportunity-intake.js';
 import { createMongoIntakeAdapter } from './intake-mongo.js';
-import { createHourlyIntake, DTT_MAILBOX, DTT_ALERT_INTERVAL_MS } from './intake-hourly.js';
+import { createHourlyIntake, DTT_MAILBOX, DTT_INBOX_INTERVAL_MS, DTT_REMINDER_INTERVAL_MS } from './intake-hourly.js';
 import { createIntakeTalentReader } from './intake-talent.js';
 import { DATA_FILE } from './db.js';
 const productionIntake = process.env.LOCAL_INTAKE_MODE !== 'true' && Boolean(process.env.MONGODB_URL || process.env.MONGODB_URI);
@@ -323,6 +323,16 @@ const emailProcessing = {
   erro: '',
   logs: ''
 };
+const candidateFitReconciliation = {
+  running: false,
+  jobId: '',
+  status: 'idle',
+  since: '',
+  startedAt: '',
+  finishedAt: '',
+  result: null,
+  error: ''
+};
 const APP_TIME_ZONE = process.env.APP_TIME_ZONE || 'America/Sao_Paulo';
 const EMAIL_INBOX_PROCESSING_INTERVAL_MS = Math.max(
   1,
@@ -397,6 +407,45 @@ async function triggerNewCurriculumFitAlerts(curriculumIds = []) {
     results.push({ identifier, ...(await triggerNewCurriculumFitAlert(curriculum)) });
   }
   return results;
+}
+
+function startCandidateFitReconciliation(since) {
+  if (candidateFitReconciliation.running) return null;
+  const jobId = randomBytes(12).toString('hex');
+  Object.assign(candidateFitReconciliation, {
+    running: true,
+    jobId,
+    status: 'running',
+    since,
+    startedAt: toISODate(),
+    finishedAt: '',
+    result: null,
+    error: ''
+  });
+  setImmediate(async () => {
+    try {
+      const mongoResponse = await getCurriculumsFromMongo({ all: true });
+      const identifiers = recentCurriculumIds(mongoResponse.curriculums || [], since);
+      const results = await triggerNewCurriculumFitAlerts(identifiers);
+      candidateFitReconciliation.result = {
+        since,
+        evaluated: identifiers.length,
+        sent: results.filter(item => item.sent).length,
+        noMatch: results.filter(item => item.status === 'no_match').length,
+        alreadySent: results.filter(item => item.status === 'already_sent').length,
+        failed: results.filter(item => item.status === 'failed' || item.status === 'not_found').length,
+        results
+      };
+      candidateFitReconciliation.status = 'finished';
+    } catch (error) {
+      candidateFitReconciliation.status = 'error';
+      candidateFitReconciliation.error = String(error?.message || error);
+    } finally {
+      candidateFitReconciliation.running = false;
+      candidateFitReconciliation.finishedAt = toISODate();
+    }
+  });
+  return jobId;
 }
 
 function buildFormRequestUrl(requestItem) {
@@ -4006,7 +4055,7 @@ async function handleApi(request, response) {
       if (isConsultantUser(auth.user) || auth.user.mustChangePassword) { sendError(response, 403, 'Acesso restrito à equipe interna.'); return; }
       if (pathname === '/api/intake/scheduler' && request.method === 'GET') {
         if(requireAdmin(response,auth.user,'Apenas ADMIN pode consultar a rotina.'))return;
-        sendJson(response,200,{production:productionIntake,intervalMinutes:DTT_ALERT_INTERVAL_MS / 60000,mailbox:DTT_MAILBOX,runtime:await intakeStore.schedulerStatus()});return;
+        sendJson(response,200,{production:productionIntake,intervalMinutes:DTT_INBOX_INTERVAL_MS / 60000,reminderMinutes:DTT_REMINDER_INTERVAL_MS / 60000,mailbox:DTT_MAILBOX,runtime:await intakeStore.schedulerStatus()});return;
       }
       if (pathname === '/api/intake/retry' && request.method === 'POST') {
         if(requireAdmin(response,auth.user,'Apenas ADMIN pode retomar a rotina.'))return;
@@ -4019,7 +4068,7 @@ async function handleApi(request, response) {
         if(requireAdmin(response,auth.user,'Apenas ADMIN pode executar a rotina.'))return;
         if(!productionIntake){sendError(response,422,'Varredura real disponível somente com banco de produção.');return;}
         const runtime=await intakeStore.scheduleCycle(auth.user,2,true);
-        sendJson(response,202,{scheduled:true,intervalMinutes:60,runtime});
+        sendJson(response,202,{scheduled:true,intervalMinutes:DTT_INBOX_INTERVAL_MS / 60000,reminderMinutes:DTT_REMINDER_INTERVAL_MS / 60000,runtime});
         runDttHourlyIfEnabled().catch(error=>console.error('Rotina DTT:',error.message));return;
       }
       if (pathname === '/api/intake/preflight' && request.method === 'GET') {
@@ -4037,7 +4086,7 @@ async function handleApi(request, response) {
         if(!check.ok){sendError(response,422,`Graph não permite ler a caixa do Gerson: HTTP ${check.status}.`);return;}
         const smtp=getSmtpConfigFromEnv();if(!smtp.host||!smtp.user||!smtp.password||!smtp.from){sendError(response,422,'SMTP não configurado.');return;}
         const runtime=await intakeStore.activate(new Date().toISOString(),auth.user);
-        sendJson(response,200,{enabled:true,intervalMinutes:60,runtime});
+        sendJson(response,200,{enabled:true,intervalMinutes:DTT_INBOX_INTERVAL_MS / 60000,reminderMinutes:DTT_REMINDER_INTERVAL_MS / 60000,runtime});
         runDttHourlyIfEnabled().catch(error=>console.error('Rotina DTT:',error.message));return;
       }
       if (pathname === '/api/intake/drafts' && request.method === 'GET') {
@@ -4145,18 +4194,18 @@ async function handleApi(request, response) {
       if (requireAdmin(response, auth.user, 'Apenas ADMIN pode reprocessar a aderência dos currículos.')) return;
       const payload = await readJsonBody(request);
       const since = String(payload.since || new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString());
-      const mongoResponse = await getCurriculumsFromMongo({ all: true });
-      const identifiers = recentCurriculumIds(mongoResponse.curriculums || [], since);
-      const results = await triggerNewCurriculumFitAlerts(identifiers);
-      sendJson(response, 200, {
-        since,
-        evaluated: identifiers.length,
-        sent: results.filter(item => item.sent).length,
-        noMatch: results.filter(item => item.status === 'no_match').length,
-        alreadySent: results.filter(item => item.status === 'already_sent').length,
-        failed: results.filter(item => item.status === 'failed' || item.status === 'not_found').length,
-        results
-      });
+      const jobId = startCandidateFitReconciliation(since);
+      if (!jobId) {
+        sendJson(response, 409, { error: 'Já existe uma reconciliação de aderência em andamento.', ...candidateFitReconciliation });
+        return;
+      }
+      sendJson(response, 202, { jobId, status: 'running', since });
+      return;
+    }
+
+    if (pathname === '/api/admin/candidate-fit/reconcile' && request.method === 'GET') {
+      if (requireAdmin(response, auth.user, 'Apenas ADMIN pode consultar a reconciliação de aderência.')) return;
+      sendJson(response, 200, { ...candidateFitReconciliation });
       return;
     }
 
@@ -7757,7 +7806,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     startScheduledInboxEmailProcessingJob();
     if(productionIntake){
       const tick=()=>runDttHourlyIfEnabled().catch(error=>console.error('Rotina DTT:',error.message));
-      // Check due time each minute; the persistent lease permits inbox reads and reminders only every 6 hours.
+      // Check due time each minute; inbox reads run every 15 minutes and pending reminders every 6 hours.
       tick(); setInterval(tick,60000).unref();
     }
     }
