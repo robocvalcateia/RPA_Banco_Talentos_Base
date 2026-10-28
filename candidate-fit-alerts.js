@@ -14,7 +14,7 @@ const FUNCTIONAL_TITLES = /\b(?:consultor(?:a)? funcional|analista funcional|esp
 const FUNCTIONAL_WORK = /\b(?:levantamento de requisitos|mapeamento de processos|parametriza|configura|implanta|implementa|suporte funcional|sustenta|homologa|uat|treinamento de usu[aá]rios)\b/i;
 
 const DOMAIN_RULES = [
-  { product: 'Oracle ERP Cloud', vacancy: /\b(?:oracle\s+(?:erp\s+)?cloud|oracle\s+fusion)\b/i, evidence: /\b(?:oracle\s+(?:erp\s+)?cloud|oracle\s+fusion)\b/i,
+  { product: 'Oracle Cloud', vacancy: /\b(?:oracle\s+(?:erp\s+)?cloud|oracle\s+fusion|fusion|erp\s+cloud|erp\s+oracle)\b/i, evidence: /\b(?:oracle\s+(?:erp\s+)?cloud|oracle\s+fusion|fusion|erp\s+cloud|erp\s+oracle)\b/i,
     requirements: [
       ['OM', /\b(?:OM|order management)\b/i], ['AR', /\b(?:AR|accounts receivable|contas a receber)\b/i],
       ['FDG', /\bFDG\b/i], ['Tax', /\b(?:oracle\s+tax|fusion\s+tax|tax\s+configuration)\b/i],

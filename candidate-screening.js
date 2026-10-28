@@ -6,6 +6,8 @@ const aliases = {
   'tax one': ['TaxOne', 'Mastersaf DW', 'Mastersaf Data Warehouse'],
   'mastersaf dw': ['Tax One', 'TaxOne', 'Mastersaf Data Warehouse'],
   datasul: ['TOTVS Datasul'],
+  'oracle cloud': ['Oracle ERP Cloud', 'Oracle Fusion', 'Fusion', 'ERP Cloud', 'ERP Oracle'],
+  'oracle erp cloud': ['Oracle Cloud', 'Oracle Fusion', 'Fusion', 'ERP Cloud', 'ERP Oracle'],
   protheus: ['TOTVS Protheus'],
   'totvs rm': ['RM TOTVS', 'Linha RM'],
   fluig: ['TOTVS Fluig'],
@@ -61,12 +63,17 @@ export function coreKeyword(filter) {
   if (explicit) return concepts.find(term => hasSkill(explicit, term)) || explicit;
   return concepts.find(term => hasSkill(filter.jobDescription || '', term)) || '';
 }
-const productCatalog = ['Tax One', 'Mastersaf DW', 'Datasul', 'Protheus', 'TOTVS RM', 'Fluig', 'WinThor', 'SAP FI', 'SAP MM', 'SAP SD', 'SAP CO', 'SAP ABAP', 'SAP ECC', 'S/4HANA', 'Synchro', 'Avalara'];
+const productCatalog = ['Tax One', 'Mastersaf DW', 'Datasul', 'Oracle Cloud', 'Protheus', 'TOTVS RM', 'Fluig', 'WinThor', 'SAP FI', 'SAP MM', 'SAP SD', 'SAP CO', 'SAP ABAP', 'SAP ECC', 'S/4HANA', 'Synchro', 'Avalara'];
 const totvsCatalog = ['TOTVS Fiscal', 'TOTVS Financeiro', 'TOTVS Contábil', 'TOTVS Compras', 'TOTVS Estoque', 'TOTVS Faturamento', 'TOTVS Manufatura', 'TOTVS RH', 'ADVPL', 'Progress 4GL', 'TSS'];
 const taxCatalog = ['SPED', 'ECF', 'EFD', 'NFe', 'NFSe', 'CTe', 'eSocial', 'Reinf', 'GIA', 'DCTF', 'DCTFWeb', 'J1BTAX', 'OBYC', 'CNAB', 'R2R', 'P2P', 'CBT', 'TAXBRA', 'TAXBRJ', 'CFOP', 'CST', 'ICMS', 'ISS', 'PIS', 'COFINS', 'IPI', 'CBS', 'IBS', 'SAP DRC', 'SAP TDF'];
 const deliveryCatalog = ['levantamento de requisitos', 'mapeamento de processos', 'parametrização', 'configuração', 'implementação', 'implantação', 'sustentação', 'suporte funcional', 'testes integrados', 'UAT', 'homologação', 'treinamento de usuários', 'migração de dados', 'integração', 'API', 'rollout', 'greenfield', 'brownfield', 'Agile', 'Scrum'];
 const technicalCatalog = [...productCatalog, ...totvsCatalog, ...taxCatalog, ...deliveryCatalog, 'contas a pagar', 'contas a receber', 'razão geral', 'plano de contas', 'impostos retidos', 'reforma tributária', 'localização Brasil', 'fechamento contábil', 'conciliação', 'revisão de faturas', 'suporte AMS', 'Python', 'Java', 'JavaScript', 'TypeScript', 'C#', '.NET', 'SQL Server', 'PostgreSQL', 'Oracle', 'PL/SQL', 'AWS', 'Azure', 'Kubernetes', 'Docker', 'React', 'Angular', 'Node.js', 'CI/CD', 'REST', 'Git', 'debug'];
 const concepts = ['SAP AP', 'SAP AR', 'SAP GL', ...technicalCatalog];
+function removeCoveredGenericOracle(terms = []) {
+  return terms.some(term => normalize(term) === 'oracle cloud')
+    ? terms.filter(term => normalize(term) !== 'oracle')
+    : terms;
+}
 function canonical(term) {
   return concepts.find(item => skillAlternatives(item).some(alias => normalize(alias) === normalize(term))) || term.trim();
 }
@@ -83,7 +90,7 @@ export function interpretVacancy(filter) {
   const core = canonical(coreKeyword(filter));
   const mandatoryText = String(filter.mandatorySkills || filter.coreSkill || core);
   const mandatory = uniqueConcepts([core, ...phrases(mandatoryText).flatMap(part => {
-    const known = concepts.filter(term => mentioned(part, term));
+    const known = removeCoveredGenericOracle(concepts.filter(term => mentioned(part, term)));
     return known.length ? known : [part];
   })].filter(Boolean));
   if (/sap fi(?:co)?/.test(normalize(core))) {
@@ -101,7 +108,7 @@ export function interpretVacancy(filter) {
     if (/conhecimentos.*desej[aá]veis|diferenciais\s*:/i.test(sentence)) section = 'differential';
     if (/conhecimentos.*necess[aá]rios|requisitos.*obrigat[oó]rios/i.test(sentence)) section = 'central';
     const group = /mandat[oó]ri|obrigat[oó]ri/i.test(sentence) ? 'central' : /diferencial|diferenciais|desej[aá]vel|desej[aá]veis/i.test(sentence) ? 'differential' : section;
-    concepts.filter(term => mentioned(sentence, term)).forEach(term => add(term, group));
+    removeCoveredGenericOracle(concepts.filter(term => mentioned(sentence, term))).forEach(term => add(term, group));
   }
   for (const term of phrases(filter.desirableSkills)) {
     const key = normalize(canonical(term));

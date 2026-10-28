@@ -45,6 +45,30 @@ test('derives each vacancy matrix from its own technology', () => {
   assert.doesNotMatch(datasul.mandatorySkills, /SAP|Tax One/i);
 });
 
+test('accepts the approved Oracle Cloud aliases and bare Datasul as core product evidence', () => {
+  const oracleOpportunity = {
+    id: 'oracle-cloud', opportunity: 'Consultor Oracle Cloud', status: 'Open', workModel: 'Remoto',
+    intakeDetails: { coreSkill: 'Oracle Cloud' },
+    jobDescription: 'Consultor Oracle Cloud para implementação funcional.'
+  };
+  for (const product of ['Oracle Cloud', 'Oracle Fusion', 'Fusion', 'ERP Cloud', 'ERP Oracle']) {
+    const person = {
+      id_controle: `CV-${product}`, nome: product, cargo_atual: 'Consultor Funcional',
+      experiencia_profissional: `2024 a atual - Consultor funcional ${product}: implementação e parametrização.`
+    };
+    assert.deepEqual(matchingOpenOpportunities(person, [oracleOpportunity]).map(row => row.opportunity.id), ['oracle-cloud']);
+  }
+  const datasulOpportunity = {
+    id: 'datasul', opportunity: 'Consultor Datasul', status: 'Open', workModel: 'Remoto',
+    intakeDetails: { coreSkill: 'Datasul' }, jobDescription: 'Consultor Datasul para implementação funcional.'
+  };
+  const datasulPerson = {
+    id_controle: 'CV-DATASUL', nome: 'Pessoa Datasul', cargo_atual: 'Consultor Funcional',
+    experiencia_profissional: '2024 a atual - Consultor funcional Datasul: implementação e parametrização.'
+  };
+  assert.deepEqual(matchingOpenOpportunities(datasulPerson, [datasulOpportunity]).map(row => row.opportunity.id), ['datasul']);
+});
+
 test('matches only technically approved open opportunities without operational conflict', () => {
   const rows = matchingOpenOpportunities(curriculum, [
     openTaxOne,
