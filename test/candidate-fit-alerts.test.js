@@ -22,7 +22,7 @@ const curriculum = {
   id_controle: 'CV-900',
   nome: 'Pessoa Tax',
   skills: 'Tax One, Mastersaf DW',
-  experiencia_profissional: 'Consultor funcional Mastersaf DW: implementação, parametrização e suporte aos usuários.'
+  experiencia_profissional: '2024 a atual - Consultor funcional Mastersaf DW: implementação, parametrização e suporte aos usuários.'
 };
 
 const openTaxOne = {
@@ -78,4 +78,44 @@ test('email content groups all matching vacancies for the professional', () => {
   assert.match(email.text, /2100/);
   assert.match(email.text, /2101/);
   assert.equal((email.text.match(/Acessar o currículo:/g) || []).length, 1);
+});
+
+test('does not alert a PMO profile for an Oracle Cloud functional vacancy', () => {
+  const cleber = {
+    id_controle: 'CV-CLEBER', nome: 'Cleber', cargo_atual: 'PMO / Gerente de Projetos',
+    skills: 'Oracle, gestão de projetos, integração',
+    experiencia_profissional: 'Gerente de projetos de integração de sistemas Oracle. Gestão de cronograma e fornecedores.',
+    search_text_all: 'Oracle Cloud OM AR TAX implementação configuração'
+  };
+  const oracle = {
+    id: '149', opportunityCode: '1978', opportunity: 'Consultor Oracle Cloud - OM/AR/TAX', status: 'Open', workModel: 'Remoto',
+    intakeDetails: { coreSkill: 'Oracle ERP Cloud', mandatorySkills: 'Oracle ERP Cloud; OM; AR; Tax; atuação funcional' },
+    jobDescription: 'Consultor funcional Oracle ERP Cloud. Obrigatório: OM, AR e Tax. Implementação e configuração funcional.'
+  };
+  assert.deepEqual(matchingOpenOpportunities(cleber, [oracle]), []);
+});
+
+test('does not combine old Protheus PCP management with unrelated fiscal knowledge', () => {
+  const tseng = {
+    id_controle: 'CV-TSENG', nome: 'Tseng Kan', cargo_atual: 'Product Manager / Product Owner / Tech Lead',
+    skills: 'Protheus, PCP, fiscal',
+    experiencia_profissional: [
+      '2005 a 2007 - Gerente de TI. Automação e integração do Protheus PCP; treinamento de usuários.',
+      '2021 a atual - Product Owner. Processos fiscais em plataforma própria.'
+    ].join('\n\n')
+  };
+  const vacancies = [
+    { id: '174', opportunity: 'Alocação pontual Protheus Senior', status: 'Open', workModel: 'Remoto', intakeDetails: { coreSkill: 'Protheus SIGADPR', mandatorySkills: 'Protheus; SIGADPR; implementação' }, jobDescription: 'Consultor funcional Protheus. Obrigatório SIGADPR e implementação.' },
+    { id: '179', opportunity: 'Analista de Sistemas Protheus Pleno', status: 'Open', workModel: 'Remoto', intakeDetails: { coreSkill: 'Protheus', mandatorySkills: 'Protheus; Financeiro; Ativo Fixo; Fiscal; sustentação' }, jobDescription: 'Atuação funcional em Protheus Financeiro, Ativo Fixo e Fiscal, com sustentação e parametrização.' },
+    { id: '175', opportunity: 'Protheus presencial Barueri', status: 'Open', workModel: 'Presencial', intakeDetails: { coreSkill: 'Protheus Contábil', mandatorySkills: 'Protheus; Contábil; LP; ADVPL' }, jobDescription: 'Consultor funcional Protheus Contábil com LP e ADVPL, presencial em Barueri.' }
+  ];
+  assert.deepEqual(matchingOpenOpportunities(tseng, vacancies), []);
+});
+
+test('never sends an automatic alert with zero technical score', () => {
+  const vagueOpportunity = {
+    id: 'zero', opportunity: 'Consultor Tax One', status: 'Open', workModel: 'Remoto',
+    intakeDetails: { coreSkill: 'Tax One' }, jobDescription: 'Experiência profissional em Tax One.'
+  };
+  assert.deepEqual(matchingOpenOpportunities(curriculum, [vagueOpportunity]), []);
 });

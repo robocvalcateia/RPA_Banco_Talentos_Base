@@ -44,6 +44,7 @@ const aliases = {
   'integracao fi mm': ['fi mm', 'mm fi'], 'integracao fi sd': ['fi sd', 'sd fi'],
   'suporte ams': ['ams', 'sustentacao', 'application management services'],
   implementacao: ['implantacao', 'implementation'],
+  'suporte funcional': ['suporte aos usuarios', 'suporte a usuarios', 'functional support'],
   'estrutura organizacional': ['organizational structure'],
   'sap drc': ['document and reporting compliance'],
   agile: ['agil', 'scrum'], 'sql server': ['mssql', 'microsoft sql server'],

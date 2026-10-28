@@ -1,4 +1,5 @@
 import { evaluateInternalCandidateForFilter } from './apinfo.js';
+import { hasSkill, interpretVacancy } from './candidate-screening.js';
 
 export const CANDIDATE_FIT_ALERT_RECIPIENTS = Object.freeze([
   'gerson@alcateiaconsulting.com.br',
@@ -6,6 +7,129 @@ export const CANDIDATE_FIT_ALERT_RECIPIENTS = Object.freeze([
 ]);
 
 const normalize = (value = '') => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+
+const ALERT_RULE_VERSION = 'automatic-fit-alert-v2';
+const MANAGEMENT_TITLES = /\b(?:pmo|project manager|gerente de projetos|gestor de projetos|product manager|product owner|\bpo\b|scrum master)\b/i;
+const FUNCTIONAL_TITLES = /\b(?:consultor(?:a)? funcional|analista funcional|especialista funcional|functional consultant)\b/i;
+const FUNCTIONAL_WORK = /\b(?:levantamento de requisitos|mapeamento de processos|parametriza|configura|implanta|implementa|suporte funcional|sustenta|homologa|uat|treinamento de usu[aá]rios)\b/i;
+
+const DOMAIN_RULES = [
+  { product: 'Oracle ERP Cloud', vacancy: /\b(?:oracle\s+(?:erp\s+)?cloud|oracle\s+fusion)\b/i, evidence: /\b(?:oracle\s+(?:erp\s+)?cloud|oracle\s+fusion)\b/i,
+    requirements: [
+      ['OM', /\b(?:OM|order management)\b/i], ['AR', /\b(?:AR|accounts receivable|contas a receber)\b/i],
+      ['FDG', /\bFDG\b/i], ['Tax', /\b(?:oracle\s+tax|fusion\s+tax|tax\s+configuration)\b/i],
+      ['OTC', /\b(?:OTC|order to cash)\b/i]
+    ] },
+  { product: 'Protheus', vacancy: /\b(?:totvs\s+)?protheus\b/i, evidence: /\b(?:totvs\s+)?protheus\b/i,
+    requirements: [
+      ['SIGADPR', /\bSIGADPR\b/i], ['Financeiro', /\b(?:financeiro|SIGAFIN)\b/i],
+      ['Ativo Fixo', /\b(?:ativo fixo|SIGAATF)\b/i], ['Fiscal', /\b(?:fiscal|SIGAFIS)\b/i],
+      ['Contábil', /\b(?:contabil|SIGACTB)\b/i], ['LP', /\b(?:linguagem de programacao|\bLP\b)\b/i],
+      ['ADVPL', /\bADVPL\b/i]
+    ] },
+  { product: 'Tax One', vacancy: /\b(?:tax\s*one|mastersaf\s+(?:dw|data warehouse))\b/i, evidence: /\b(?:tax\s*one|mastersaf\s+(?:dw|data warehouse))\b/i, requirements: [] },
+  { product: 'Datasul', vacancy: /\b(?:totvs\s+)?datasul\b/i, evidence: /\b(?:totvs\s+)?datasul\b/i, requirements: [] }
+];
+
+function professionalBlocks(curriculum = {}) {
+  return String(curriculum.experiencia_profissional || '').split(/\n\s*\n+/).map(block => block.trim()).filter(Boolean);
+}
+
+function recentProfessionalBlock(block, now = new Date()) {
+  const years = [...String(block).matchAll(/\b(19\d{2}|20\d{2})\b/g)].map(match => Number(match[1]));
+  if (!years.length) return false;
+  const latest = Math.max(...years);
+  return /\b(?:atual|presente|current|present)\b/i.test(block) || latest >= now.getFullYear() - 5;
+}
+
+function domainEvidenceDecision(curriculum = {}, filter = {}, plan = interpretVacancy(filter)) {
+  const vacancyText = [filter.coreSkill, filter.mandatorySkills, filter.technicalSkills, filter.jobDescription].filter(Boolean).join('\n');
+  const rule = DOMAIN_RULES.find(item => item.vacancy.test(vacancyText));
+  const blocks = professionalBlocks(curriculum);
+  const productName = rule?.product || plan.core;
+  const productBlocks = blocks.filter(block =>
+    (rule ? rule.evidence.test(block) : hasSkill(block, plan.core))
+    && (FUNCTIONAL_WORK.test(block) || FUNCTIONAL_TITLES.test(block))
+  );
+  if (!productBlocks.length) return { status: 'missing', reasons: [`atuação profissional em ${productName || 'competência principal'} não comprovada em uma experiência`] };
+  const recentBlocks = productBlocks.filter(block => recentProfessionalBlock(block));
+  if (!recentBlocks.length) return { status: 'missing', reasons: [`experiência em ${productName || 'competência principal'} nos últimos cinco anos não comprovada`] };
+  const required = rule
+    ? rule.requirements.filter(([, pattern]) => pattern.test(vacancyText)).map(([name, pattern]) => ({ name, matches: block => pattern.test(block) }))
+    : plan.ranking.filter(item => item.group === 'central').map(item => ({ name: item.term, matches: block => hasSkill(block, item.term) }));
+  const missing = required.filter(item => !recentBlocks.some(block => item.matches(block))).map(item => item.name);
+  return { status: missing.length ? 'missing' : 'meets', reasons: missing.map(name => `${productName}: requisito específico sem evidência na mesma experiência recente: ${name}`) };
+}
+
+function structuredCandidateText(curriculum = {}) {
+  return [
+    curriculum.cargo_atual,
+    curriculum.currentTitle,
+    curriculum.skills,
+    curriculum.conhecimento_tecnico,
+    curriculum.experiencia_profissional,
+    curriculum.cursos_certificacoes,
+    curriculum.resumo,
+    curriculum.cargo_alvo,
+    curriculum.observacoes_entrevista
+  ].filter(Boolean).join('\n');
+}
+
+function evidenceText(curriculum = {}) {
+  const structured = structuredCandidateText(curriculum);
+  return structured || String(curriculum.texto_integral || curriculum.search_text_all || '');
+}
+
+function roleCompatibility(curriculum = {}, filter = {}) {
+  const vacancyText = [filter.coreSkill, filter.mandatorySkills, filter.jobDescription].filter(Boolean).join('\n');
+  if (!/\bfuncional\b/i.test(vacancyText)) return { status: 'not_required', detail: '' };
+  const title = String(curriculum.cargo_atual || curriculum.currentTitle || '').trim();
+  const work = String(curriculum.experiencia_profissional || '');
+  if (FUNCTIONAL_TITLES.test(title) || FUNCTIONAL_WORK.test(work)) return { status: 'meets', detail: 'Atuação funcional comprovada' };
+  if (MANAGEMENT_TITLES.test(title) || MANAGEMENT_TITLES.test(work)) return { status: 'incompatible', detail: 'Gestão/PMO/PO não substitui atuação funcional prática' };
+  return { status: 'unknown', detail: 'Atuação funcional prática não comprovada' };
+}
+
+function strictAlertDecision(curriculum, filter, evaluation) {
+  const plan = interpretVacancy(filter);
+  const text = evidenceText(curriculum);
+  const central = plan.ranking.filter(item => item.group === 'central');
+  const mandatoryMissing = evaluation.missingMandatorySkills || [];
+  const centralMissing = central
+    .filter(item => !evaluation.evidence?.some(evidence => normalize(evidence.requirement) === normalize(item.term) && evidence.found))
+    .map(item => item.term);
+  const operationalPending = (evaluation.operationalChecks || []).filter(item => item.status !== 'meets');
+  const role = roleCompatibility(curriculum, filter);
+  const roleBlocked = role.status === 'unknown' || role.status === 'incompatible';
+  const domain = domainEvidenceDecision(curriculum, filter, plan);
+  const coreHasProfessionalEvidence = evaluation.evidence?.some(item => normalize(item.requirement) === normalize(plan.core) && item.found);
+  const exactCorePresent = Boolean(plan.core && hasSkill(text, plan.core));
+  const automatic = Boolean(
+    evaluation.classification === 'approved'
+    && Number(evaluation.score || 0) > 0
+    && exactCorePresent
+    && coreHasProfessionalEvidence
+    && mandatoryMissing.length === 0
+    && centralMissing.length === 0
+    && operationalPending.length === 0
+    && !roleBlocked
+    && domain.status === 'meets'
+  );
+  return {
+    version: ALERT_RULE_VERSION,
+    automatic,
+    manualReview: !automatic,
+    reasons: [
+      ...mandatoryMissing.map(item => `requisito obrigatório sem evidência: ${item}`),
+      ...centralMissing.map(item => `requisito central sem evidência: ${item}`),
+      ...operationalPending.map(item => `${item.requirement}: ${item.detail}`),
+      ...(Number(evaluation.score || 0) <= 0 ? ['aderência técnica sem pontuação comprovada'] : []),
+      ...(!exactCorePresent || !coreHasProfessionalEvidence ? [`atuação profissional em ${plan.core || 'competência principal'} não comprovada`] : []),
+      ...(roleBlocked ? [role.detail] : []),
+      ...domain.reasons
+    ]
+  };
+}
 
 function inferredCoreSkill(opportunity = {}) {
   const details = opportunity.intakeDetails || {};
@@ -53,8 +177,9 @@ export function matchingOpenOpportunities(curriculum, opportunities = []) {
     if (!filter.coreSkill || !filter.jobDescription) continue;
     const evaluation = evaluateInternalCandidateForFilter(curriculum, filter);
     const operationalConflict = (evaluation.row.operationalChecks || []).some(item => item.status === 'incompatible');
-    if (!evaluation.accepted || operationalConflict) continue;
-    matches.push({ opportunity, filter, evaluation: evaluation.row });
+    const alertDecision = strictAlertDecision(curriculum, filter, evaluation.row);
+    if (!evaluation.accepted || operationalConflict || !alertDecision.automatic) continue;
+    matches.push({ opportunity, filter, evaluation: { ...evaluation.row, alertDecision } });
   }
   return matches.sort((a, b) => Number(b.evaluation.score || 0) - Number(a.evaluation.score || 0));
 }
