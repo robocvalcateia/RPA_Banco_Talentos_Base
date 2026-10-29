@@ -43,3 +43,16 @@ test('botoes de acao usam uma unica dimensao e o verde Alcateia em todo o sistem
   assert.doesNotMatch(styles, /--action-button-height:\s*42px/);
   assert.match(styles, /button\[aria-label="Fechar"\]:not\(\.surface-window-control\)[\s\S]*width:\s*36px/);
 });
+
+test('usuario pode assumir oportunidade de outro responsavel com confirmacao e alertas', () => {
+  assert.match(html, /id="opportunityClaimButton"[^>]*disabled[^>]*>Pegar Oportunidade<\/button>/);
+  assert.match(html, /class="opportunity-candidate-action-stack" style="display: grid; gap: 12px;"/);
+  assert.match(app, /function currentUserOwnsOpportunity\(opportunity\)/);
+  assert.match(app, /Confirma a transferência desta oportunidade para sua responsabilidade\?/);
+  assert.match(app, /\/api\/opportunities\/\$\{encodeURIComponent\(opportunityId\)\}\/claim/);
+  assert.ok(server.includes("/^\\/api\\/opportunities\\/[^/]+\\/claim$/"));
+  assert.match(server, /Responsabilidade transferida de \$\{previousOwner \|\| 'Não informado'\} para \$\{currentOwner\}/);
+  assert.match(server, /notifyOpportunityResponsibilityTransfer/);
+  assert.match(server, /previous_owner/);
+  assert.match(server, /current_owner/);
+});

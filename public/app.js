@@ -573,6 +573,21 @@ function currentUserNameKey() {
   return normalizeText(state.currentUser?.name || session.user?.name || '');
 }
 
+function currentUserOwnsOpportunity(opportunity) {
+  const owner = normalizeText(opportunity?.owner || '');
+  return Boolean(owner && owner === currentUserNameKey());
+}
+
+function updateOpportunityClaimButton(opportunity = null) {
+  const button = $('#opportunityClaimButton');
+  if (!button) return;
+  const canClaim = Boolean(opportunity?.id) && !currentUserOwnsOpportunity(opportunity);
+  button.disabled = !canClaim;
+  button.title = canClaim
+    ? 'Transferir esta oportunidade para sua responsabilidade.'
+    : 'Esta oportunidade já está sob sua responsabilidade.';
+}
+
 function activeAllocatedsForCurrentUser() {
   const email = currentUserEmail();
   const name = currentUserNameKey();
@@ -8848,6 +8863,7 @@ function clearEditing(form, key, submitLabel) {
     if (form.id === 'opportunityForm' && form.elements.opportunityCode) {
       form.elements.opportunityCode.readOnly = true;
       $('#opportunityCandidateActions')?.setAttribute('hidden', '');
+      updateOpportunityClaimButton();
     }
     setSubmitLabel(form, submitLabel);
   }
@@ -8933,6 +8949,7 @@ function loadOpportunityForEdit(opportunity) {
   $('#opportunityForm input[name="opportunityCode"]').readOnly = true;
   updateOpportunityContactOptions(opportunity.contactClientId || '');
   $('#opportunityCandidateActions')?.removeAttribute('hidden');
+  updateOpportunityClaimButton(opportunity);
   toast('Oportunidade carregada para atualização.');
 }
 
@@ -12062,6 +12079,35 @@ function bindEditableRows() {
   });
   $('#opportunitySearchCandidatesButton')?.addEventListener('click', () => {
     if (state.editing.opportunityId) openOpportunityCandidateSearch(state.editing.opportunityId);
+  });
+  $('#opportunityClaimButton')?.addEventListener('click', async () => {
+    const opportunityId = state.editing.opportunityId;
+    const opportunity = state.opportunities.find((item) => item.id === opportunityId);
+    if (!opportunity || currentUserOwnsOpportunity(opportunity)) {
+      updateOpportunityClaimButton(opportunity);
+      return;
+    }
+    if (!window.confirm('Confirma a transferência desta oportunidade para sua responsabilidade?')) return;
+
+    const button = $('#opportunityClaimButton');
+    const originalText = setSubmitButtonBusy(button, 'Transferindo...');
+    try {
+      const result = await api(`/api/opportunities/${encodeURIComponent(opportunityId)}/claim`, { method: 'POST' });
+      upsertStateItem('opportunities', result.opportunity);
+      const ownerField = $('#opportunityForm select[name="owner"]');
+      if (ownerField) ownerField.value = result.opportunity.owner || '';
+      updateOpportunityClaimButton(result.opportunity);
+      renderOpportunities();
+      const failed = (result.notifications || []).filter((notification) => notification.sent !== true);
+      toast(failed.length
+        ? `Oportunidade transferida. ${failed.length} alerta(s) de e-mail pendente(s).`
+        : 'Oportunidade transferida e responsáveis avisados por e-mail.');
+    } catch (error) {
+      toast(error.message || 'Não foi possível transferir a oportunidade.');
+    } finally {
+      restoreSubmitButton(button, originalText || 'Pegar Oportunidade');
+      updateOpportunityClaimButton(state.opportunities.find((item) => item.id === opportunityId));
+    }
   });
 
   document.addEventListener('click', async (event) => {

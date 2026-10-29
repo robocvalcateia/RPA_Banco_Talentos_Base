@@ -70,6 +70,95 @@ async function notifyDttOpportunityCreated(result, user) {
   }
   return notifications;
 }
+
+function normalizeOpportunityOwner(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+function opportunityOwnerUser(db, owner) {
+  const ownerKey = normalizeOpportunityOwner(owner);
+  if (!ownerKey) return null;
+  return (db.users || []).find((user) => normalizeOpportunityOwner(user.name) === ownerKey) || null;
+}
+
+async function notifyOpportunityResponsibilityTransfer({ opportunity, client, previousOwnerName, previousUser, currentUser, transferredAt }) {
+  const smtp = getSmtpConfigFromEnv();
+  const recipients = [
+    { role: 'previous_owner', user: previousUser },
+    { role: 'current_owner', user: currentUser }
+  ];
+  const uniqueEmails = new Set();
+  const notifications = [];
+  const opportunityLabel = [opportunity.opportunityCode, opportunity.opportunity].filter(Boolean).join(' - ');
+  const systemUrl = `${getPublicBaseUrl()}/?view=opportunities`;
+
+  for (const recipient of recipients) {
+    const email = String(recipient.user?.email || '').trim().toLowerCase();
+    const notification = {
+      id: `opportunity-transfer:${opportunity.id}:${transferredAt}:${recipient.role}`,
+      provider: 'SMTP',
+      source: 'opportunity_responsibility_transfer',
+      type: 'opportunity_responsibility_transfer',
+      to: email,
+      opportunityId: opportunity.id,
+      opportunityName: opportunity.opportunity,
+      opportunityCode: opportunity.opportunityCode,
+      previousOwner: previousOwnerName || previousUser?.name || '',
+      currentOwner: currentUser?.name || '',
+      status: 'sending',
+      createdAt: transferredAt,
+      sentAt: '',
+      error: ''
+    };
+
+    if (!email) {
+      notification.status = 'missing_recipient';
+      notification.error = recipient.role === 'previous_owner'
+        ? 'Responsável anterior sem e-mail cadastrado.'
+        : 'Novo responsável sem e-mail cadastrado.';
+    } else if (uniqueEmails.has(email)) {
+      notification.status = 'duplicate_recipient';
+      notification.error = 'Destinatário já contemplado no mesmo aviso.';
+    } else if (!isSmtpAccountConfigured(smtp)) {
+      notification.status = 'smtp_not_configured';
+      notification.error = 'SMTP não configurado.';
+    } else {
+      uniqueEmails.add(email);
+      try {
+        await sendMail({
+          ...smtp,
+          to: email,
+          subject: `[Alcateia] Transferência de responsabilidade: ${opportunityLabel}`,
+          text: [
+            `Olá, ${recipient.user?.name || 'responsável'}.`,
+            '',
+            `A responsabilidade pela oportunidade ${opportunityLabel} foi transferida.`,
+            `Empresa: ${client?.customerName || 'Não informada'}.`,
+            `Responsável anterior: ${previousOwnerName || previousUser?.name || 'Não informado'}.`,
+            `Novo responsável: ${currentUser?.name || 'Não informado'}.`,
+            `Data da transferência: ${new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Fortaleza', dateStyle: 'short', timeStyle: 'short' }).format(new Date(transferredAt))}.`,
+            `Transferência realizada por: ${currentUser?.name || currentUser?.email || 'usuário do sistema'}.`,
+            '',
+            `Acesse: ${systemUrl}`
+          ].join('\n')
+        });
+        notification.status = 'sent';
+        notification.sentAt = toISODate();
+      } catch (error) {
+        notification.status = 'failed';
+        notification.error = String(error?.message || error);
+      }
+    }
+
+    try { await writeEmailLog(notification); } catch {}
+    notifications.push({ ...notification, sent: notification.status === 'sent' });
+  }
+  return notifications;
+}
 import { summarizeCandidateEmails, summarizeSentMessages } from './email-diagnostics.js';
 import { CvSearchJobs, uniqueApproved, recommendedCandidates, APPROVED_TARGET } from './cv-search-jobs.js';
 const cvSearchJobs = new CvSearchJobs();
@@ -5773,6 +5862,53 @@ async function handleApi(request, response) {
       syncCandidatesWithOpportunityClosures(db);
       await writeDatabaseCollections(db, ['opportunities', 'candidates']);
       sendJson(response, 201, opportunity);
+      return;
+    }
+
+    if (request.method === 'POST' && /^\/api\/opportunities\/[^/]+\/claim$/.test(pathname)) {
+      if (requireAdmin(response, auth.user, 'Apenas administradores podem assumir uma oportunidade.')) return;
+      const opportunityId = decodeURIComponent(pathname.split('/').at(-2));
+      const db = await readDatabase();
+      const opportunity = db.opportunities.find((item) => item.id === opportunityId);
+      if (!opportunity) {
+        sendError(response, 404, 'Oportunidade não encontrada.');
+        return;
+      }
+
+      const currentOwner = String(auth.user.name || '').trim();
+      const previousOwner = String(opportunity.owner || '').trim();
+      if (!currentOwner) {
+        sendError(response, 422, 'Usuário logado sem nome cadastrado para assumir a oportunidade.');
+        return;
+      }
+      if (normalizeOpportunityOwner(previousOwner) === normalizeOpportunityOwner(currentOwner)) {
+        sendError(response, 409, 'Esta oportunidade já está sob sua responsabilidade.');
+        return;
+      }
+
+      const transferredAt = toISODate();
+      const previousUser = opportunityOwnerUser(db, previousOwner);
+      const client = db.clients.find((item) => item.id === opportunity.clientId) || null;
+      opportunity.owner = currentOwner;
+      opportunity.updatedAt = transferredAt;
+      const observation = appendRecordObservation(
+        db,
+        'opportunity',
+        opportunity.id,
+        `Responsabilidade transferida de ${previousOwner || 'Não informado'} para ${currentOwner}.`,
+        auth.user
+      );
+      await writeDatabaseCollections(db, ['opportunities', 'recordObservations']);
+
+      const notifications = await notifyOpportunityResponsibilityTransfer({
+        opportunity,
+        client,
+        previousOwnerName: previousOwner,
+        previousUser,
+        currentUser: auth.user,
+        transferredAt
+      });
+      sendJson(response, 200, { opportunity, observation, notifications });
       return;
     }
 
