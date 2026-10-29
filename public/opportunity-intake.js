@@ -4,9 +4,9 @@ window.OpportunityIntake = (() => {
     requestId: 'Identificação da solicitação', profile: 'Perfil / título da vaga', seniority: 'Senioridade', quantity: 'Quantidade',
     workModel: 'Modelo de trabalho', city: 'Cidade', state: 'Estado', start: 'Início previsto (MM/AAAA)', duration: 'Duração da contratação',
     language: 'Idioma e nível', minimumYears: 'Mínimo de anos solicitado', coreSkill: 'Competência principal para busca', mandatorySkills: 'Competências / submódulos obrigatórios',
-    model: 'Modelo da oportunidade', contractType: 'Tipo de contratação', requirements: 'Requisitos obrigatórios e experiência', desirable: 'Diferenciais', instructions: 'Orientações do cliente', attachments: 'Modelos / anexos pendentes', observation: 'Observações'
+    model: 'Modelo da oportunidade', contractType: 'Tipo de contratação', requirements: 'Requisitos obrigatórios e experiência', desirable: 'Diferenciais', instructions: 'Orientações do cliente', observation: 'Observações'
   };
-  const long = new Set(['requirements', 'desirable', 'instructions', 'attachments', 'observation', 'mandatorySkills']);
+  const long = new Set(['requirements', 'desirable', 'instructions', 'observation', 'mandatorySkills']);
   const options = { workModel: ['', 'Presencial', 'Híbrido', 'Remoto'], model: ['Alocação', 'Hunting', 'Projeto', 'Consultoria'] };
   let root, draft, candidates = [], selected = new Set(), page = 0, dirty = true, busy = false;
   const e = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);

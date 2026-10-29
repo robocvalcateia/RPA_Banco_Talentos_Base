@@ -15,7 +15,7 @@ import { normalizeSelectedCandidate, normalizeCandidateMovement } from './db.js'
 const norm = value => String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 const hash = value => createHash('sha256').update(value).digest('hex');
 const fail = (message, statusCode = 422) => { throw Object.assign(new Error(message), { statusCode }); };
-export const INTAKE_FIELDS = ['requestId', 'profile', 'seniority', 'quantity', 'workModel', 'city', 'state', 'start', 'duration', 'language', 'minimumYears', 'coreSkill', 'mandatorySkills', 'requirements', 'desirable', 'instructions', 'attachments', 'model', 'contractType', 'observation'];
+export const INTAKE_FIELDS = ['requestId', 'profile', 'seniority', 'quantity', 'workModel', 'city', 'state', 'start', 'duration', 'language', 'minimumYears', 'coreSkill', 'mandatorySkills', 'requirements', 'desirable', 'instructions', 'model', 'contractType', 'observation'];
 export const requestIdFromSubject = subject => String(subject || '').match(/\bvaga\s*[:#-]?\s*(\d+)\b/i)?.[1] || '';
 export const requestLabelFromSubject = subject => String(subject || '').match(/\bvaga\s*[:#-]?\s*(\d+\b[^\r\n]*)/i)?.[1]?.trim() || '';
 const requestNumber = value => String(value || '').match(/^\s*(\d+)\b/)?.[1] || '';
@@ -52,8 +52,7 @@ export function extractIntake(email) {
     coreSkill: profile,
     mandatorySkills: requirements.match(/subm[oó]dulos\s+([^\n.]+)/i)?.[1] || '',
     requirements, desirable: [section(/^conhecimentos? tecnicos? desejave(?:l|is)/), ...lines.filter(line => /diferencial/i.test(line) && /agile/i.test(line))].filter(Boolean).join('\n'),
-    instructions: lines.filter(line => /modelo em anexo|logos|identifique a consultoria|resumo da entrevista/i.test(line)).join('\n'),
-    attachments: /anexo/i.test(body) ? 'Modelos mencionados no e-mail; arquivos não fornecidos neste teste.' : '',
+    instructions: lines.filter(line => /logos|identifique a consultoria|resumo da entrevista/i.test(line)).join('\n'),
     model: 'Alocação', contractType: 'PJ', observation: ''
   };
   const seniorityAssessment = applySeniority(fields, null, null, Boolean(fields.seniority));
@@ -84,7 +83,6 @@ export function intakeWarnings(f) {
   if (/^[A-Z]{2}$/i.test(f.city)) warnings.push('Cidade abreviada: confirmar o município (não presumir a cidade).');
   if (/\bFA-(GL|AR|AP|AA)\b/i.test(f.mandatorySkills + '\n' + f.requirements)) warnings.push('Nomenclatura FA-GL/AR/AP/AA preservada. Confirme se corresponde a FI-GL/AR/AP/AA antes de avaliar a aderência.');
   if (f.start && !/^(0[1-9]|1[0-2])\/\d{4}$/.test(f.start)) warnings.push('Início inválido: informar MM/AAAA.');
-  if (f.attachments) warnings.push(f.attachments);
   return warnings;
 }
 
@@ -427,7 +425,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
           if ([cv.blackflag, cv.blacklist].some(v => v === true || ['true', 'sim', '1'].includes(String(v).toLowerCase()))) fail('Profissional impedido no banco.');
         }
         const now = new Date().toISOString();
-        const opportunity = { id: `opp_${randomUUID()}`, clientId: draft.clientId, opportunity: f.profile, opportunityCode: String(Math.max(0, ...db.opportunities.map(o => Number(o.opportunityCode) || 0)) + 1), clientOpportunityCode: requestNumber(f.requestId), status: 'Open', openingDate: now.slice(0, 10), monthYear: now.slice(0, 7), closingDate: '', model: f.model, contractType: 'PJ', workModel: f.workModel, owner: user.name || '', quantity: Number(f.quantity), closedQuantity: 0, contractValue: 0, jobDescription: `${f.requirements}\n\nDesejáveis:\n${f.desirable}\n\nLocal: ${norm(f.workModel) === 'remoto' ? 'Remoto — sem restrição de cidade/estado' : [f.city,f.state].filter(Boolean).join('/')}\nSenioridade: ${f.seniority || 'A confirmar'}\nIdioma: ${f.language}\nInício: ${f.start}\nDuração: ${f.duration}`, observation: `${f.instructions}\n${f.attachments}\n${f.observation}`.trim(), intakeDetails: f, intakeSource: { draftId: draft.id, emailKey: draft.emailKey, bodyHash: draft.bodyHash }, createdAt: now };
+        const opportunity = { id: `opp_${randomUUID()}`, clientId: draft.clientId, opportunity: f.profile, opportunityCode: String(Math.max(0, ...db.opportunities.map(o => Number(o.opportunityCode) || 0)) + 1), clientOpportunityCode: requestNumber(f.requestId), status: 'Open', openingDate: now.slice(0, 10), monthYear: now.slice(0, 7), closingDate: '', model: f.model, contractType: 'PJ', workModel: f.workModel, owner: user.name || '', quantity: Number(f.quantity), closedQuantity: 0, contractValue: 0, jobDescription: `${f.requirements}\n\nDesejáveis:\n${f.desirable}\n\nLocal: ${norm(f.workModel) === 'remoto' ? 'Remoto — sem restrição de cidade/estado' : [f.city,f.state].filter(Boolean).join('/')}\nSenioridade: ${f.seniority || 'A confirmar'}\nIdioma: ${f.language}\nInício: ${f.start}\nDuração: ${f.duration}`, observation: `${f.instructions}\n${f.observation}`.trim(), intakeDetails: f, intakeSource: { draftId: draft.id, emailKey: draft.emailKey, bodyHash: draft.bodyHash }, createdAt: now };
         const links = selected.map(c => normalizeSelectedCandidate({ id: `sel_${randomUUID()}`, name: c.name, curriculumId: c.id, opportunityId: opportunity.id, source: 'Banco de Talentos', origin: simulated ? 'Solicitação DTT / teste LOCAL' : 'Solicitação DTT', score: c.score, observation: c.pending.join('\n'), createdAt: now, notifications: [] }));
         db.opportunities.push(opportunity);
         db.selectedCandidates.push(...links);

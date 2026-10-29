@@ -45,7 +45,16 @@ test('extracts the email with traceable market seniority, PJ fixed and no respon
   assert.match(f.mandatorySkills, /FA-GL/); assert.match(f.requirements, /Waterfall/);
   assert.match(f.desirable, /Agile/); assert.match(f.desirable, /Certificação SAP/);
   assert.match(f.instructions, /não incluir logos/); assert.match(f.instructions, /resumo da entrevista/);
-  assert.ok(intakeWarnings(f).length >= 3);
+  assert.ok(intakeWarnings(f).length >= 2);
+});
+test('does not inspect or report email attachments', () => {
+  const fields = extractIntake({
+    subject: 'SOLICITAÇÃO DE COTAÇÃO - VAGA 9999 - Consultor Fiscal',
+    body: 'Perfil: Consultor Fiscal\nModelo em anexo.\nConhecimento Técnico Requerido:\nExperiência fiscal.'
+  });
+  assert.equal('attachments' in fields, false);
+  assert.equal(fields.instructions, '');
+  assert.equal(intakeWarnings(fields).some(warning => /anexo|arquivo/i.test(warning)), false);
 });
 test('screens all candidates without a top-N cap and keeps operational uncertainty visible', () => {
   const all = Array.from({ length: 65 }, (_, i) => ({ ...cvs[0], id_controle: String(i) }));
