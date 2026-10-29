@@ -277,7 +277,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20261029-core-experience-v4';
+const APP_VERSION = '20261029-core-experience-v4b';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -548,17 +548,13 @@ function startCandidateFitReconciliation(since, historicalReview = false) {
   });
   setImmediate(async () => {
     try {
-      const mongoResponse = await getCurriculumsFromMongo({ all: true });
       if (historicalReview) {
         const db = await readDatabase();
-        const pool = mongoResponse.curriculums || [];
-        const byId = new Map();
-        for (const cv of pool) for (const key of curriculumLookupKeys(cv)) byId.set(key, cv);
         const fullCache = new Map();
         const fullCv = async id => {
           const key = String(id || '');
           if (!fullCache.has(key)) fullCache.set(key, await getCurriculumFromMongo(key));
-          return fullCache.get(key) || byId.get(key);
+          return fullCache.get(key);
         };
         const rows = [];
         const logs = (await readEmailLogs()).filter(log => log.type === 'candidate_opportunity_fit' && log.status === 'sent');
@@ -593,6 +589,7 @@ function startCandidateFitReconciliation(since, historicalReview = false) {
         candidateFitReconciliation.status = 'finished';
         return;
       }
+      const mongoResponse = await getCurriculumsFromMongo({ all: true });
       const identifiers = recentCurriculumIds(mongoResponse.curriculums || [], since);
       const results = await triggerNewCurriculumFitAlerts(identifiers, mongoResponse.curriculums || []);
       candidateFitReconciliation.result = {
