@@ -100,6 +100,19 @@ test('uses the title skill when an open vacancy has no job description', () => {
   assert.deepEqual(matchingOpenOpportunities(curriculum, [taxVacancy]).map(row => row.opportunity.id), ['tax-title-only']);
 });
 
+test('evaluates an unknown skill without depending on a fixed technology catalog', () => {
+  const person = {
+    id_controle: 'CV-BLUEYONDER', nome: 'Pessoa BlueYonder',
+    experiencia_profissional: '2023 a atual - Consultor BlueYonder WMS responsável por implementação, parametrização e suporte.'
+  };
+  const vacancy = {
+    id: 'unknown-skill', opportunity: 'Consultor BlueYonder WMS', status: 'Open', workModel: 'Remoto',
+    jobDescription: 'Experiência profissional em BlueYonder WMS.'
+  };
+  assert.equal(opportunityFitFilter(vacancy).coreSkill, 'BlueYonder WMS');
+  assert.deepEqual(matchingOpenOpportunities(person, [vacancy]).map(row => row.opportunity.id), ['unknown-skill']);
+});
+
 test('sends one grouped email to Gerson and Bruno and never duplicates curriculum-vacancy alert', async () => {
   const logs = [];
   const sent = [];
