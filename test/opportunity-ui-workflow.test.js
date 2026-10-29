@@ -6,6 +6,7 @@ const app = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../public/styles.css', import.meta.url), 'utf8');
 const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
+const intake = readFileSync(new URL('../public/opportunity-intake.js', import.meta.url), 'utf8');
 
 test('Voltar usa histórico de uma tela e preserva a tela anterior', () => {
   assert.match(app, /navigationHistory:\s*\[\]/);
@@ -58,4 +59,14 @@ test('usuario pode assumir oportunidade de outro responsavel com confirmacao e a
   assert.match(server, /notifyOpportunityResponsibilityTransfer/);
   assert.match(server, /previous_owner/);
   assert.match(server, /current_owner/);
+});
+
+test('revisao DTT abre editavel e rejeicao nao se confunde com cadastro', () => {
+  assert.match(intake, /const editable = d\.status === 'pending'/);
+  assert.match(intake, /q\('#intakeFields'\)\.disabled = !editable/);
+  assert.match(intake, /seniorityInput\.readOnly = false/);
+  assert.match(intake, /Preencha a senioridade/);
+  assert.match(intake, />Rejeitar nova proposta<\/button>/);
+  assert.match(intake, /Confirma a rejeição desta nova proposta\? Ela não será inserida nas oportunidades\./);
+  assert.match(intake, /Nova proposta rejeitada\. Nenhuma oportunidade ou vínculo foi criado\./);
 });

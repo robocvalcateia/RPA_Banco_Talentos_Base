@@ -47,6 +47,7 @@ window.OpportunityIntake = (() => {
   }
   function edit(result) {
     const d = result.draft, warnings = result.warnings || [];
+    const editable = d.status === 'pending';
     draft = d; selected = new Set(d.selectedIds || []); candidates = result.candidates || []; page = 0;
     dirty = !result.searchReady || !!result.duplicateOpportunity;
     q('#intakeReview').hidden = false;
@@ -64,7 +65,14 @@ window.OpportunityIntake = (() => {
     }).join('');
     syncDerivedFields();
     const startInput = q('#intakeFields [name=start]'); startInput.placeholder = 'MM/AAAA'; startInput.pattern = '(0[1-9]|1[0-2])/[0-9]{4}'; startInput.maxLength = 7;
-    q('#intakeFields').disabled = d.status !== 'pending';
+    q('#intakeFields').disabled = !editable;
+    if (editable) q('#intakeFields').removeAttribute('disabled');
+    const seniorityInput = q('#intakeFields [name=seniority]');
+    if (seniorityInput) {
+      seniorityInput.disabled = !editable;
+      seniorityInput.readOnly = false;
+      seniorityInput.placeholder = 'Preencha a senioridade';
+    }
     q('#intakeWarnings').innerHTML = (warnings.length ? `<strong>Conferir antes de confirmar</strong><ul>${warnings.map(w => `<li>${e(w)}</li>`).join('')}</ul>` : '') + (result.duplicateOpportunity ? '<p>Já existe oportunidade para esta solicitação. Confirmação bloqueada.</p>' : '');
     const assessment = d.seniorityAssessment;
     q('#intakeSeniority').innerHTML = assessment ? `<details class="intake-analysis"><summary>Senioridade: ${e(d.fields.seniority || 'A confirmar')} · ${assessment.origin === 'market' ? 'sugerida por análise de mercado' : assessment.origin === 'email' ? 'informada no e-mail' : assessment.origin === 'manual' ? 'ajustada na revisão' : 'a confirmar'}</summary><p>${e(assessment.rationale)}</p><p>Referências consultadas em ${e(assessment.referenceDate)}. Nível editável; sem consulta automática à internet a cada e-mail.</p><ul>${(assessment.sources || []).map(s => `<li><a href="${e(s.url)}" target="_blank" rel="noopener noreferrer">${e(s.title)}</a> — ${e(s.summary)}</li>`).join('')}</ul></details>` : '';
@@ -129,7 +137,7 @@ window.OpportunityIntake = (() => {
       <div id="intakeWarnings" class="intake-warning"></div><div class="intake-actions"><button id="intakeSearch" type="button">Salvar revisão</button></div>
       <h2>Profissionais do banco de talentos</h2><div id="intakeCandidates"></div>
       <label class="intake-check"><input id="intakeAcknowledge" type="checkbox">Revisei os dados e as pendências. A seleção é uma indicação para avaliação, sujeita à confirmação dos requisitos com o profissional.</label>
-      <div class="intake-actions"><button id="intakeConfirm" class="primary-action" type="button">Confirmar</button><button id="intakeCancel" type="button">Cancelar</button><strong id="selectedCount"></strong></div></section>`;
+      <div class="intake-actions"><button id="intakeConfirm" class="primary-action" type="button">Confirmar</button><button id="intakeCancel" type="button">Rejeitar nova proposta</button><strong id="selectedCount"></strong></div></section>`;
     q('#intakeForm').onsubmit = ev => ev.preventDefault();
     q('#intakeFields').oninput = () => { syncDerivedFields(); dirty = true; q('#intakeAcknowledge').checked = false; controls(); message('Dados alterados: salve a revisão antes de confirmar. A pesquisa existente será preservada.'); };
     q('#intakeReload').onclick = () => run(load);
@@ -141,7 +149,14 @@ window.OpportunityIntake = (() => {
       await load(); await refresh(); showView('opportunityIntake');
       message(`Oportunidade ${result.opportunity.opportunityCode} cadastrada como Open. ${result.selectedCount ?? result.draft.selectedIds.length} selecionado(s). Lembretes desta solicitação encerrados.`);
     });
-    q('#intakeCancel').onclick = () => run(async () => { await api(`/api/intake/${draft.id}/cancel`, { method: 'POST', body: JSON.stringify({ revision: draft.revision }) }); await load(); message('Solicitação cancelada. Nenhuma oportunidade ou vínculo criado.'); });
+    q('#intakeCancel').onclick = () => {
+      if (!window.confirm('Confirma a rejeição desta nova proposta? Ela não será inserida nas oportunidades.')) return;
+      run(async () => {
+        await api(`/api/intake/${draft.id}/cancel`, { method: 'POST', body: JSON.stringify({ revision: draft.revision }) });
+        await load();
+        message('Nova proposta rejeitada. Nenhuma oportunidade ou vínculo foi criado.');
+      });
+    };
     run(load);
   }
   return { mount };
