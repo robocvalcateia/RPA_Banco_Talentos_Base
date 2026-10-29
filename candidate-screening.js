@@ -69,7 +69,7 @@ export function professionalCoreEvidence(text, core) {
   const activity = new RegExp('\\b(?:experiencia (?:profissional )?(?:em|com)|atuacao (?:profissional )?(?:em|com)|atuei (?:em|com)|trabalhei (?:em|com)|responsavel (?:por|pela|pelo)|gestao de|implementacao(?: de| do| da)?|implantacao(?: de| do| da)?|parametrizacao(?: de| do| da)?|configuracao(?: de| do| da)?|suporte (?:em|de|ao|a)|desenvolvimento (?:em|com)|experience (?:in|with)|worked (?:in|with)) (?:'+terms+')\\b');
   const trailing = new RegExp('\\b(?:'+terms+') (?:consultant|developer|engineer|manager)\\b');
   let trainingSection = false;
-  for (const raw of String(text || '').split(/\n|(?<=[.;])\s+/)) {
+  for (const raw of String(text || '').split(/[\n|•]|(?<=[.;])\s+/)) {
     const line = normalize(raw);
     if (/^(cursos|formacao|certificacoes|education|training)\b/.test(line)) trainingSection = true;
     if (/^(experiencia|historico profissional|projetos|professional experience|employment)\b/.test(line)) trainingSection = false;
@@ -78,7 +78,7 @@ export function professionalCoreEvidence(text, core) {
     const procurement = /^(compras|suprimentos|procurement|purchasing)$/.test(normalize(core));
     if (procurement && /\b(?:sistema|sistemas|portal|software|erp|sap|protheus|requisitos|projeto de implantacao)\b/.test(line) && !role.test(line)) continue;
     const direct = role.test(line) || activity.test(line) || trailing.test(line)
-      || (normalize(core) === 'pmo' && /\bpmo (?:responsavel|gestao|atuando)\b/.test(line));
+      || (normalize(core) === 'pmo' && /\bpmo (?:responsavel|atuando)\b/.test(line));
     if (!direct) continue;
     // Existing domain checks still reject training, management-only SAP and data migration.
     const contextual = contextualEvidence(raw, core, core);

@@ -277,7 +277,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20261029-core-experience-v4b';
+const APP_VERSION = '20261029-core-experience-v4c';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -580,7 +580,11 @@ function startCandidateFitReconciliation(since, historicalReview = false) {
           filter.searchResults = updatedSearchResults;
           await writeDatabaseDocument('cvFilters', filter);
         }
-        const drafts = await intakeStore.upgradePending();
+        const drafts = { updated: 0 };
+        for (const draft of (await intakeStore.list()).filter(item => item.status === 'pending')) {
+          await intakeStore.refreshSearch(draft.id, draft.revision, { id: 'historical-fit-review' });
+          drafts.updated++;
+        }
         candidateFitReconciliation.result = { mode: 'historical_review', evaluated: rows.length,
           confirmed: rows.filter(row => row.status === 'confirmed').length,
           withdrawn: rows.filter(row => row.status === 'withdrawn').length,

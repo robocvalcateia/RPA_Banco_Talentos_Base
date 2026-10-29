@@ -251,3 +251,12 @@ test('historical review preserves sent evidence and withdraws unsupported indica
   assert.equal(reviewHistoricalFit(log, null, vacancy).status, 'unverifiable');
   assert.equal(log.status, 'sent');
 });
+
+
+test('a keyword list does not establish a professional PMO role', async () => {
+  const { curriculumProfessionalEvidence } = await import('../candidate-screening.js');
+  for (const text of ['Engenheiro | PMO , Gestão de Portfólio', 'PMO | Gestão de Projetos', 'Coordenação de Implantação • PMO • Gestão de Cronograma']) {
+    assert.equal(curriculumProfessionalEvidence({texto_integral_original:text}, 'PMO').found, false);
+  }
+  assert.equal(curriculumProfessionalEvidence({experiencia_profissional:'Gerente de PMO (2008 - 2012)'}, 'PMO').found, true);
+});
