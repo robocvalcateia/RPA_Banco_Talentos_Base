@@ -422,13 +422,13 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
         return { draft, duplicate: !!duplicate, warnings: intakeWarnings(fields) };
       });
     },
-    async refreshSearch(id, revision, user) {
+    async refreshSearch(id, revision, user, historicalSearch) {
       await queue;
       const snapshot = await read(), before = find(snapshot, id);
       if (before.status !== 'pending' || before.revision !== Number(revision)) fail('Solicitação alterada ou encerrada. Atualize antes de pesquisar.',409);
       const fields = cleanIntakeFields(before.fields, before.receivedAt || before.createdAt);
       // Stream CVs before opening the short write transaction.
-      const prepared = adapter?.searchCandidates ? await adapter.searchCandidates(fields) : undefined;
+      const prepared = historicalSearch || (adapter?.searchCandidates ? await adapter.searchCandidates(fields) : undefined);
       return transaction(async db => {
         const draft = find(db,id);
         if (draft.status !== 'pending' || draft.revision !== Number(revision)) fail('Solicitação alterada durante a pesquisa. Atualize antes de tentar novamente.',409);

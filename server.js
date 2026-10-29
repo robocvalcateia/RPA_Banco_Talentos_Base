@@ -1,6 +1,6 @@
 import { writeEmailLog, readEmailLogs, lifecycleLog, legacyEmailLogs, queryEmailLogs, receivedMessageLog } from './email-logs.js';
 import http from 'node:http';
-import { createIntakeStore } from './opportunity-intake.js';
+import { createIntakeStore, matchIntakeCandidates } from './opportunity-intake.js';
 import { createMongoIntakeAdapter } from './intake-mongo.js';
 import { createHourlyIntake, DTT_MAILBOX, DTT_INBOX_INTERVAL_MS, DTT_REMINDER_INTERVAL_MS } from './intake-hourly.js';
 import { createIntakeTalentReader } from './intake-talent.js';
@@ -277,7 +277,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20261029-core-experience-v4c';
+const APP_VERSION = '20261029-core-experience-v4d';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -582,7 +582,14 @@ function startCandidateFitReconciliation(since, historicalReview = false) {
         }
         const drafts = { updated: 0 };
         for (const draft of (await intakeStore.list()).filter(item => item.status === 'pending')) {
-          await intakeStore.refreshSearch(draft.id, draft.revision, { id: 'historical-fit-review' });
+          const current = await intakeStore.get(draft.id);
+          const cvs = [];
+          for (const candidate of current.candidates || []) {
+            const cv = await fullCv(candidate.id);
+            if (cv) cvs.push(cv);
+          }
+          const prepared = { candidates: matchIntakeCandidates(cvs, draft.fields), totalEvaluated: cvs.length };
+          await intakeStore.refreshSearch(draft.id, draft.revision, { id: 'historical-fit-review' }, prepared);
           drafts.updated++;
         }
         candidateFitReconciliation.result = { mode: 'historical_review', evaluated: rows.length,
