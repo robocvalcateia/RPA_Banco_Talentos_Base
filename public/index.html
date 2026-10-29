@@ -805,14 +805,12 @@
             <label>Valor Contrato<input name="contractValue" class="currency-input" inputmode="decimal" placeholder="R$ 0,00" /></label>
             <label class="full">Job Description<textarea name="jobDescription" rows="4"></textarea></label>
             <label class="full">Observação<textarea name="observation" rows="3"></textarea></label>
-            <div class="full opportunity-candidate-actions" id="opportunityCandidateActions" hidden>
-              <button class="secondary-action" id="opportunityLinkedCandidatesButton" type="button">Candidatos vinculados</button>
-              <div class="opportunity-candidate-action-stack" style="display: grid; gap: 12px;">
-                <button class="primary-action" id="opportunitySearchCandidatesButton" type="button">Procurar novos candidatos</button>
-                <button class="primary-action" id="opportunityClaimButton" type="button" disabled>Pegar Oportunidade</button>
-              </div>
+            <div class="full opportunity-candidate-actions" id="opportunityCandidateActions" style="display: grid; grid-template-columns: repeat(2, var(--action-button-width)); gap: 12px; align-items: start;">
+              <button class="secondary-action" id="opportunityLinkedCandidatesButton" type="button" data-opportunity-edit-action hidden style="grid-column: auto;">Candidatos vinculados</button>
+              <button class="primary-action" id="opportunitySearchCandidatesButton" type="button" data-opportunity-edit-action hidden style="grid-column: auto;">Procurar novos candidatos</button>
+              <button class="primary-action" type="submit" style="grid-column: auto;">Salvar oportunidade</button>
+              <button class="primary-action" id="opportunityClaimButton" type="button" data-opportunity-edit-action hidden disabled style="grid-column: auto;">Pegar Oportunidade</button>
             </div>
-            <button class="primary-action" type="submit">Salvar oportunidade</button>
           </form>
         </section>
         <section class="panel">

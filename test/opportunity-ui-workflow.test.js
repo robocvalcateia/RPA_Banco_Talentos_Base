@@ -46,7 +46,10 @@ test('botoes de acao usam uma unica dimensao e o verde Alcateia em todo o sistem
 
 test('usuario pode assumir oportunidade de outro responsavel com confirmacao e alertas', () => {
   assert.match(html, /id="opportunityClaimButton"[^>]*disabled[^>]*>Pegar Oportunidade<\/button>/);
-  assert.match(html, /class="opportunity-candidate-action-stack" style="display: grid; gap: 12px;"/);
+  assert.match(html, /id="opportunityCandidateActions" style="display: grid; grid-template-columns: repeat\(2, var\(--action-button-width\)\);/);
+  assert.match(html, /Candidatos vinculados<\/button>[\s\S]*Procurar novos candidatos<\/button>[\s\S]*Salvar oportunidade<\/button>[\s\S]*Pegar Oportunidade<\/button>/);
+  assert.match(app, /\$\$\('\[data-opportunity-edit-action\]'[^\n]+setAttribute\('hidden'/);
+  assert.match(app, /\$\$\('\[data-opportunity-edit-action\]'[^\n]+removeAttribute\('hidden'/);
   assert.match(app, /function currentUserOwnsOpportunity\(opportunity\)/);
   assert.match(app, /Confirma a transferência desta oportunidade para sua responsabilidade\?/);
   assert.match(app, /\/api\/opportunities\/\$\{encodeURIComponent\(opportunityId\)\}\/claim/);

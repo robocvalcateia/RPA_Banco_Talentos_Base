@@ -8862,7 +8862,7 @@ function clearEditing(form, key, submitLabel) {
     form.reset();
     if (form.id === 'opportunityForm' && form.elements.opportunityCode) {
       form.elements.opportunityCode.readOnly = true;
-      $('#opportunityCandidateActions')?.setAttribute('hidden', '');
+      $$('[data-opportunity-edit-action]', form).forEach((button) => button.setAttribute('hidden', ''));
       updateOpportunityClaimButton();
     }
     setSubmitLabel(form, submitLabel);
@@ -8948,7 +8948,7 @@ function loadOpportunityForEdit(opportunity) {
   }, 'Atualizar oportunidade');
   $('#opportunityForm input[name="opportunityCode"]').readOnly = true;
   updateOpportunityContactOptions(opportunity.contactClientId || '');
-  $('#opportunityCandidateActions')?.removeAttribute('hidden');
+  $$('[data-opportunity-edit-action]', $('#opportunityForm')).forEach((button) => button.removeAttribute('hidden'));
   updateOpportunityClaimButton(opportunity);
   toast('Oportunidade carregada para atualização.');
 }
