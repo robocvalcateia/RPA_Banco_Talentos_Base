@@ -34,3 +34,12 @@ test('edicao oferece candidatos vinculados e busca exclusiva no Banco Alcateia',
   assert.match(server, /searchLinkedin: false/);
   assert.match(server, /Este profissional ja esta vinculado a oportunidade/);
 });
+
+test('botoes de acao usam uma unica dimensao e o verde Alcateia em todo o sistema', () => {
+  assert.match(styles, /--action-button-width:\s*180px/);
+  assert.match(styles, /--action-button-height:\s*52px/);
+  assert.match(styles, /\.primary-action,[\s\S]*\.secondary-action,[\s\S]*\.danger-action,[\s\S]*\.ghost-action,[\s\S]*\.compact-action,[\s\S]*background:\s*var\(--alcateia-green\)/);
+  assert.doesNotMatch(styles, /--action-button-width:\s*132px/);
+  assert.doesNotMatch(styles, /--action-button-height:\s*42px/);
+  assert.match(styles, /button\[aria-label="Fechar"\]:not\(\.surface-window-control\)[\s\S]*width:\s*36px/);
+});
