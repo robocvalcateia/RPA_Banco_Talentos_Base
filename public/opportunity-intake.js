@@ -24,7 +24,7 @@ window.OpportunityIntake = (() => {
   function controls() {
     const pending = draft?.status === 'pending';
     const editable = pending || draft?.status === 'confirmed';
-    if (q('#intakeConfirm')) q('#intakeConfirm').disabled = busy || !pending || dirty;
+    if (q('#intakeConfirm')) q('#intakeConfirm').disabled = busy || !pending;
     if (q('#intakeCancel')) q('#intakeCancel').disabled = busy || !pending;
     if (q('#intakeSearch')) q('#intakeSearch').disabled = busy || !editable;
     root.querySelectorAll('[data-select]').forEach(b => b.disabled = busy || !pending || dirty || (b.dataset.blocked === 'true' && !selected.has(b.dataset.select)));
@@ -83,9 +83,14 @@ window.OpportunityIntake = (() => {
     q('#intakeWarnings').innerHTML = (warnings.length ? `<strong>Conferir antes de confirmar</strong><ul>${warnings.map(w => `<li>${e(w)}</li>`).join('')}</ul>` : '') + (result.duplicateOpportunity ? '<p>Já existe oportunidade para esta solicitação. Confirmação bloqueada.</p>' : '');
     const assessment = d.seniorityAssessment;
     q('#intakeSeniority').innerHTML = assessment ? `<details class="intake-analysis"><summary>Senioridade: ${e(d.fields.seniority || 'A confirmar')} · ${assessment.origin === 'market' ? 'sugerida por análise de mercado' : assessment.origin === 'email' ? 'informada no e-mail' : assessment.origin === 'manual' ? 'ajustada na revisão' : 'a confirmar'}</summary><p>${e(assessment.rationale)}</p><p>Referências consultadas em ${e(assessment.referenceDate)}. Nível editável; sem consulta automática à internet a cada e-mail.</p><ul>${(assessment.sources || []).map(s => `<li><a href="${e(s.url)}" target="_blank" rel="noopener noreferrer">${e(s.title)}</a> — ${e(s.summary)}</li>`).join('')}</ul></details>` : '';
-    q('#intakeAcknowledge').checked = false;
-    q('#intakeAcknowledge').disabled = d.status !== 'pending';
     q('#intakeSearch').textContent = d.status === 'confirmed' ? 'Salvar correção' : 'Salvar revisão';
+    q('#intakeDecision').hidden = d.status !== 'pending';
+    q('#intakeDecisionDone').hidden = d.status === 'pending';
+    q('#intakeDecisionDone').textContent = d.status === 'confirmed'
+      ? `Proposta já aceita${d.confirmedByName ? ` por ${d.confirmedByName}` : ''}. A oportunidade já foi criada como Open.`
+      : d.status === 'cancelled'
+        ? `Proposta rejeitada${d.cancelledByName ? ` por ${d.cancelledByName}` : ''}. Nenhuma oportunidade foi criada.`
+        : 'Esta proposta já foi encerrada.';
     renderCandidates();
     controls();
   }
@@ -117,12 +122,13 @@ window.OpportunityIntake = (() => {
     controls();
   }
   async function review() {
-    if (!q('#intakeForm').reportValidity()) return;
+    if (!q('#intakeForm').reportValidity()) return false;
     message('Salvando a revisão da oportunidade…');
     const form = Object.fromEntries(new FormData(q('#intakeForm')).entries());
     const result = await api(`/api/intake/${draft.id}/review`, { method: 'POST', body: JSON.stringify({ revision: draft.revision, fields: form }) });
     edit(result);
     message(draft.status === 'confirmed' ? 'Correção salva na oportunidade existente. Nenhuma nova oportunidade foi criada.' : 'Revisão salva. Lista de candidatos e seleções preservadas; nenhuma nova busca executada.');
+    return true;
   }
   function mount() {
     if (root) return;
@@ -136,16 +142,17 @@ window.OpportunityIntake = (() => {
       <form id="intakeForm"><fieldset class="intake-grid" id="intakeFields"></fieldset></form>
       <div id="intakeWarnings" class="intake-warning"></div><div class="intake-actions"><button id="intakeSearch" type="button">Salvar revisão</button></div>
       <h2>Profissionais do banco de talentos</h2><div id="intakeCandidates"></div>
-      <label class="intake-check"><input id="intakeAcknowledge" type="checkbox">Revisei os dados e as pendências. A seleção é uma indicação para avaliação, sujeita à confirmação dos requisitos com o profissional.</label>
-      <div class="intake-actions"><button id="intakeConfirm" class="primary-action" type="button">Confirmar</button><button id="intakeCancel" class="primary-action" type="button">Rejeitar nova proposta</button><strong id="selectedCount"></strong></div></section>`;
+      <p id="intakeDecisionDone" class="intake-decision-status" hidden></p>
+      <div id="intakeDecision" class="intake-actions"><button id="intakeConfirm" class="primary-action" type="button">Aceitar proposta</button><button id="intakeCancel" class="primary-action" type="button">Rejeitar proposta</button><strong id="selectedCount"></strong></div></section>`;
     q('#intakeForm').onsubmit = ev => ev.preventDefault();
-    q('#intakeFields').oninput = () => { syncDerivedFields(); dirty = true; q('#intakeAcknowledge').checked = false; controls(); message('Dados alterados: salve a revisão antes de confirmar. A pesquisa existente será preservada.'); };
+    q('#intakeFields').oninput = () => { syncDerivedFields(); dirty = true; controls(); message('Dados alterados. Ao aceitar, a revisão será salva automaticamente.'); };
     q('#intakeReload').onclick = () => run(load);
     q('#intakeJump').onclick = () => q('#intakeCandidates').scrollIntoView({ behavior: 'smooth', block: 'start' });
     q('#intakeSearch').onclick = () => run(review);
     q('#intakeConfirm').onclick = () => run(async () => {
+      if (dirty && !(await review())) return;
       message('Conferindo a seleção e gravando a oportunidade na base local…');
-      const result = await api(`/api/intake/${draft.id}/confirm`, { method: 'POST', body: JSON.stringify({ revision: draft.revision, selectedIds: [...selected], acknowledged: q('#intakeAcknowledge').checked }) });
+      const result = await api(`/api/intake/${draft.id}/confirm`, { method: 'POST', body: JSON.stringify({ revision: draft.revision, selectedIds: [...selected], acknowledged: true }) });
       await load(); await refresh(); showView('opportunityIntake');
       message(`Oportunidade ${result.opportunity.opportunityCode} cadastrada como Open. ${result.selectedCount ?? result.draft.selectedIds.length} selecionado(s). Lembretes desta solicitação encerrados.`);
     });

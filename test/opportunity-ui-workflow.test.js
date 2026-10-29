@@ -67,7 +67,12 @@ test('revisao DTT abre editavel e rejeicao nao se confunde com cadastro', () => 
   assert.match(intake, /q\('#intakeFields'\)\.disabled = !editable/);
   assert.match(intake, /seniorityInput\.readOnly = false/);
   assert.match(intake, /Preencha a senioridade/);
-  assert.match(intake, />Rejeitar nova proposta<\/button>/);
+  assert.match(intake, />Aceitar proposta<\/button>/);
+  assert.match(intake, />Rejeitar proposta<\/button>/);
+  assert.doesNotMatch(intake, /id="intakeAcknowledge"/);
+  assert.match(intake, /if \(dirty && !\(await review\(\)\)\) return/);
+  assert.match(intake, /q\('#intakeDecision'\)\.hidden = d\.status !== 'pending'/);
+  assert.match(intake, /Proposta já aceita/);
   assert.match(intake, /Confirma a rejeição desta nova proposta\? Ela não será inserida nas oportunidades\./);
   assert.match(intake, /Nova proposta rejeitada\. Nenhuma oportunidade ou vínculo foi criado\./);
   assert.match(intake, /Salvar correção/);

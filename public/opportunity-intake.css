@@ -41,6 +41,7 @@
 #opportunityIntake .intake-check input { width: auto; margin-top: 5px; }
 #opportunityIntake fieldset { border: 0; margin: 0; padding: 0; }
 #opportunityIntake .intake-status { min-height: 24px; margin-top: 12px; }
+#opportunityIntake .intake-decision-status { padding: 16px 18px; border-left: 5px solid var(--intake-accent); background: #e7f5f1; color: #174d42; font-weight: 800; border-radius: 8px; }
 #opportunityIntake .intake-analysis { margin: 14px 0; padding: 14px; background: #f2faf7; border: 1px solid #bedbd2; border-radius: 8px; line-height: 1.5; }
 #opportunityIntake .intake-analysis a { color: #006c58; }
 #opportunityIntake .intake-comparison { overflow-x: auto; margin: 12px 0; }
