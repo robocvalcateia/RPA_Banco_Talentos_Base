@@ -5,6 +5,32 @@ import os from 'node:os';
 import path from 'node:path';
 import { createIntakeStore, extractIntake, intakeWarnings, matchIntakeCandidates } from '../opportunity-intake.js';
 import { INTAKE_EXAMPLE } from '../intake-example.js';
+import { normalizeWorkModel, locationEligibility } from '../intake-location.js';
+
+test('production work model descriptions normalize without losing hybrid restrictions', () => {
+  for (const [raw, expected] of [
+    ['Hibrido – 2x presencial','Híbrido'],
+    ['HIBRIDO - O cliente fica no prédio do lado da Deloitte, no Parque da Cidade – Vila São Francisco e/ou Granja Julieta.','Híbrido'],
+    ['Presencial – próximo ao escritório da Deloitte em SP','Presencial'],
+    ['100% remoto','Remoto'],['REMOTO','Remoto']
+  ]) assert.equal(normalizeWorkModel(raw), expected);
+  assert.equal(normalizeWorkModel('Presencial ou remoto a definir'),'Presencial ou remoto a definir');
+  assert.equal(locationEligibility({city:'Fortaleza',state:'CE'},{workModel:'Hibrido – 2x presencial',city:'São Paulo',state:'SP'}).allowed,false);
+});
+
+test('legacy hybrid draft can be confirmed directly without saving first and preserves description', async t => {
+  const {store,read,file}=await fixture(t,{users:reviewers});
+  const received=await store.receive(receivedEmail,user);
+  const db=await read();const draft=db.opportunityIntakes[0];
+  draft.fields.workModel='Hibrido – 2x presencial';
+  await fs.writeFile(file,JSON.stringify(db));
+  const opened=await store.get(received.draft.id);
+  assert.equal(opened.draft.fields.workModel,'Híbrido');
+  assert.match(opened.draft.fields.observation,/Hibrido – 2x presencial/);
+  const result=await store.confirm(draft.id,draft.revision,[],user,true);
+  assert.equal(result.opportunity.workModel,'Híbrido');
+  assert.match(result.opportunity.intakeDetails.observation,/Hibrido – 2x presencial/);
+});
 
 const email = { mailbox: 'gerson@alcateiaconsulting.com.br', sender: 'poolterceiros@deloitte.com', subject: '', body: INTAKE_EXAMPLE };
 const user = { id: 'test-user', name: 'Recrutador de teste', email: 'test@example.test' };

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { compileIntakeRequirements, compareIntakeCurriculum, INTAKE_MATCH_VERSION } from './intake-matching.js';
 import { applySeniority } from './intake-seniority.js';
-import { normalizePlace, locationEligibility } from './intake-location.js';
+import { normalizePlace, locationEligibility, normalizeWorkModel } from './intake-location.js';
 export const INTAKE_SENDER = 'poolterceiros@deloitte.com';
 export const DTT_REVIEWER_EMAILS = [
   'gerson@alcateiaconsulting.com.br',
@@ -61,6 +61,12 @@ export function extractIntake(email) {
 
 export function cleanIntakeFields(input = {}, referenceDate = new Date().toISOString()) {
   const fields = Object.fromEntries(INTAKE_FIELDS.map(key => [key, String(input[key] ?? '').trim().slice(0, 20000)]));
+  const originalModel = fields.workModel;
+  fields.workModel = normalizeWorkModel(originalModel);
+  if (originalModel && originalModel !== fields.workModel) {
+    const note = `Modelo de trabalho no e-mail: ${originalModel}`;
+    if (!fields.observation.includes(note)) fields.observation = [fields.observation, note].filter(Boolean).join('\n');
+  }
   Object.assign(fields, normalizePlace(fields.city, fields.state));
   if (/^imediat[oa]$/i.test(fields.start)) {
     const original = fields.start;
@@ -182,7 +188,12 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
     queue = run.catch(() => {});
     return run;
   };
-  const find = (db, id) => db.opportunityIntakes.find(d => d.id === id) || fail('Solicitação não encontrada.', 404);
+  const find = (db, id) => {
+    const draft = db.opportunityIntakes.find(d => d.id === id) || fail('Solicitação não encontrada.', 404);
+    // Legacy drafts must follow the same normalization as newly received emails.
+    draft.fields = cleanIntakeFields(draft.fields, draft.createdAt);
+    return draft;
+  };
   const prepareSearch = async (db, draft, prepared) => {
     if(adapter?.searchCandidates && !prepared) fail('Pesquisa deve ser preparada antes da transação.',409);
     const search = prepared || {candidates:matchIntakeCandidates(db.curriculums || [], draft.fields),totalEvaluated:(db.curriculums || []).length};

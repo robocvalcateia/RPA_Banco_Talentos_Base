@@ -4,6 +4,14 @@ const states = JSON.parse(readFileSync(new URL('./resources/geography/estados.js
 const cities = JSON.parse(readFileSync(new URL('./resources/geography/municipios.json', import.meta.url))).map(c => ({ ...c, uf: states.find(s => s.codigo_uf === c.codigo_uf).uf, key: norm(c.nome) })).sort((a, b) => b.key.length - a.key.length);
 const addressPatterns = cities.map(c => ({ city: c, pattern: new RegExp(`(?:^| )${c.key} (?:${c.uf.toLowerCase()}|${norm(states.find(s => s.uf === c.uf).nome)})(?= |$)`) }));
 export function stateInfo(value) { return states.find(s => norm(s.uf) === norm(value) || norm(s.nome) === norm(value)); }
+export function normalizeWorkModel(value) {
+  const raw = String(value ?? '').trim(), text = norm(raw);
+  // A hybrid description can mention its presencial days; keep that distinction.
+  if (/^(?:modelo de trabalho )?hibrid[oa]\b/.test(text)) return 'Híbrido';
+  if (/^(?:100 )?remot[oa]\b/.test(text) && !/\b(presencial|hibrid[oa])\b/.test(text)) return 'Remoto';
+  if (/^presencial\b/.test(text) && !/\b(remot[oa]|hibrid[oa])\b/.test(text)) return 'Presencial';
+  return raw;
+}
 export function normalizePlace(city, state) {
   const info = stateInfo(state);
   if (['rj', 'sp'].includes(norm(city)) && norm(city) === norm(info?.uf)) city = info.nome;
@@ -38,7 +46,8 @@ export function haversineKm(a, b) {
 }
 export const withinRadius = distance => Number.isFinite(distance) && distance <= 100;
 export function locationEligibility(cv, fields) {
-  if (!['presencial', 'hibrido'].includes(norm(fields.workModel))) return { status: 'not_required', allowed: true, distanceKm: null, detail: norm(fields.workModel)==='remoto' ? 'Sem limite geográfico para trabalho remoto.' : 'Modalidade não informada: distância não aplicada; confirme a condição da vaga.' };
+  const workModel = norm(normalizeWorkModel(fields.workModel));
+  if (!['presencial', 'hibrido'].includes(workModel)) return { status: 'not_required', allowed: true, distanceKm: null, detail: workModel==='remoto' ? 'Sem limite geográfico para trabalho remoto.' : 'Modalidade não informada: distância não aplicada; confirme a condição da vaga.' };
   const target = resolve(fields.city, fields.state), candidate = consultantLocation(cv);
   if (!target || !candidate) return { status: 'unknown', allowed: false, distanceKm: null, detail: !target ? 'Localização da oportunidade a confirmar.' : 'Localização do consultor a confirmar.' };
   const distanceKm = haversineKm(target, candidate);

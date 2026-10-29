@@ -4,6 +4,18 @@ import { promises as fs } from 'node:fs';
 import { startIntakeQa } from '../test-support/intake-http-fixture.js';
 import { INTAKE_EXAMPLE } from '../intake-example.js';
 
+test('HTTP accepts production legacy hybrid wording without requiring a prior edit',async t=>{
+ const qa=await startIntakeQa();t.after(()=>qa.stop());
+ const token=await qa.login('gerson@alcateiaconsulting.com.br');
+ const received=await qa.request('/api/intake/receive',{token,method:'POST',body:{mailbox:'gerson@alcateiaconsulting.com.br',sender:'poolterceiros@deloitte.com',subject:'SOLICITAÇÃO DE COTAÇÃO - VAGA 9998 - SAP FI',messageId:'legacy-work-model',body:INTAKE_EXAMPLE}});
+ assert.equal(received.status,200);
+ const db=await qa.read(),draft=db.opportunityIntakes[0];draft.fields.workModel='Hibrido – 2x presencial';
+ await fs.writeFile(qa.file,JSON.stringify(db));
+ const result=await qa.request('/api/intake/'+draft.id+'/confirm',{token,method:'POST',body:{revision:draft.revision,selectedIds:[],acknowledged:true}});
+ assert.equal(result.status,200,JSON.stringify(result.body));assert.equal(result.body.opportunity.workModel,'Híbrido');
+ const state=await qa.read();assert.equal(state.opportunities.length,1);assert.equal(state.opportunities[0].workModel,'Híbrido');
+});
+
 test('real HTTP intake lifecycle: permissions, zero candidates, concurrency, idempotency and atomic failures',async t=>{
  const qa=await startIntakeQa();t.after(()=>qa.stop());
  const a=await qa.login('gerson@alcateiaconsulting.com.br'),b=await qa.login('bruno@alcateiaconsulting.com.br');

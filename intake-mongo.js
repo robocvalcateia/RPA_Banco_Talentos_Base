@@ -77,7 +77,7 @@ export function createMongoIntakeAdapter({ env=process.env, loadTalent, searchCa
         }
         phase='commit';
       },{readConcern:{level:'snapshot'},writeConcern:{w:'majority'}});return result;
-      }catch(error){error.message=`DTT Mongo [${phase}; ms=${JSON.stringify(timings)}]: ${error.message}`;throw error;}
+      }catch(error){if(!error.statusCode || error.statusCode>=500)error.message=`DTT Mongo [${phase}; ms=${JSON.stringify(timings)}]: ${error.message}`;throw error;}
       finally{await session.endSession();}
     }
   };
