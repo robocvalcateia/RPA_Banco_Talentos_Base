@@ -38,18 +38,27 @@ window.OpportunityIntake = (() => {
     let id = new URLSearchParams(location.search).get('request');
     if (!id) {
       const { drafts } = await api('/api/intake/drafts');
-      id = drafts.slice().reverse().find(d => d.status === 'pending' && d.searchReady)?.id;
+      id = drafts.slice().reverse().find(d => d.status === 'pending')?.id;
       if (!id) { message('Nenhuma solicitação pronta para revisão. Acesse pelo link recebido.'); return; }
     }
-    const result = await api(`/api/intake/${encodeURIComponent(id)}`);
+    let result = await api(`/api/intake/${encodeURIComponent(id)}`);
+    if (result.draft.status !== 'pending') {
+      const { drafts } = await api('/api/intake/drafts');
+      const next = drafts.slice().reverse().find(d => d.status === 'pending');
+      if (!next) {
+        q('#intakeReview').hidden = true;
+        const cleanUrl = new URL(location.href); cleanUrl.searchParams.delete('request');
+        window.history.replaceState(null, '', cleanUrl);
+        message('Nenhuma proposta pendente. Propostas já aceitas ou rejeitadas não permanecem na fila de revisão.');
+        return;
+      }
+      id = next.id;
+      result = await api(`/api/intake/${encodeURIComponent(id)}`);
+    }
     const url = new URL(location.href); url.searchParams.set('view', 'opportunityIntake'); url.searchParams.set('request', id);
     window.history.replaceState(null, '', url);
     edit(result);
-    message(result.draft.status === 'pending'
-      ? 'Candidatos pesquisados. Revise a oportunidade e marque os profissionais desejados.'
-      : result.draft.status === 'confirmed'
-        ? 'Oportunidade já cadastrada. O formulário está disponível para corrigir a oportunidade existente.'
-        : 'Esta solicitação já foi encerrada. Os dados abaixo estão disponíveis para consulta.');
+    message('Revise os dados e escolha Aceitar proposta ou Rejeitar proposta. Não é necessário selecionar candidatos.');
   }
   function edit(result) {
     const d = result.draft, warnings = result.warnings || [];

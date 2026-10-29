@@ -22,6 +22,9 @@ test('oportunidades Open com menos de tres candidatos ficam vermelhas e a tabela
   assert.match(app, /opportunity-needs-candidates/);
   assert.match(styles, /\.opportunity-needs-candidates > td/);
   assert.match(styles, /\.dashboard-analytics-table\s*\{[\s\S]*min-width: 1680px/);
+  assert.match(styles, /\.dashboard-analytics-modal-card\s*\{[\s\S]*height:\s*92vh[\s\S]*overflow:\s*hidden/);
+  assert.match(styles, /#dashboardAnalyticsContent\s*\{[\s\S]*min-height:\s*0[\s\S]*overflow:\s*hidden/);
+  assert.match(styles, /\.dashboard-analytics-table-wrap\s*\{[\s\S]*flex:\s*1 1 auto[\s\S]*overflow:\s*auto/);
   assert.match(styles, /#opportunities \.table-wrap\s*\{[\s\S]*overflow-x: auto/);
 });
 
@@ -73,6 +76,8 @@ test('revisao DTT abre editavel e rejeicao nao se confunde com cadastro', () => 
   assert.match(intake, /if \(dirty && !\(await review\(\)\)\) return/);
   assert.match(intake, /q\('#intakeDecision'\)\.hidden = d\.status !== 'pending'/);
   assert.match(intake, /Proposta já aceita/);
+  assert.match(intake, /if \(result\.draft\.status !== 'pending'\)/);
+  assert.match(intake, /Nenhuma proposta pendente\. Propostas já aceitas ou rejeitadas não permanecem na fila de revisão/);
   assert.match(intake, /Confirma a rejeição desta nova proposta\? Ela não será inserida nas oportunidades\./);
   assert.match(intake, /Nova proposta rejeitada\. Nenhuma oportunidade ou vínculo foi criado\./);
   assert.match(intake, /Salvar correção/);
