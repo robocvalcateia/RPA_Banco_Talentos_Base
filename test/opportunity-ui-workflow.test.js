@@ -62,11 +62,13 @@ test('usuario pode assumir oportunidade de outro responsavel com confirmacao e a
 });
 
 test('revisao DTT abre editavel e rejeicao nao se confunde com cadastro', () => {
-  assert.match(intake, /const editable = d\.status === 'pending'/);
+  assert.match(intake, /const editable = \['pending', 'confirmed'\]\.includes\(d\.status\)/);
   assert.match(intake, /q\('#intakeFields'\)\.disabled = !editable/);
   assert.match(intake, /seniorityInput\.readOnly = false/);
   assert.match(intake, /Preencha a senioridade/);
   assert.match(intake, />Rejeitar nova proposta<\/button>/);
   assert.match(intake, /Confirma a rejeição desta nova proposta\? Ela não será inserida nas oportunidades\./);
   assert.match(intake, /Nova proposta rejeitada\. Nenhuma oportunidade ou vínculo foi criado\./);
+  assert.match(intake, /Salvar correção/);
+  assert.match(intake, /Correção salva na oportunidade existente\. Nenhuma nova oportunidade foi criada\./);
 });

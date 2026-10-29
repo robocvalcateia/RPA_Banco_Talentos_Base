@@ -86,6 +86,14 @@ export function intakeWarnings(f) {
   return warnings;
 }
 
+function intakeJobDescription(f) {
+  return `${f.requirements}\n\nDesejáveis:\n${f.desirable}\n\nLocal: ${norm(f.workModel) === 'remoto' ? 'Remoto — sem restrição de cidade/estado' : [f.city, f.state].filter(Boolean).join('/')}\nSenioridade: ${f.seniority || 'A confirmar'}\nIdioma: ${f.language}\nInício: ${f.start}\nDuração: ${f.duration}`;
+}
+
+function intakeObservation(f) {
+  return `${f.instructions}\n${f.observation}`.trim();
+}
+
 export function matchIntakeCandidates(curriculums, f) {
   const plan = compileIntakeRequirements(f), seen = new Set();
   return curriculums.flatMap(cv => {
@@ -366,7 +374,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
     review(id, fields, revision, user) {
       return transaction(db => {
         const draft = find(db, id);
-        if (draft.status !== 'pending') fail('Solicitação já encerrada; não é possível editar.', 409);
+        if (!['pending', 'confirmed'].includes(draft.status)) fail('Solicitação cancelada ou duplicada; não é possível editar.', 409);
         if (Number(revision) !== draft.revision) fail('A solicitação mudou em outra tela. Reabra antes de salvar.', 409);
         const previousFields = draft.fields;
         draft.fields = cleanIntakeFields(fields);
@@ -375,7 +383,24 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
         if (draft.fields.requestId && !/^\d+\b[^\r\n]*$/.test(draft.fields.requestId)) fail('A identificação deve iniciar pela numeração da vaga, seguida do título.');
         draft.revision++;
         draft.updatedAt = new Date().toISOString();
-        draft.audit.push({ action: 'review', userId: user.id, at: draft.updatedAt });
+        if (draft.status === 'confirmed') {
+          const opportunity = db.opportunities.find(item => item.id === draft.opportunityId) || fail('A oportunidade vinculada não foi encontrada.', 409);
+          Object.assign(opportunity, {
+            opportunity: draft.fields.profile,
+            clientOpportunityCode: requestNumber(draft.fields.requestId),
+            model: draft.fields.model,
+            contractType: 'PJ',
+            workModel: draft.fields.workModel,
+            quantity: Number(draft.fields.quantity),
+            jobDescription: intakeJobDescription(draft.fields),
+            observation: intakeObservation(draft.fields),
+            intakeDetails: draft.fields,
+            updatedAt: draft.updatedAt
+          });
+          draft.audit.push({ action: 'confirmed_opportunity_corrected', userId: user.id, at: draft.updatedAt, opportunityId: opportunity.id });
+        } else {
+          draft.audit.push({ action: 'review', userId: user.id, at: draft.updatedAt });
+        }
         return { ...view(db, draft), removedIds: [] };
       });
     },
@@ -407,7 +432,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
         if (draft.status !== 'pending') fail('Solicitação cancelada ou duplicada; confirmação bloqueada.', 409);
         if (Number(revision) !== draft.revision) fail('Dados alterados. Atualize a solicitação antes de confirmar.', 409);
         const f = draft.fields;
-        if (!f.profile || !f.requirements || !f.coreSkill || !Number.isInteger(Number(f.quantity)) || Number(f.quantity) < 1) fail('Preencha perfil, requisitos, competência principal e quantidade inteira maior que zero.');
+        if (!f.profile || !f.seniority || !f.requirements || !f.coreSkill || !Number.isInteger(Number(f.quantity)) || Number(f.quantity) < 1) fail('Preencha perfil, senioridade, requisitos, competência principal e quantidade inteira maior que zero.');
         if (!['Presencial', 'Remoto', 'Híbrido', ''].includes(f.workModel)) fail('Modelo de trabalho inválido.');
         if (!['Alocação', 'Hunting', 'Projeto', 'Consultoria'].includes(f.model)) fail('Modelo da oportunidade inválido.');
         if (f.contractType !== 'PJ') fail('As solicitações DTT utilizam contratação PJ.');
@@ -425,7 +450,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
           if ([cv.blackflag, cv.blacklist].some(v => v === true || ['true', 'sim', '1'].includes(String(v).toLowerCase()))) fail('Profissional impedido no banco.');
         }
         const now = new Date().toISOString();
-        const opportunity = { id: `opp_${randomUUID()}`, clientId: draft.clientId, opportunity: f.profile, opportunityCode: String(Math.max(0, ...db.opportunities.map(o => Number(o.opportunityCode) || 0)) + 1), clientOpportunityCode: requestNumber(f.requestId), status: 'Open', openingDate: now.slice(0, 10), monthYear: now.slice(0, 7), closingDate: '', model: f.model, contractType: 'PJ', workModel: f.workModel, owner: user.name || '', quantity: Number(f.quantity), closedQuantity: 0, contractValue: 0, jobDescription: `${f.requirements}\n\nDesejáveis:\n${f.desirable}\n\nLocal: ${norm(f.workModel) === 'remoto' ? 'Remoto — sem restrição de cidade/estado' : [f.city,f.state].filter(Boolean).join('/')}\nSenioridade: ${f.seniority || 'A confirmar'}\nIdioma: ${f.language}\nInício: ${f.start}\nDuração: ${f.duration}`, observation: `${f.instructions}\n${f.observation}`.trim(), intakeDetails: f, intakeSource: { draftId: draft.id, emailKey: draft.emailKey, bodyHash: draft.bodyHash }, createdAt: now };
+        const opportunity = { id: `opp_${randomUUID()}`, clientId: draft.clientId, opportunity: f.profile, opportunityCode: String(Math.max(0, ...db.opportunities.map(o => Number(o.opportunityCode) || 0)) + 1), clientOpportunityCode: requestNumber(f.requestId), status: 'Open', openingDate: now.slice(0, 10), monthYear: now.slice(0, 7), closingDate: '', model: f.model, contractType: 'PJ', workModel: f.workModel, owner: user.name || '', quantity: Number(f.quantity), closedQuantity: 0, contractValue: 0, jobDescription: intakeJobDescription(f), observation: intakeObservation(f), intakeDetails: f, intakeSource: { draftId: draft.id, emailKey: draft.emailKey, bodyHash: draft.bodyHash }, createdAt: now };
         const links = selected.map(c => normalizeSelectedCandidate({ id: `sel_${randomUUID()}`, name: c.name, curriculumId: c.id, opportunityId: opportunity.id, source: 'Banco de Talentos', origin: simulated ? 'Solicitação DTT / teste LOCAL' : 'Solicitação DTT', score: c.score, observation: c.pending.join('\n'), createdAt: now, notifications: [] }));
         db.opportunities.push(opportunity);
         db.selectedCandidates.push(...links);

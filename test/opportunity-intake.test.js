@@ -87,6 +87,21 @@ test('confirmation is atomic, persistent, idempotent and records user history wi
   assert.deepEqual(db.selectedCandidates[0].notifications, []);
   assert.equal((await createIntakeStore(file).list())[0].status, 'confirmed');
 });
+test('seniority is mandatory and a confirmed intake can correct its existing opportunity without duplication', async t => {
+  const { store, read } = await fixture(t);
+  const source = { ...email, subject: 'SOLICITAÇÃO DE COTAÇÃO - VAGA 5555 - Analista FP&A', body: 'Perfil: Analista FP&A\nQuantidade: 1\nModelo de trabalho: Remoto\nConhecimento Técnico Requerido:\nFaturamento e controladoria.' };
+  const { draft } = await store.create(source, user);
+  await assert.rejects(store.confirm(draft.id, draft.revision, [], user, true), /senioridade/);
+  const reviewed = await store.review(draft.id, { ...draft.fields, seniority: 'Pleno' }, draft.revision, user);
+  const confirmed = await store.confirm(draft.id, reviewed.draft.revision, [], user, true);
+  const corrected = await store.review(draft.id, { ...confirmed.draft.fields, seniority: 'Júnior' }, confirmed.draft.revision, user);
+  const db = await read();
+  assert.equal(corrected.draft.status, 'confirmed');
+  assert.equal(db.opportunities.length, 1);
+  assert.equal(db.opportunities[0].intakeDetails.seniority, 'Júnior');
+  assert.match(db.opportunities[0].jobDescription, /Senioridade: Júnior/);
+  assert.equal(db.opportunityIntakes[0].audit.at(-1).action, 'confirmed_opportunity_corrected');
+});
 test('confirms without candidates; cancellation creates nothing and cannot be confirmed', async t => {
   const { store, read } = await fixture(t);
   const { draft } = await store.create(email, user);

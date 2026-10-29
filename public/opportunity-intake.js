@@ -22,9 +22,10 @@ window.OpportunityIntake = (() => {
   }
   function controls() {
     const pending = draft?.status === 'pending';
+    const editable = pending || draft?.status === 'confirmed';
     if (q('#intakeConfirm')) q('#intakeConfirm').disabled = busy || !pending || dirty;
     if (q('#intakeCancel')) q('#intakeCancel').disabled = busy || !pending;
-    if (q('#intakeSearch')) q('#intakeSearch').disabled = busy || !pending;
+    if (q('#intakeSearch')) q('#intakeSearch').disabled = busy || !editable;
     root.querySelectorAll('[data-select]').forEach(b => b.disabled = busy || !pending || dirty || (b.dataset.blocked === 'true' && !selected.has(b.dataset.select)));
     root.querySelectorAll('[data-wapp]').forEach(b => b.disabled = busy || b.dataset.available !== 'true');
     if (q('#selectedCount')) q('#selectedCount').textContent = `${selected.size} profissional(is) selecionado(s)`;
@@ -47,7 +48,7 @@ window.OpportunityIntake = (() => {
   }
   function edit(result) {
     const d = result.draft, warnings = result.warnings || [];
-    const editable = d.status === 'pending';
+    const editable = ['pending', 'confirmed'].includes(d.status);
     draft = d; selected = new Set(d.selectedIds || []); candidates = result.candidates || []; page = 0;
     dirty = !result.searchReady || !!result.duplicateOpportunity;
     q('#intakeReview').hidden = false;
@@ -78,6 +79,7 @@ window.OpportunityIntake = (() => {
     q('#intakeSeniority').innerHTML = assessment ? `<details class="intake-analysis"><summary>Senioridade: ${e(d.fields.seniority || 'A confirmar')} · ${assessment.origin === 'market' ? 'sugerida por análise de mercado' : assessment.origin === 'email' ? 'informada no e-mail' : assessment.origin === 'manual' ? 'ajustada na revisão' : 'a confirmar'}</summary><p>${e(assessment.rationale)}</p><p>Referências consultadas em ${e(assessment.referenceDate)}. Nível editável; sem consulta automática à internet a cada e-mail.</p><ul>${(assessment.sources || []).map(s => `<li><a href="${e(s.url)}" target="_blank" rel="noopener noreferrer">${e(s.title)}</a> — ${e(s.summary)}</li>`).join('')}</ul></details>` : '';
     q('#intakeAcknowledge').checked = false;
     q('#intakeAcknowledge').disabled = d.status !== 'pending';
+    q('#intakeSearch').textContent = d.status === 'confirmed' ? 'Salvar correção' : 'Salvar revisão';
     renderCandidates();
     controls();
   }
@@ -122,7 +124,7 @@ window.OpportunityIntake = (() => {
     const form = Object.fromEntries(new FormData(q('#intakeForm')).entries());
     const result = await api(`/api/intake/${draft.id}/review`, { method: 'POST', body: JSON.stringify({ revision: draft.revision, fields: form }) });
     edit(result);
-    message('Revisão salva. Lista de candidatos e seleções preservadas; nenhuma nova busca executada.');
+    message(draft.status === 'confirmed' ? 'Correção salva na oportunidade existente. Nenhuma nova oportunidade foi criada.' : 'Revisão salva. Lista de candidatos e seleções preservadas; nenhuma nova busca executada.');
   }
   function mount() {
     if (root) return;
