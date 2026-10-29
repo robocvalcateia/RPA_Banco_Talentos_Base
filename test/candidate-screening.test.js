@@ -180,7 +180,7 @@ test('differentials improve rank but are never mandatory', () => {
   assert.equal(base.classification, 'approved'); assert.ok(richer.score > base.score);
 });
 test('internal CV preserves full text, score, classification and candidate ID', () => {
-  const result = evaluateInternalCandidateForFilter({ nome: 'Teste', id_controle: '42', search_text_all: 'Consultor SAP MM: configuração J1BTAX TAXBRA invoice verification', cidade: 'Rio de Janeiro', estado: 'RJ', nivel_ingles: 'Fluente' }, filter);
+  const result = evaluateInternalCandidateForFilter({ nome: 'Teste', id_controle: '42', texto_integral: 'Consultor SAP MM: configuração J1BTAX TAXBRA invoice verification', cidade: 'Rio de Janeiro', estado: 'RJ', nivel_ingles: 'Fluente' }, filter);
   assert.equal(result.accepted, true); assert.ok(Number.isFinite(result.row.score)); assert.equal(result.row.curriculumId, '42');
   const normalized = normalizeCvSearchResult(result.row);
   assert.equal(normalized.classification, 'approved'); assert.equal(normalized.score, result.row.score);

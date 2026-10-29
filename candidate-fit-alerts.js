@@ -1,5 +1,5 @@
 import { evaluateInternalCandidateForFilter } from './apinfo.js';
-import { hasSkill, interpretVacancy } from './candidate-screening.js';
+import { hasSkill, interpretVacancy, curriculumProfessionalEvidence } from './candidate-screening.js';
 
 export const CANDIDATE_FIT_ALERT_RECIPIENTS = Object.freeze([
   'gerson@alcateiaconsulting.com.br',
@@ -8,7 +8,7 @@ export const CANDIDATE_FIT_ALERT_RECIPIENTS = Object.freeze([
 
 const normalize = (value = '') => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 
-const ALERT_RULE_VERSION = 'automatic-fit-alert-v2';
+const ALERT_RULE_VERSION = 'automatic-fit-alert-v3';
 const MANAGEMENT_TITLES = /\b(?:pmo|project manager|gerente de projetos|gestor de projetos|product manager|product owner|\bpo\b|scrum master)\b/i;
 const FUNCTIONAL_TITLES = /\b(?:consultor(?:a)? funcional|analista funcional|especialista funcional|functional consultant)\b/i;
 const FUNCTIONAL_WORK = /\b(?:levantamento de requisitos|mapeamento de processos|parametriza|configura|implanta|implementa|suporte funcional|sustenta|homologa|uat|treinamento de usu[aá]rios)\b/i;
@@ -17,18 +17,8 @@ function professionalBlocks(curriculum = {}) {
   return String(curriculum.experiencia_profissional || '').split(/\n\s*\n+/).map(block => block.trim()).filter(Boolean);
 }
 
-function genericProfessionalCoreEvidence(curriculum = {}, core = '') {
-  if (!String(core).trim()) return false;
-  const titles = [curriculum.cargo_atual, curriculum.currentTitle, curriculum.cargo_alvo].filter(Boolean);
-  if (titles.some(title => hasSkill(title, core))) return true;
-  return professionalBlocks(curriculum).some(block => {
-    const roleHeader = String(block).split(/[:\n]|\b(?:respons[aá]vel|atuando|atua[cç][aã]o|que|com foco)\b/i)[0].slice(0, 200);
-    if (hasSkill(roleHeader, core)) return true;
-    const relation = /\b(?:implementa[cç][aã]o|implanta[cç][aã]o|parametriza[cç][aã]o|configura[cç][aã]o|suporte|sustenta[cç][aã]o|administra[cç][aã]o|gest[aã]o|respons[aá]vel|consultoria|especialista)\b/i;
-    const coreIndex = normalize(block).indexOf(normalize(core));
-    if (coreIndex < 0) return false;
-    return relation.test(String(block).slice(Math.max(0, coreIndex - 100), coreIndex + String(core).length + 100));
-  });
+function genericProfessionalCoreEvidence(curriculum, core) {
+  return curriculumProfessionalEvidence(curriculum, core).found;
 }
 
 function domainEvidenceDecision(curriculum = {}, filter = {}, plan = interpretVacancy(filter)) {
@@ -183,7 +173,8 @@ export function buildCandidateFitAlert({ curriculum, matches, baseUrl }) {
   const vacancies = matches.flatMap(({ opportunity, filter, evaluation }, index) => [
     `${index + 1}. ${[opportunity.opportunityCode, opportunity.opportunity].filter(Boolean).join(' - ')}`,
     `   Skill relacionada: ${filter.coreSkill}`,
-    `   Aderência técnica: ${Number(evaluation.score || 0) > 0 ? `${evaluation.score}%` : 'skill principal comprovada no currículo'}`
+    `   Aderência técnica: ${Number(evaluation.score || 0) > 0 ? `${evaluation.score}%` : 'experiência principal identificada no currículo'}`,
+    `   Evidência (${evaluation.coreExperience?.source || 'currículo'}): ${evaluation.coreExperience?.excerpt || 'não disponível'}`
   ]);
   return {
     to: CANDIDATE_FIT_ALERT_RECIPIENTS.join(','),
@@ -238,4 +229,15 @@ export async function notifyNewCurriculumFits({ curriculum, opportunities, baseU
     }
     return { status: 'failed', matches: pendingMatches, sent: false, error: String(error?.message || error) };
   }
+}
+
+// Review historical indications without resending messages or modifying human selections.
+export function reviewHistoricalFit(log, curriculum, opportunity, reviewedAt = new Date().toISOString()) {
+  const filter = opportunity ? opportunityFitFilter(opportunity) : null;
+  const evidence = curriculum && filter ? curriculumProfessionalEvidence(curriculum, interpretVacancy(filter).core) : null;
+  const valid = curriculum && opportunity && matchingOpenOpportunities(curriculum, [opportunity]).length > 0;
+  return { version: ALERT_RULE_VERSION, reviewedAt,
+    status: !curriculum || !opportunity ? 'unverifiable' : valid ? 'confirmed' : 'withdrawn',
+    reason: !curriculum ? 'Currículo não localizado por identificador.' : !opportunity ? 'Oportunidade não localizada.' : opportunity.status !== 'Open' ? 'Oportunidade não está aberta.' : !evidence?.found ? 'Experiência na competência principal não comprovada.' : !valid ? 'Requisitos da oportunidade não comprovados na revisão.' : 'Experiência principal e requisitos técnicos evidenciados.',
+    evidence, previousScore: log.score, originalSentAt: log.sentAt };
 }

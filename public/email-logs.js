@@ -82,12 +82,12 @@ async function loadEmailLog(page = 1) {
   try {
     const result = await api('/api/admin/email-logs?' + params);
     if (modal.dataset.requestId !== requestId) return;
-    const typeLabels = { received: 'Recebimento de CV', selected: 'Seleção', rejected: 'Reprovação' };
+    const typeLabels = { candidate_opportunity_fit: 'Indicação automática', received: 'Recebimento de CV', selected: 'Seleção', rejected: 'Reprovação' };
     const statusLabels = { sent: 'Enviado', failed: 'Falha', skipped: 'Não enviado', sending: 'Em envio' };
     modal.querySelector('#emailLogRows').innerHTML = result.rows.length ? result.rows.map(row => {
       const date = new Date(row.sentAt || row.createdAt);
       const stamp = Number.isFinite(date.getTime()) ? date.toLocaleString('pt-BR', { timeZone: 'America/Fortaleza' }) : '-';
-      const values = [stamp, typeLabels[row.type] || row.type, row.candidateName || '-', row.to || '-', [row.opportunityCode, row.opportunityName].filter(Boolean).join(' · ') || 'Banco de talentos', statusLabels[row.status] || row.status, row.source === 'sent_items' ? 'Histórico Microsoft' : row.provider || 'Sistema', row.error || '-'];
+      const values = [stamp, typeLabels[row.type] || row.type, row.candidateName || '-', row.to || '-', [row.opportunityCode, row.opportunityName].filter(Boolean).join(' · ') || 'Banco de talentos', statusLabels[row.status] || row.status, row.source === 'sent_items' ? 'Histórico Microsoft' : row.provider || 'Sistema', [row.error, row.fitReview ? ({confirmed:'Indicação confirmada',withdrawn:'Indicação retirada',unverifiable:'Indicação não verificável'}[row.fitReview.status] + ': ' + row.fitReview.reason) : ''].filter(Boolean).join(' · ') || '-'];
       return '<tr>' + values.map(value => '<td>' + escapeHtml(String(value)) + '</td>').join('') + '</tr>';
     }).join('') : '<tr><td colspan="8">Nenhum registro encontrado. Use Recuperar histórico anterior para consultar os envios antigos da robocv.</td></tr>';
     modal.dataset.page = String(result.page);

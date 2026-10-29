@@ -229,6 +229,8 @@ export function mongoCandidateToCurriculum(doc = {}) {
     estado_civil: doc.estado_civil,
     idade: doc.idade,
     linkedin: doc.linkedin,
+    cargo_atual: doc.cargo_atual || doc.currentTitle,
+    texto_integral_original: doc.texto_integral_original || doc.texto_integral,
     skills: doc.skills ?? doc.Skil,
     formacao_academica: doc.formacao_academica ?? doc.Formacao_Academica,
     nivel_ingles: doc.nivel_ingles ?? doc.Nivel_Idioma_Ingles,

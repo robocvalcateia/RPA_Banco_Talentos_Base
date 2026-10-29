@@ -1,7 +1,7 @@
-import { normalize, skillAlternatives, experienceEvidence } from './candidate-screening.js';
+import { normalize, skillAlternatives, experienceEvidence, curriculumProfessionalEvidence } from './candidate-screening.js';
 import { locationEligibility } from './intake-location.js';
 
-export const INTAKE_MATCH_VERSION = 'email-full-cv-v5';
+export const INTAKE_MATCH_VERSION = 'email-full-cv-v6';
 const labels = { texto_integral_original: 'Currículo integral', experiencia_profissional: 'Experiência profissional', experiencias: 'Experiências', experiences: 'Experiências', projetos: 'Projetos', skills: 'Competências', conhecimento_tecnico: 'Conhecimento técnico', cursos_certificacoes: 'Cursos e certificações', formacao_academica: 'Formação', observacoes_entrevista: 'Entrevista', feedback_entrevista_ingles: 'Entrevista de inglês', nivel_ingles: 'Nível de inglês', nivel_espanhol: 'Nível de espanhol', search_text_all: 'Texto consolidado', versoes: 'Versões do currículo' };
 const cvFields = ['texto_integral_original', 'experiencia_profissional', 'experiencias', 'experiences', 'atividades', 'atividades_exercidas', 'empresas', 'projetos', 'tecnologias', 'skills', 'conhecimento_tecnico', 'formacao_academica', 'cursos_certificacoes', 'idiomas', 'nivel_ingles', 'nivel_espanhol', 'englishLevel', 'observacoes_entrevista', 'feedback_entrevista_ingles', 'disponibilidade', 'disponibilidade_viagem', 'cargo_alvo', 'resumo', 'summary', 'endereco', 'city', 'state', 'versoes', 'search_text_all', 'search_text', 'texto_pesquisa', 'texto_pesquisavel'];
 const excluded = /^(idade|age|data_nascimento|birthdate|estado_civil|nacionalidade|sexo|genero|gender|religiao|raca|cpf|rg|email|telefone|phone|password|passwordHash|foto|photo|arquivo_base64|base64|oportunidade.*|jobDescription|observacao_busca|score_busca)$/i;
@@ -259,6 +259,9 @@ export function compareIntakeCurriculum(cv, fields, plan = compileIntakeRequirem
   }
   const operations = operationalChecks(cv, fields, sources, rows, core);
   operations.push({ requirement: 'Raio geográfico de até 100 km', group: 'operational', status: location.allowed ? 'evidence' : 'unknown', detail: location.detail, excerpt: '', source: 'Localização cadastrada', strength: 0 });
+  const mainEvidence = curriculumProfessionalEvidence(cv, plan.core);
+  const mainCriterion = matrix.find(c => c.criterionId === 'core');
+  if (mainCriterion && !mainEvidence.found) { mainCriterion.status = 'unknown'; mainCriterion.strength = 0; mainCriterion.detail = 'Experiência profissional na competência principal não comprovada.'; }
   const required = matrix.filter(c => c.group === 'mandatory');
   const groups = new Map();
   for (let i = 0; i < plan.criteria.length; i++) {

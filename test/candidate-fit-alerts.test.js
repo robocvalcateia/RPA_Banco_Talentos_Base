@@ -215,5 +215,39 @@ test('core professional evidence can alert when the vacancy has no additional sc
   };
   const matches = matchingOpenOpportunities(curriculum, [vagueOpportunity]);
   assert.deepEqual(matches.map(row => row.opportunity.id), ['zero']);
-  assert.match(buildCandidateFitAlert({ curriculum, matches, baseUrl: 'https://example.test' }).text, /skill principal comprovada no currículo/);
+  assert.match(buildCandidateFitAlert({ curriculum, matches, baseUrl: 'https://example.test' }).text, /experiência principal identificada no currículo/);
+});
+
+
+test('main experience cannot come from a goal, keywords, training or unrelated project', () => {
+  const vacancy = { id: '180', opportunity: 'Analista de Compras Senior - 2045', status: 'Open', intakeDetails: { coreSkill: 'Compras' }, workModel: 'Remoto' };
+  for (const cv of [
+    { skills: '12 anos em TI, PMO, orçamento, contratos e gestão administrativa.' },
+    { cargo_alvo: 'Analista de Compras', skills: 'Experiência em compras' },
+    { experiencia_profissional: 'Gerente de projetos: implantação de ERP. Compras, orçamento e contratos.' },
+    { experiencia_profissional: 'Responsável pela implantação de sistemas na área de compras.' },
+    { experiencia_profissional: 'Analista de sistemas. Desenvolvimento de portal de compras.' },
+    { experiencia_profissional: 'Curso de compras. Objetivo: Analista de Compras.' },
+    { search_text_all: 'Experiência em Compras. Analista de Compras.' }
+  ]) assert.equal(matchingOpenOpportunities(cv, [vacancy]).length, 0, JSON.stringify(cv));
+});
+
+test('direct experience is required for other domains and evidence is traceable', async () => {
+  const { evaluateInternalCandidateForFilter } = await import('../apinfo.js');
+  for (const coreSkill of ['Python', 'BlueYonder WMS', 'Compras']) {
+    const bad = evaluateInternalCandidateForFilter({ experiencia_profissional: 'Gestão de projetos e contratos. '+coreSkill }, {coreSkill});
+    assert.equal(bad.accepted, false);
+    const good = evaluateInternalCandidateForFilter({ experiencia_profissional: 'Experiência profissional em '+coreSkill+'.' }, {coreSkill});
+    assert.equal(good.accepted, true);
+    assert.ok(good.row.coreExperience.excerpt.includes(coreSkill));
+  }
+});
+
+test('historical review preserves sent evidence and withdraws unsupported indications', async () => {
+  const { reviewHistoricalFit } = await import('../candidate-fit-alerts.js');
+  const log = {status:'sent', sentAt:'2026-10-28', score:100};
+  const vacancy = {id:'180',status:'Open',opportunity:'Analista de Compras'};
+  assert.equal(reviewHistoricalFit(log, {skills:'PMO, ERP'}, vacancy).status, 'withdrawn');
+  assert.equal(reviewHistoricalFit(log, null, vacancy).status, 'unverifiable');
+  assert.equal(log.status, 'sent');
 });

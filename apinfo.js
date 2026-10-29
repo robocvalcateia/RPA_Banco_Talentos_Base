@@ -835,7 +835,7 @@ function sortByFreshnessAndScore(rows) {
 }
 
 function evidenceFields(evaluation) {
-  return { technicalScore: evaluation.technicalScore, triageGroup: evaluation.triageGroup, evidence: evaluation.evidence, experience: evaluation.experience, operationalChecks: evaluation.operationalChecks, approvalScope: evaluation.approvalScope, presentationStatus: evaluation.presentationStatus };
+  return { coreExperience: evaluation.coreExperience, technicalScore: evaluation.technicalScore, triageGroup: evaluation.triageGroup, evidence: evaluation.evidence, experience: evaluation.experience, operationalChecks: evaluation.operationalChecks, approvalScope: evaluation.approvalScope, presentationStatus: evaluation.presentationStatus };
 }
 
 export function apinfoNextPage(html, currentPage = 1) {
@@ -1211,6 +1211,8 @@ export function evaluateCandidateTextForFilter(text, filter) {
 
 export function evaluateInternalCandidateForFilter(curriculum, filter) {
   const text = [
+    curriculum.cargo_atual || curriculum.currentTitle,
+    curriculum.texto_integral_original,
     curriculum.nome,
     curriculum.email,
     curriculum.telefone,
@@ -1235,6 +1237,7 @@ export function evaluateInternalCandidateForFilter(curriculum, filter) {
   const addressParts = address.split(/[,/\-]+/).map((part) => part.trim()).filter(Boolean);
   const stateMatch = address.match(/(?:^|[,/\s-])(AC|AL|AP|AM|BA|CE|DF|ES|GO|MA|MT|MS|MG|PA|PB|PR|PE|PI|RJ|RN|RS|RO|RR|SC|SP|SE|TO)(?:$|[,/\s-])/);
   const structuredCandidate = {
+    curriculum,
     currentTitle: curriculum.cargo_atual || curriculum.currentTitle || '',
     city: curriculum.cidade || (addressParts.length === 2 && /^[A-Z]{2}$/.test(addressParts[1]) ? addressParts[0] : ''),
     state: curriculum.estado || stateMatch?.[1] || '',

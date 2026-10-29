@@ -1,5 +1,5 @@
 // Evidence-based screening. Unknown information is never treated as confirmation.
-export const VACANCY_RULE_VERSION = 'technical-triage-v3';
+export const VACANCY_RULE_VERSION = 'technical-triage-v4';
 export const normalize = (value = '') => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9+#]+/g, ' ').trim().replace(/\s+/g, ' ');
 export const phrases = (value = '') => [...new Set(String(value).split(/[,;\n]+/).map(s => s.trim()).filter(Boolean))];
 const aliases = {
@@ -28,7 +28,7 @@ const aliases = {
   'localizacao brasil': ['localizacao brasileira', 'brazil localization', 'brazilian localization'],
   'pl sql': ['plsql'], 'sap s4hana': ['s4hana', 's 4hana', 's4 hana', 's 4 hana'],
   'sap s 4hana': ['s4hana', 's 4hana', 's4 hana', 's 4 hana'],
-  's 4hana': ['s4hana', 's4 hana', 's 4 hana'],
+  's 4hana': ['SAP S/4HANA', 's4hana', 's4 hana', 's 4 hana'],
   'net': ['dotnet', 'asp net'], 'dotnet': ['net', 'asp net'],
   pmp: ['project management professional'],
   'contas a pagar': ['accounts payable', 'fi ap'],
@@ -58,6 +58,49 @@ export function hasSkill(text, skill) {
   const haystack = ` ${normalize(text)} `;
   return skillAlternatives(skill).some(item => haystack.includes(` ${normalize(item)} `));
 }
+// A skill must be attached to the candidate's own work, never to a nearby
+// unrelated activity, desired position, course, or keyword/search index.
+export function professionalCoreEvidence(text, core) {
+  const absent = { requirement: core, found: false, kind: 'experiência principal não comprovada', excerpt: '', strength: 0 };
+  if (!String(core || '').trim()) return absent;
+  const esc = value => normalize(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const terms = skillAlternatives(core).map(esc).filter(Boolean).join('|');
+  const role = new RegExp('\\b(?:consultor[a]?|analista|especialista|gerente|coordenador[a]?|desenvolvedor[a]?|engenheiro[a]?|administrador[a]?|tecnico|consultant|developer|engineer|manager) (?:funcional |tecnico |senior |pleno |junior |de |em |do |da |na area de ){0,4}(?:'+terms+')\\b');
+  const activity = new RegExp('\\b(?:experiencia (?:profissional )?(?:em|com)|atuacao (?:profissional )?(?:em|com)|atuei (?:em|com)|trabalhei (?:em|com)|responsavel (?:por|pela|pelo)|gestao de|implementacao(?: de| do| da)?|implantacao(?: de| do| da)?|parametrizacao(?: de| do| da)?|configuracao(?: de| do| da)?|suporte (?:em|de|ao|a)|desenvolvimento (?:em|com)|experience (?:in|with)|worked (?:in|with)) (?:'+terms+')\\b');
+  const trailing = new RegExp('\\b(?:'+terms+') (?:consultant|developer|engineer|manager)\\b');
+  let trainingSection = false;
+  for (const raw of String(text || '').split(/\n|(?<=[.;])\s+/)) {
+    const line = normalize(raw);
+    if (/^(cursos|formacao|certificacoes|education|training)\b/.test(line)) trainingSection = true;
+    if (/^(experiencia|historico profissional|projetos|professional experience|employment)\b/.test(line)) trainingSection = false;
+    if (!hasSkill(line, core)) continue;
+    if (trainingSection || /\b(?:curso|cursos|certificacao|certificacoes|objetivo|desejo|pretendo|busco|vaga|sem experiencia|nao tenho|nao possuo|nunca atuei|no experience)\b/.test(line)) continue;
+    const procurement = /^(compras|suprimentos|procurement|purchasing)$/.test(normalize(core));
+    if (procurement && /\b(?:sistema|sistemas|portal|software|erp|sap|protheus|requisitos|projeto de implantacao)\b/.test(line) && !role.test(line)) continue;
+    const direct = role.test(line) || activity.test(line) || trailing.test(line)
+      || (normalize(core) === 'pmo' && /\bpmo (?:responsavel|gestao|atuando)\b/.test(line));
+    if (!direct) continue;
+    // Existing domain checks still reject training, management-only SAP and data migration.
+    const contextual = contextualEvidence(raw, core, core);
+    if (contextual.kind === 'negação explícita' || contextual.kind.startsWith('somente formação')) continue;
+    return { ...absent, found: true, kind: 'experiência profissional diretamente vinculada', excerpt: raw.trim(), strength: 1 };
+  }
+  return absent;
+}
+
+export function curriculumProfessionalEvidence(curriculum, core) {
+  const sources = [
+    ['Cargo atual', curriculum.cargo_atual || curriculum.currentTitle],
+    ['Experiência profissional', curriculum.experiencia_profissional],
+    ['Currículo original', curriculum.texto_integral_original || curriculum.texto_integral]
+  ];
+  for (const [source, text] of sources) {
+    const evidence = professionalCoreEvidence(text, core);
+    if (evidence.found) return { ...evidence, source };
+  }
+  return { ...professionalCoreEvidence('', core), source: 'Experiências e currículo original' };
+}
+
 export function coreKeyword(filter) {
   const explicit = phrases(filter.coreSkill)[0] || phrases(filter.mandatorySkills)[0];
   if (explicit) return concepts.find(term => hasSkill(explicit, term)) || explicit;
@@ -263,6 +306,9 @@ export function screenCandidate(text, filter, candidate = {}, publicSummary = fa
   const prepared = prepareEvidence(corePresent ? text : '');
   const skillEvidence = plan.mandatory.map(term => ({ ...contextualEvidence(text, term, core, prepared), group: 'mandatory' }));
   const evidence = plan.ranking.map(item => ({ ...contextualEvidence(text, item.term, core, prepared), group: item.group, weight: item.weight }));
+  const coreExperience = candidate.curriculum ? curriculumProfessionalEvidence(candidate.curriculum, core) : professionalCoreEvidence(text, core);
+  const coreItem = skillEvidence.find(item => normalize(item.requirement) === normalize(core));
+  if (coreItem && !coreExperience.found) Object.assign(coreItem, coreExperience);
   const mandatory = { hits: skillEvidence.filter(item => item.found).map(item => item.requirement), missing: skillEvidence.filter(item => !item.found).map(item => item.requirement) };
   const pending = mandatory.missing.map(term => `skill obrigatório a confirmar: ${term}`);
   const failed = corePresent ? [] : [`competência principal não evidenciada: ${core || 'não definida'}`];
@@ -287,7 +333,7 @@ export function screenCandidate(text, filter, candidate = {}, publicSummary = fa
   const explanation = [...failed, ...pending, ...operationalPending].join('; ');
   return {
     score, classification, accepted: classification === 'approved', review: classification === 'review',
-    technicalScore: score, operationalChecks, approvalScope: 'technical_triage', presentationStatus: 'requires_validation',
+    coreExperience, technicalScore: score, operationalChecks, approvalScope: 'technical_triage', presentationStatus: 'requires_validation',
     triageGroup: classification === 'approved' ? 'aprovado na triagem técnica' : classification === 'rejected' ? 'não aderente' : 'skill obrigatório a confirmar',
     evidence: [...skillEvidence, ...evidence], experience,
     scoreType: totalWeight ? 'aderência ponderada à descrição; não define aprovação' : 'descrição sem critérios técnicos de classificação',

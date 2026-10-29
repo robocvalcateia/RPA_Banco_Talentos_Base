@@ -163,7 +163,7 @@ import { summarizeCandidateEmails, summarizeSentMessages } from './email-diagnos
 import { CvSearchJobs, uniqueApproved, recommendedCandidates, APPROVED_TARGET } from './cv-search-jobs.js';
 const cvSearchJobs = new CvSearchJobs();
 import { coreKeyword, screeningStats, interpretVacancy } from './candidate-screening.js';
-import { notifyNewCurriculumFits, opportunityFitFilter, recentCurriculumIds } from './candidate-fit-alerts.js';
+import { notifyNewCurriculumFits, opportunityFitFilter, recentCurriculumIds, reviewHistoricalFit } from './candidate-fit-alerts.js';
 import { promises as fs } from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -277,7 +277,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20261022-dtt-scheduler-always-on';
+const APP_VERSION = '20261029-core-experience-v4';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -533,7 +533,7 @@ async function triggerNewCurriculumFitAlerts(curriculumIds = [], curriculumPool 
   return results;
 }
 
-function startCandidateFitReconciliation(since) {
+function startCandidateFitReconciliation(since, historicalReview = false) {
   if (candidateFitReconciliation.running) return null;
   const jobId = randomBytes(12).toString('hex');
   Object.assign(candidateFitReconciliation, {
@@ -549,6 +549,50 @@ function startCandidateFitReconciliation(since) {
   setImmediate(async () => {
     try {
       const mongoResponse = await getCurriculumsFromMongo({ all: true });
+      if (historicalReview) {
+        const db = await readDatabase();
+        const pool = mongoResponse.curriculums || [];
+        const byId = new Map();
+        for (const cv of pool) for (const key of curriculumLookupKeys(cv)) byId.set(key, cv);
+        const fullCache = new Map();
+        const fullCv = async id => {
+          const key = String(id || '');
+          if (!fullCache.has(key)) fullCache.set(key, await getCurriculumFromMongo(key));
+          return fullCache.get(key) || byId.get(key);
+        };
+        const rows = [];
+        const logs = (await readEmailLogs()).filter(log => log.type === 'candidate_opportunity_fit' && log.status === 'sent');
+        for (const log of logs) {
+          const cv = await fullCv(log.candidateId);
+          const opportunity = db.opportunities.find(item => String(item.id) === String(log.opportunityId));
+          const fitReview = reviewHistoricalFit(log, cv, opportunity);
+          await writeEmailLog({ ...log, fitReview });
+          rows.push({ id: log.id, candidateId: log.candidateId, candidateName: log.candidateName, opportunityId: log.opportunityId, opportunityName: log.opportunityName, ...fitReview });
+        }
+        let savedResultsReviewed = 0;
+        for (const filter of db.cvFilters || []) {
+          if (!filter.searchResults?.length) continue;
+          const updatedSearchResults = [];
+          for (const row of filter.searchResults) {
+            if (!['approved', 'review'].includes(row.classification)) { updatedSearchResults.push(row); continue; }
+            const cv = row.curriculumId ? await fullCv(row.curriculumId) : null;
+            savedResultsReviewed++;
+            const revised = cv ? evaluateInternalCandidateForFilter(cv, filter).row : null;
+            updatedSearchResults.push({ ...row, ...(revised || { classification: 'review', pendingChecks: ['Currículo completo necessário para comprovar a experiência principal.'] }),
+              fitReview: { reviewedAt: toISODate(), previousClassification: row.classification, previousScore: row.score, version: 'automatic-fit-alert-v3' } });
+          }
+          filter.searchResults = updatedSearchResults;
+          await writeDatabaseDocument('cvFilters', filter);
+        }
+        const drafts = await intakeStore.upgradePending();
+        candidateFitReconciliation.result = { mode: 'historical_review', evaluated: rows.length,
+          confirmed: rows.filter(row => row.status === 'confirmed').length,
+          withdrawn: rows.filter(row => row.status === 'withdrawn').length,
+          unverifiable: rows.filter(row => row.status === 'unverifiable').length,
+          savedResultsReviewed, drafts, sent: 0, results: rows };
+        candidateFitReconciliation.status = 'finished';
+        return;
+      }
       const identifiers = recentCurriculumIds(mongoResponse.curriculums || [], since);
       const results = await triggerNewCurriculumFitAlerts(identifiers, mongoResponse.curriculums || []);
       candidateFitReconciliation.result = {
@@ -4318,7 +4362,7 @@ async function handleApi(request, response) {
       if (requireAdmin(response, auth.user, 'Apenas ADMIN pode reprocessar a aderência dos currículos.')) return;
       const payload = await readJsonBody(request);
       const since = String(payload.since || new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString());
-      const jobId = startCandidateFitReconciliation(since);
+      const jobId = startCandidateFitReconciliation(since, payload.mode === 'historical_review');
       if (!jobId) {
         sendJson(response, 409, { error: 'Já existe uma reconciliação de aderência em andamento.', ...candidateFitReconciliation });
         return;
