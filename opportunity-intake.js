@@ -53,17 +53,15 @@ export function extractIntake(email) {
     mandatorySkills: requirements.match(/subm[oó]dulos\s+([^\n.]+)/i)?.[1] || '',
     requirements, desirable: [section(/^conhecimentos? tecnicos? desejave(?:l|is)/), ...lines.filter(line => /diferencial/i.test(line) && /agile/i.test(line))].filter(Boolean).join('\n'),
     instructions: lines.filter(line => /logos|identifique a consultoria|resumo da entrevista/i.test(line)).join('\n'),
-    model: 'Alocação', contractType: 'PJ', observation: ''
+    model: '', contractType: '', observation: ''
   };
   const seniorityAssessment = applySeniority(fields, null, null, Boolean(fields.seniority));
   return { ...cleanIntakeFields(fields), seniorityAssessment };
 }
 
 export function cleanIntakeFields(input = {}, referenceDate = new Date().toISOString()) {
-  const fields = { ...Object.fromEntries(INTAKE_FIELDS.map(key => [key, String(input[key] ?? '').trim().slice(0, 20000)])), contractType: 'PJ' };
+  const fields = Object.fromEntries(INTAKE_FIELDS.map(key => [key, String(input[key] ?? '').trim().slice(0, 20000)]));
   Object.assign(fields, normalizePlace(fields.city, fields.state));
-  if (norm(fields.workModel) === 'remoto') { fields.city = null; fields.state = null; }
-  fields.coreSkill = fields.profile;
   if (/^imediat[oa]$/i.test(fields.start)) {
     const original = fields.start;
     const date = new Date(referenceDate);
@@ -78,8 +76,8 @@ export function cleanIntakeFields(input = {}, referenceDate = new Date().toISOSt
 }
 
 export function intakeWarnings(f) {
-  const labels = { requestId: 'Identificação da solicitação ausente: conferir no assunto', seniority: 'Senioridade não informada', city: 'Cidade não informada', language: 'Idioma não informado', start: 'Início não informado', duration: 'Duração não informada', coreSkill: 'Competência principal pendente: preencher para buscar consultores' };
-  const warnings = Object.entries(labels).filter(([key]) => !f[key] && !(key === 'city' && norm(f.workModel) === 'remoto')).map(([, text]) => text);
+  const labels = { profile: 'Nome da vaga não informado', coreSkill: 'Skill da vaga não informada' };
+  const warnings = Object.entries(labels).filter(([key]) => !f[key]).map(([, text]) => text);
   if (/^[A-Z]{2}$/i.test(f.city)) warnings.push('Cidade abreviada: confirmar o município (não presumir a cidade).');
   if (/\bFA-(GL|AR|AP|AA)\b/i.test(f.mandatorySkills + '\n' + f.requirements)) warnings.push('Nomenclatura FA-GL/AR/AP/AA preservada. Confirme se corresponde a FI-GL/AR/AP/AA antes de avaliar a aderência.');
   if (f.start && !/^(0[1-9]|1[0-2])\/\d{4}$/.test(f.start)) warnings.push('Início inválido: informar MM/AAAA.');
@@ -92,6 +90,41 @@ function intakeJobDescription(f) {
 
 function intakeObservation(f) {
   return `${f.instructions}\n${f.observation}`.trim();
+}
+
+const INTAKE_FIELD_LABELS = {
+  requestId: 'Identificação', profile: 'Nome da vaga', seniority: 'Senioridade', quantity: 'Quantidade',
+  workModel: 'Modelo de trabalho', city: 'Cidade', state: 'Estado', start: 'Início', duration: 'Duração',
+  language: 'Idioma', minimumYears: 'Experiência mínima', coreSkill: 'Skill da vaga', mandatorySkills: 'Skills obrigatórias',
+  requirements: 'Requisitos', desirable: 'Diferenciais', instructions: 'Orientações', model: 'Modelo da oportunidade',
+  contractType: 'Tipo de contratação', observation: 'Observações'
+};
+
+function mergeNewIntakeInformation(current, incoming) {
+  const next = { ...current }, changes = [];
+  for (const key of INTAKE_FIELDS) {
+    const value = String(incoming[key] ?? '').trim();
+    if (key === 'coreSkill' && value === String(incoming.profile || '').trim() && String(current.coreSkill || '').trim()) continue;
+    if (!value || value === String(current[key] ?? '').trim()) continue;
+    changes.push({ field: key, label: INTAKE_FIELD_LABELS[key] || key, before: String(current[key] ?? ''), after: value });
+    next[key] = value;
+  }
+  return { fields: cleanIntakeFields(next), changes };
+}
+
+function updateOpportunityFromIntake(opportunity, fields, updatedAt) {
+  Object.assign(opportunity, {
+    opportunity: fields.profile,
+    clientOpportunityCode: requestNumber(fields.requestId),
+    model: fields.model,
+    contractType: fields.contractType,
+    workModel: fields.workModel,
+    quantity: fields.quantity ? Number(fields.quantity) : 0,
+    jobDescription: intakeJobDescription(fields),
+    observation: intakeObservation(fields),
+    intakeDetails: fields,
+    updatedAt
+  });
 }
 
 export function matchIntakeCandidates(curriculums, f) {
@@ -256,6 +289,13 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
         return entry;
       });
     },
+    claimUpdateNotifications(owner, now) {
+      return transaction(db => {
+        const rows = (db.intakeNotifications || []).filter(entry => entry.type === 'dtt_opportunity_updated' && ['queued', 'failed'].includes(entry.status)).slice(0, 20);
+        for (const entry of rows) Object.assign(entry, { status: 'sending', owner, lastAttemptAt: now });
+        return rows.map(entry => ({ ...entry }));
+      });
+    },
     upgradePending() {
       return transaction(async db => {
         let updated = 0;
@@ -321,7 +361,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
           }
           if(!simulated) for(const n of db.intakeNotifications.filter(n=>n.draftId===draft.id)) n.text=n.text.replace('\n\nPRÉVIA LOCAL — mensagem não enviada.','');
         }
-        return { ...view(db, draft), duplicate: result.duplicate, changed: result.changed || false, notifications: db.intakeNotifications.filter(n => n.draftId === draft.id), simulated };
+        return { ...view(db, draft), duplicate: result.duplicate, changed: result.changed || false, updateChanges: result.updateChanges || [], notifications: db.intakeNotifications.filter(n => n.draftId === draft.id), simulated };
       });
     },
     async create(email, user) {
@@ -344,7 +384,36 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
           (fields.requestId && requestNumber(d.fields.requestId) === requestNumber(fields.requestId)) ||
           ((!fields.requestId || !d.fields.requestId) && (d.emailKey === key || d.bodyHash === bodyHash))
         ));
-        if (existing) return { draft: existing, duplicate: true, changed: existing.bodyHash !== bodyHash, warnings: intakeWarnings(existing.fields) };
+        if (existing) {
+          const contentChanged = existing.bodyHash !== bodyHash;
+          if (!contentChanged || existing.status !== 'confirmed') return { draft: existing, duplicate: true, changed: contentChanged, warnings: intakeWarnings(existing.fields) };
+          const merged = mergeNewIntakeInformation(existing.fields, fields);
+          if (!merged.changes.length) return { draft: existing, duplicate: true, changed: false, updateChanges: [], warnings: intakeWarnings(existing.fields) };
+          const opportunity = db.opportunities.find(item => item.id === existing.opportunityId) || fail('A oportunidade vinculada à solicitação DTT não foi encontrada.', 409);
+          const updatedAt = new Date().toISOString();
+          existing.fields = merged.fields;
+          existing.emailKey = key;
+          existing.bodyHash = bodyHash;
+          existing.email = { mailbox: email.mailbox, sender: String(email.sender || INTAKE_SENDER), subject: String(email.subject || ''), messageId: String(email.messageId || ''), body: email.body };
+          existing.revision++;
+          existing.updatedAt = updatedAt;
+          existing.audit.push({ action: 'existing_opportunity_updated_from_email', userId: user.id, at: updatedAt, opportunityId: opportunity.id, changes: merged.changes });
+          updateOpportunityFromIntake(opportunity, merged.fields, updatedAt);
+          db.intakeNotifications ||= [];
+          const changeText = merged.changes.map(change => `- ${change.label}: ${change.before || '(vazio)'} → ${change.after}`).join('\n');
+          for (const address of DTT_REVIEWER_EMAILS) {
+            const noticeKey = hash(`${existing.id}|${bodyHash}|${address}`);
+            if (db.intakeNotifications.some(entry => entry.noticeKey === noticeKey)) continue;
+            db.intakeNotifications.push({
+              id: randomUUID(), noticeKey, draftId: existing.id, opportunityId: opportunity.id, to: address,
+              type: 'dtt_opportunity_updated', status: simulated ? 'simulated' : 'queued', simulated, createdAt: updatedAt, sentAt: null,
+              subject: `Alcateia | Oportunidade DTT atualizada: ${existing.fields.requestId || existing.fields.profile}`,
+              text: `A oportunidade DTT existente recebeu novas informações e foi atualizada sem duplicação.\n\nVaga: ${existing.fields.requestId || existing.fields.profile}\nCliente: DTT\n\nAlterações:\n${changeText}\n\nAcesse a oportunidade:\n${reviewLink(existing.id)}`,
+              link: reviewLink(existing.id), changes: merged.changes
+            });
+          }
+          return { draft: existing, duplicate: true, changed: true, updateChanges: merged.changes, warnings: intakeWarnings(existing.fields) };
+        }
         const draft = { id: randomUUID(), clientId: client.id, clientName: client.customerName || client.name, emailKey: key, bodyHash, email: { mailbox: email.mailbox, sender: String(email.sender || INTAKE_SENDER), subject: String(email.subject || ''), messageId: String(email.messageId || ''), body: email.body }, fields, seniorityAssessment: extracted.seniorityAssessment, status: 'pending', subjectLabelVersion: 1, revision: 1, selectedIds: [], createdAt: new Date().toISOString(), createdBy: user.id, audit: [] };
         const duplicate = duplicateOpportunity(db, draft, fields);
         if (duplicate) { draft.status = 'duplicate'; draft.opportunityId = duplicate.id; }
@@ -385,18 +454,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
         draft.updatedAt = new Date().toISOString();
         if (draft.status === 'confirmed') {
           const opportunity = db.opportunities.find(item => item.id === draft.opportunityId) || fail('A oportunidade vinculada não foi encontrada.', 409);
-          Object.assign(opportunity, {
-            opportunity: draft.fields.profile,
-            clientOpportunityCode: requestNumber(draft.fields.requestId),
-            model: draft.fields.model,
-            contractType: 'PJ',
-            workModel: draft.fields.workModel,
-            quantity: Number(draft.fields.quantity),
-            jobDescription: intakeJobDescription(draft.fields),
-            observation: intakeObservation(draft.fields),
-            intakeDetails: draft.fields,
-            updatedAt: draft.updatedAt
-          });
+          updateOpportunityFromIntake(opportunity, draft.fields, draft.updatedAt);
           draft.audit.push({ action: 'confirmed_opportunity_corrected', userId: user.id, at: draft.updatedAt, opportunityId: opportunity.id });
         } else {
           draft.audit.push({ action: 'review', userId: user.id, at: draft.updatedAt });
@@ -432,14 +490,13 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
         if (draft.status !== 'pending') fail('Solicitação cancelada ou duplicada; confirmação bloqueada.', 409);
         if (Number(revision) !== draft.revision) fail('Dados alterados. Atualize a solicitação antes de confirmar.', 409);
         const f = draft.fields;
-        if (!f.profile || !f.seniority || !f.requirements || !f.coreSkill || !Number.isInteger(Number(f.quantity)) || Number(f.quantity) < 1) fail('Preencha perfil, senioridade, requisitos, competência principal e quantidade inteira maior que zero.');
+        if (!f.profile || !f.coreSkill) fail('Preencha o nome da vaga e a skill da vaga.');
+        if (f.quantity && (!Number.isInteger(Number(f.quantity)) || Number(f.quantity) < 1)) fail('Quando informada, a quantidade deve ser um número inteiro maior que zero.');
         if (!['Presencial', 'Remoto', 'Híbrido', ''].includes(f.workModel)) fail('Modelo de trabalho inválido.');
-        if (!['Alocação', 'Hunting', 'Projeto', 'Consultoria'].includes(f.model)) fail('Modelo da oportunidade inválido.');
-        if (f.contractType !== 'PJ') fail('As solicitações DTT utilizam contratação PJ.');
+        if (f.model && !['Alocação', 'Hunting', 'Projeto', 'Consultoria'].includes(f.model)) fail('Modelo da oportunidade inválido.');
         if (f.start && !/^(0[1-9]|1[0-2])\/\d{4}$/.test(f.start)) fail('Início deve estar no formato MM/AAAA.');
         if (!db.clients.some(c => c.id === draft.clientId)) fail('Cliente DTT não encontrado.');
         if (duplicateOpportunity(db, draft, f)) fail('Já existe oportunidade para esta solicitação DTT. Nenhum vínculo foi criado.', 409);
-        if (intakeWarnings(f).length && acknowledged !== true) fail('Confirme que revisou as pendências antes de cadastrar.');
         if (!Array.isArray(selectedIds)) fail('Lista de selecionados inválida.');
         const ids = [...new Set(selectedIds.map(String))];
         const matches = draft.search?.candidates || [];
@@ -450,7 +507,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
           if ([cv.blackflag, cv.blacklist].some(v => v === true || ['true', 'sim', '1'].includes(String(v).toLowerCase()))) fail('Profissional impedido no banco.');
         }
         const now = new Date().toISOString();
-        const opportunity = { id: `opp_${randomUUID()}`, clientId: draft.clientId, opportunity: f.profile, opportunityCode: String(Math.max(0, ...db.opportunities.map(o => Number(o.opportunityCode) || 0)) + 1), clientOpportunityCode: requestNumber(f.requestId), status: 'Open', openingDate: now.slice(0, 10), monthYear: now.slice(0, 7), closingDate: '', model: f.model, contractType: 'PJ', workModel: f.workModel, owner: user.name || '', quantity: Number(f.quantity), closedQuantity: 0, contractValue: 0, jobDescription: intakeJobDescription(f), observation: intakeObservation(f), intakeDetails: f, intakeSource: { draftId: draft.id, emailKey: draft.emailKey, bodyHash: draft.bodyHash }, createdAt: now };
+        const opportunity = { id: `opp_${randomUUID()}`, clientId: draft.clientId, opportunity: f.profile, opportunityCode: String(Math.max(0, ...db.opportunities.map(o => Number(o.opportunityCode) || 0)) + 1), clientOpportunityCode: requestNumber(f.requestId), status: 'Open', openingDate: now.slice(0, 10), monthYear: now.slice(0, 7), closingDate: '', model: f.model, contractType: f.contractType, workModel: f.workModel, owner: user.name || '', quantity: f.quantity ? Number(f.quantity) : 0, closedQuantity: 0, contractValue: 0, jobDescription: intakeJobDescription(f), observation: intakeObservation(f), intakeDetails: f, intakeSource: { draftId: draft.id, emailKey: draft.emailKey, bodyHash: draft.bodyHash }, createdAt: now };
         const links = selected.map(c => normalizeSelectedCandidate({ id: `sel_${randomUUID()}`, name: c.name, curriculumId: c.id, opportunityId: opportunity.id, source: 'Banco de Talentos', origin: simulated ? 'Solicitação DTT / teste LOCAL' : 'Solicitação DTT', score: c.score, observation: c.pending.join('\n'), createdAt: now, notifications: [] }));
         db.opportunities.push(opportunity);
         db.selectedCandidates.push(...links);

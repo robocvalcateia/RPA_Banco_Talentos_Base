@@ -13,91 +13,28 @@ const MANAGEMENT_TITLES = /\b(?:pmo|project manager|gerente de projetos|gestor d
 const FUNCTIONAL_TITLES = /\b(?:consultor(?:a)? funcional|analista funcional|especialista funcional|functional consultant)\b/i;
 const FUNCTIONAL_WORK = /\b(?:levantamento de requisitos|mapeamento de processos|parametriza|configura|implanta|implementa|suporte funcional|sustenta|homologa|uat|treinamento de usu[aá]rios)\b/i;
 
-const DOMAIN_RULES = [
-  { product: 'Oracle Cloud', vacancy: /\b(?:oracle\s+(?:erp\s+)?cloud|oracle\s+fusion|fusion|erp\s+cloud|erp\s+oracle)\b/i, evidence: /\b(?:oracle\s+(?:erp\s+)?cloud|oracle\s+fusion|fusion|erp\s+cloud|erp\s+oracle)\b/i,
-    requirements: [
-      ['OM', /\b(?:OM|order management)\b/i], ['AR', /\b(?:AR|accounts receivable|contas a receber)\b/i],
-      ['FDG', /\bFDG\b/i], ['Tax', /\b(?:oracle\s+tax|fusion\s+tax|tax\s+configuration)\b/i],
-      ['OTC', /\b(?:OTC|order to cash)\b/i]
-    ] },
-  { product: 'Protheus', vacancy: /\b(?:totvs\s+)?protheus\b/i, evidence: /\b(?:totvs\s+)?protheus\b/i,
-    requirements: [
-      ['SIGADPR', /\bSIGADPR\b/i], ['Financeiro', /\b(?:financeiro|SIGAFIN)\b/i],
-      ['Ativo Fixo', /\b(?:ativo fixo|SIGAATF)\b/i], ['Fiscal', /\b(?:fiscal|SIGAFIS)\b/i],
-      ['Contábil', /\b(?:contabil|SIGACTB)\b/i], ['LP', /\b(?:linguagem de programacao|\bLP\b)\b/i],
-      ['ADVPL', /\bADVPL\b/i]
-    ] },
-  { product: 'Tax One', vacancy: /\b(?:tax\s*one|mastersaf\s+(?:dw|data warehouse))\b/i, evidence: /\b(?:tax\s*one|mastersaf\s+(?:dw|data warehouse))\b/i, requirements: [] },
-  { product: 'Datasul', vacancy: /\b(?:totvs\s+)?datasul\b/i, evidence: /\b(?:totvs\s+)?datasul\b/i, requirements: [] }
-];
-
-const BUSINESS_DOMAIN_RULES = [
-  {
-    product: 'Compras',
-    vacancy: /\b(?:compras|procurement|buyer|comprador(?:a)?)\b/i,
-    evidence: /\b(?:compras|procurement|buyer|comprador(?:a)?|suprimentos|sourcing)\b/i,
-    context: /\b(?:fornecedores?|cota[cç][aã]o|negocia[cç][aã]o|pedidos?\s+de\s+compra|contratos?|sourcing|suprimentos|supply\s+chain|procure\s+to\s+pay|P2P|e-?procurement)\b/i
-  }
-];
-
-const VACANCY_CORE_RULES = [
-  { skill: 'Tax One', pattern: /\b(?:tax\s*one|mastersaf\s+(?:dw|data warehouse))\b/i },
-  { skill: 'Datasul', pattern: /\b(?:totvs\s+)?datasul\b/i },
-  { skill: 'Oracle Cloud', pattern: /\b(?:oracle\s+(?:erp\s+)?cloud|oracle\s+fusion|erp\s+oracle)\b/i },
-  { skill: 'Protheus', pattern: /\b(?:totvs\s+)?protheus\b/i },
-  { skill: 'SAP CI-DS', pattern: /\bSAP\s+(?:CI|CPI)[-\s]?DS\b/i },
-  { skill: 'SAP CCS FICA', pattern: /\bSAP\s+CCS\s+FICA\b/i },
-  { skill: 'SAP Ariba', pattern: /\bSAP\s+Ariba\b/i },
-  { skill: 'SAP ABAP', pattern: /\bSAP\s+ABAP\b/i },
-  { skill: 'SAP FICO', pattern: /\bSAP\s+FI(?:CO)?\b/i },
-  { skill: 'SAP MM', pattern: /\bSAP\s+MM\b/i },
-  { skill: 'SAP SD', pattern: /\bSAP\s+SD\b/i },
-  { skill: '.NET', pattern: /\b(?:\.NET|dotnet|C#|ASP\.NET)\b/i },
-  { skill: 'PMO', pattern: /\b(?:PMO|gerente\s+de\s+projetos|gest[aã]o\s+de\s+projetos|project\s+manager)\b/i },
-  { skill: 'Compras', pattern: /\b(?:compras|procurement|buyer|comprador(?:a)?)\b/i },
-  { skill: 'Faturamento', pattern: /\bfaturamento\b/i },
-  { skill: 'PIS/COFINS', pattern: /\bPIS\s*[/\\-]?\s*COFINS\b/i },
-  { skill: 'SPED', pattern: /\b(?:SPED\s+fiscal|ICMS\s*[/\\-]?\s*IPI)\b/i },
-  { skill: 'Contas a pagar', pattern: /\b(?:contas\s+a\s+pagar|accounts\s+payable|tesouraria)\b/i }
-];
-
 function professionalBlocks(curriculum = {}) {
   return String(curriculum.experiencia_profissional || '').split(/\n\s*\n+/).map(block => block.trim()).filter(Boolean);
 }
 
-function recentProfessionalBlock(block, now = new Date()) {
-  const years = [...String(block).matchAll(/\b(19\d{2}|20\d{2})\b/g)].map(match => Number(match[1]));
-  if (!years.length) return false;
-  const latest = Math.max(...years);
-  return /\b(?:atual|presente|current|present)\b/i.test(block) || latest >= now.getFullYear() - 5;
+function genericProfessionalCoreEvidence(curriculum = {}, core = '') {
+  if (!String(core).trim()) return false;
+  const titles = [curriculum.cargo_atual, curriculum.currentTitle, curriculum.cargo_alvo].filter(Boolean);
+  if (titles.some(title => hasSkill(title, core))) return true;
+  return professionalBlocks(curriculum).some(block => {
+    const roleHeader = String(block).split(/[:\n]|\b(?:respons[aá]vel|atuando|atua[cç][aã]o|que|com foco)\b/i)[0].slice(0, 200);
+    if (hasSkill(roleHeader, core)) return true;
+    const relation = /\b(?:implementa[cç][aã]o|implanta[cç][aã]o|parametriza[cç][aã]o|configura[cç][aã]o|suporte|sustenta[cç][aã]o|administra[cç][aã]o|gest[aã]o|respons[aá]vel|consultoria|especialista)\b/i;
+    const coreIndex = normalize(block).indexOf(normalize(core));
+    if (coreIndex < 0) return false;
+    return relation.test(String(block).slice(Math.max(0, coreIndex - 100), coreIndex + String(core).length + 100));
+  });
 }
 
 function domainEvidenceDecision(curriculum = {}, filter = {}, plan = interpretVacancy(filter)) {
-  const vacancyText = [filter.coreSkill, filter.mandatorySkills, filter.technicalSkills, filter.jobDescription].filter(Boolean).join('\n');
-  const rule = DOMAIN_RULES.find(item => item.vacancy.test(vacancyText));
-  const blocks = professionalBlocks(curriculum);
-  if (!rule) {
-    const businessRule = BUSINESS_DOMAIN_RULES.find(item => item.vacancy.test(vacancyText));
-    if (!businessRule) return { status: 'not_required', reasons: [] };
-    const supportedBlocks = blocks.filter(block => businessRule.evidence.test(block) && businessRule.context.test(block));
-    if (!supportedBlocks.length) {
-      return { status: 'missing', reasons: [`atuação profissional em ${businessRule.product} não comprovada por atividades do processo`] };
-    }
-    return { status: 'meets', reasons: [] };
-  }
-  const productName = rule?.product || plan.core;
-  const productBlocks = blocks.filter(block =>
-    (rule ? rule.evidence.test(block) : hasSkill(block, plan.core))
-    && (FUNCTIONAL_WORK.test(block) || FUNCTIONAL_TITLES.test(block))
-  );
-  if (!productBlocks.length) return { status: 'missing', reasons: [`atuação profissional em ${productName || 'competência principal'} não comprovada em uma experiência`] };
-  const recentBlocks = productBlocks.filter(block => recentProfessionalBlock(block));
-  if (!recentBlocks.length) return { status: 'missing', reasons: [`experiência em ${productName || 'competência principal'} nos últimos cinco anos não comprovada`] };
-  const required = rule
-    ? rule.requirements.filter(([, pattern]) => pattern.test(vacancyText)).map(([name, pattern]) => ({ name, matches: block => pattern.test(block) }))
-    : plan.ranking.filter(item => item.group === 'central').map(item => ({ name: item.term, matches: block => hasSkill(block, item.term) }));
-  const missing = required.filter(item => !recentBlocks.some(block => item.matches(block))).map(item => item.name);
-  return { status: missing.length ? 'missing' : 'meets', reasons: missing.map(name => `${productName}: requisito específico sem evidência na mesma experiência recente: ${name}`) };
+  return genericProfessionalCoreEvidence(curriculum, plan.core)
+    ? { status: 'meets', reasons: [] }
+    : { status: 'missing', reasons: [`atuação profissional em ${plan.core || 'competência principal'} não comprovada no cargo ou em uma experiência`] };
 }
 
 function structuredCandidateText(curriculum = {}) {
@@ -172,13 +109,10 @@ function inferredCoreSkill(opportunity = {}) {
   if (String(explicit).trim()) return String(explicit).trim();
 
   const vacancyText = [opportunity.opportunity, opportunity.jobDescription].filter(Boolean).join('\n');
-  const recognized = VACANCY_CORE_RULES.find(rule => rule.pattern.test(vacancyText));
-  if (recognized) return recognized.skill;
-
   const title = String(opportunity.opportunity || '').replace(
-    /\b(?:vaga|oportunidade|consultor(?:a)?|analista|especialista|desenvolvedor(?:a)?|arquiteto(?:a)?|funcional|t[eé]cnico|t[eé]cnica|j[uú]nior|junior|jr|pleno|s[eê]nior|senior|sr)\b/gi,
+    /\b(?:vaga|oportunidade|aloca[cç][aã]o|pontual|consultor(?:a)?|analista|especialista|desenvolvedor(?:a)?|arquiteto(?:a)?|gerente(?:\s+de\s+projetos)?|project\s+manager|funcional|t[eé]cnico|t[eé]cnica|j[uú]nior|junior|jr|pleno|s[eê]nior|senior|sr|horas?)\b|\b\d+\b/gi,
     ' '
-  ).replace(/\s+/g, ' ').trim();
+  ).replace(/^\s*(?:de|em|para)\s+/i, '').replace(/[–—-]+\s*$/g, '').replace(/\s+/g, ' ').trim();
   if (title) return title;
 
   const description = String(opportunity.jobDescription || '');

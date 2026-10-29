@@ -96,7 +96,7 @@ test('uses the title skill when an open vacancy has no job description', () => {
   const taxVacancy = {
     id: 'tax-title-only', opportunityCode: '202', opportunity: 'Consultor Junior TaxOne', status: 'Open', workModel: 'Remoto', jobDescription: ''
   };
-  assert.equal(opportunityFitFilter(taxVacancy).coreSkill, 'Tax One');
+  assert.equal(opportunityFitFilter(taxVacancy).coreSkill, 'TaxOne');
   assert.deepEqual(matchingOpenOpportunities(curriculum, [taxVacancy]).map(row => row.opportunity.id), ['tax-title-only']);
 });
 
@@ -129,6 +129,19 @@ test('does not confuse a developer mentioning purchases with a procurement profe
   };
   assert.deepEqual(matchingOpenOpportunities(developer, [vacancy]), []);
   assert.deepEqual(matchingOpenOpportunities(buyer, [vacancy]).map(row => row.opportunity.id), ['compras']);
+});
+
+test('does not treat Kleber development and AI summary as professional purchasing evidence', () => {
+  const kleber = {
+    id_controle: 'CV-KLEBER-LUNGUINHO', nome: 'Kleber Lunguinho',
+    skills: 'Desenvolvimento de sistemas com PHP, Laravel, .NET, Delphi, C#, JavaScript, SQL Server, Oracle, MySQL, IA generativa e machine learning.',
+    resumo: 'Desenvolvedor de ponta a ponta, backend e frontend, com foco em tecnologia, excelência e eficiência operacional.'
+  };
+  const compras = {
+    id: '180', opportunityCode: '2045', opportunity: 'Analista de compras Senior - 2045', status: 'Open', workModel: 'Remoto',
+    intakeDetails: { coreSkill: 'Compras' }, jobDescription: 'Experiência profissional em Compras.'
+  };
+  assert.deepEqual(matchingOpenOpportunities(kleber, [compras]), []);
 });
 
 test('sends one grouped email to Gerson and Bruno and never duplicates curriculum-vacancy alert', async () => {

@@ -96,7 +96,7 @@ test('seniority respects explicit or manually edited labels; unrelated roles do 
   const assessment = applySeniority(different);
   assert.equal(assessment.suggested, ''); assert.equal(assessment.sources.length, 0);
 });
-test('PJ cannot be altered by a submitted form and response deadline is removed from persistence fields', () => {
+test('contract type remains editable and response deadline is removed from persistence fields', () => {
   const f = cleanIntakeFields({ ...fields, contractType: 'CLT', responseDeadline: 'amanhã' });
-  assert.equal(f.contractType, 'PJ'); assert.equal('responseDeadline' in f, false);
+  assert.equal(f.contractType, 'CLT'); assert.equal('responseDeadline' in f, false);
 });

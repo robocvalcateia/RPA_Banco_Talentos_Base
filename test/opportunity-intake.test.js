@@ -33,19 +33,19 @@ async function fixture(t, extra = {}) {
   await fs.writeFile(file, JSON.stringify({ clients: [{ id: 'dtt', customerName: 'Deloitte' }, { id: 'demo', customerName: 'Deloitte (Demonstração)' }], curriculums: cvs, opportunities: [], selectedCandidates: [], candidateMovements: [], ...extra }));
   return { store: createIntakeStore(file), read: async () => JSON.parse(await fs.readFile(file, 'utf8')), file };
 }
-test('extracts the email with traceable market seniority, PJ fixed and no response deadline', () => {
+test('extracts the email with traceable market seniority and optional editable contracting fields', () => {
   const f = extractIntake(email);
   assert.equal(f.profile, 'Consultor SAP FI'); assert.equal(f.workModel, 'Presencial');
   assert.equal(f.quantity, '01'); assert.equal(f.minimumYears, '5');
   assert.equal(f.city, 'Rio de Janeiro'); assert.equal(f.state, 'Rio de Janeiro'); assert.equal(f.start, '10/2026'); assert.equal(f.duration, '06 Meses');
   assert.equal(f.seniority, 'Sênior'); assert.equal('responseDeadline' in f, false); assert.equal(f.requestId, '');
-  assert.equal(f.contractType, 'PJ'); assert.equal(f.seniorityAssessment.origin, 'market');
+  assert.equal(f.contractType, ''); assert.equal(f.seniorityAssessment.origin, 'market');
   assert.equal(f.seniorityAssessment.sources.length, 3);
   assert.equal(f.language, 'English – Avançado'); assert.equal(f.coreSkill, f.profile);
   assert.match(f.mandatorySkills, /FA-GL/); assert.match(f.requirements, /Waterfall/);
   assert.match(f.desirable, /Agile/); assert.match(f.desirable, /Certificação SAP/);
   assert.match(f.instructions, /não incluir logos/); assert.match(f.instructions, /resumo da entrevista/);
-  assert.ok(intakeWarnings(f).length >= 2);
+  assert.equal(intakeWarnings(f).some(warning => /senioridade|cidade|idioma|início|duração/i.test(warning)), false);
 });
 test('does not inspect or report email attachments', () => {
   const fields = extractIntake({
@@ -87,12 +87,13 @@ test('confirmation is atomic, persistent, idempotent and records user history wi
   assert.deepEqual(db.selectedCandidates[0].notifications, []);
   assert.equal((await createIntakeStore(file).list())[0].status, 'confirmed');
 });
-test('seniority is mandatory and a confirmed intake can correct its existing opportunity without duplication', async t => {
+test('only name and skill are mandatory and a confirmed intake can correct its existing opportunity without duplication', async t => {
   const { store, read } = await fixture(t);
   const source = { ...email, subject: 'SOLICITAÇÃO DE COTAÇÃO - VAGA 5555 - Analista FP&A', body: 'Perfil: Analista FP&A\nQuantidade: 1\nModelo de trabalho: Remoto\nConhecimento Técnico Requerido:\nFaturamento e controladoria.' };
   const { draft } = await store.create(source, user);
-  await assert.rejects(store.confirm(draft.id, draft.revision, [], user, true), /senioridade/);
-  const reviewed = await store.review(draft.id, { ...draft.fields, seniority: 'Pleno' }, draft.revision, user);
+  const missingSkill = await store.review(draft.id, { ...draft.fields, coreSkill: '' }, draft.revision, user);
+  await assert.rejects(store.confirm(draft.id, missingSkill.draft.revision, [], user, true), /skill da vaga/);
+  const reviewed = await store.review(draft.id, { ...missingSkill.draft.fields, coreSkill: 'FP&A', seniority: '', quantity: '', requirements: '', contractType: '' }, missingSkill.draft.revision, user);
   const confirmed = await store.confirm(draft.id, reviewed.draft.revision, [], user, true);
   const corrected = await store.review(draft.id, { ...confirmed.draft.fields, seniority: 'Júnior' }, confirmed.draft.revision, user);
   const db = await read();
@@ -101,6 +102,24 @@ test('seniority is mandatory and a confirmed intake can correct its existing opp
   assert.equal(db.opportunities[0].intakeDetails.seniority, 'Júnior');
   assert.match(db.opportunities[0].jobDescription, /Senioridade: Júnior/);
   assert.equal(db.opportunityIntakes[0].audit.at(-1).action, 'confirmed_opportunity_corrected');
+});
+test('a new email updates an existing DTT opportunity, preserves edited skill and queues notices without duplication', async t => {
+  const { store, read } = await fixture(t);
+  const original = { ...receivedEmail, subject: 'SOLICITAÇÃO DE COTAÇÃO - VAGA 7000 - Analista Financeiro', body: 'Quantidade: 1\nConhecimento Técnico Requerido:\nRotinas financeiras.' };
+  const created = await store.create(original, user);
+  const reviewed = await store.review(created.draft.id, { ...created.draft.fields, coreSkill: 'Finanças' }, created.draft.revision, user);
+  await store.confirm(created.draft.id, reviewed.draft.revision, [], user, true);
+  const update = { ...original, messageId: 'test-message-update', body: 'Quantidade: 2\nSenioridade: Pleno\nConhecimento Técnico Requerido:\nRotinas financeiras.' };
+  const result = await store.receive(update, user);
+  const db = await read();
+  assert.equal(result.changed, true);
+  assert.deepEqual(result.updateChanges.map(change => change.field).sort(), ['quantity', 'seniority']);
+  assert.equal(db.opportunities.length, 1);
+  assert.equal(db.opportunities[0].quantity, 2);
+  assert.equal(db.opportunities[0].intakeDetails.coreSkill, 'Finanças');
+  assert.equal(db.intakeNotifications.filter(entry => entry.type === 'dtt_opportunity_updated').length, 2);
+  await store.receive(update, user);
+  assert.equal((await read()).intakeNotifications.filter(entry => entry.type === 'dtt_opportunity_updated').length, 2);
 });
 test('confirms without candidates; cancellation creates nothing and cannot be confirmed', async t => {
   const { store, read } = await fixture(t);
@@ -124,10 +143,10 @@ test('message ID, equivalent body and request ID deduplicate resends; changed co
   }
   assert.equal((await store.list()).length, 1);
 });
-test('existing opportunity, invalid selections and unacknowledged gaps never partly persist', async t => {
+test('existing opportunity and invalid selections never partly persist', async t => {
   const { store, read } = await fixture(t);
   const { draft } = await store.create(email, user);
-  for (const [ids, ack] of [[['2'], true], [['missing'], true], [[], false]]) {
+  for (const [ids, ack] of [[['2'], true], [['missing'], true]]) {
     await assert.rejects(store.confirm(draft.id, 1, ids, user, ack), { statusCode: 422 });
     assert.equal((await read()).opportunities.length, 0);
     assert.equal((await read()).selectedCandidates.length, 0);
@@ -301,7 +320,7 @@ test('upgrading pending drafts preserves links, selections and history while app
   const result = await store.upgradePending(); assert.equal(result.updated, 1);
   const current = await store.get(draft.id);
   assert.equal(current.reviewLink, original.reviewLink); assert.deepEqual(current.draft.selectedIds, ['1']);
-  assert.equal(current.draft.fields.contractType, 'PJ'); assert.equal(current.draft.fields.seniority, 'Sênior');
+  assert.equal(current.draft.fields.contractType, ''); assert.equal(current.draft.fields.seniority, 'Sênior');
   assert.equal('responseDeadline' in current.draft.fields, false);
   assert.equal(current.draft.email.sender, 'poolterceiros@deloitte.com');
   assert.ok(current.draft.audit.some(a => a.action === 'selection'));

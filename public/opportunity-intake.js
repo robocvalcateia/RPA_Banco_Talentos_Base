@@ -1,6 +1,7 @@
 /* Integrated local review screen. All content from emails/CVs is escaped as text. */
 window.OpportunityIntake = (() => {
   const fields = {
+    clientName: 'Cliente',
     requestId: 'Identificação da solicitação', profile: 'Perfil / título da vaga', seniority: 'Senioridade', quantity: 'Quantidade',
     workModel: 'Modelo de trabalho', city: 'Cidade', state: 'Estado', start: 'Início previsto (MM/AAAA)', duration: 'Duração da contratação',
     language: 'Idioma e nível', minimumYears: 'Mínimo de anos solicitado', coreSkill: 'Competência principal para busca', mandatorySkills: 'Competências / submódulos obrigatórios',
@@ -44,7 +45,11 @@ window.OpportunityIntake = (() => {
     const url = new URL(location.href); url.searchParams.set('view', 'opportunityIntake'); url.searchParams.set('request', id);
     window.history.replaceState(null, '', url);
     edit(result);
-    message(result.draft.status === 'pending' ? 'Candidatos pesquisados. Revise a oportunidade e marque os profissionais desejados.' : 'Esta solicitação já foi encerrada. Os dados abaixo estão disponíveis para consulta.');
+    message(result.draft.status === 'pending'
+      ? 'Candidatos pesquisados. Revise a oportunidade e marque os profissionais desejados.'
+      : result.draft.status === 'confirmed'
+        ? 'Oportunidade já cadastrada. O formulário está disponível para corrigir a oportunidade existente.'
+        : 'Esta solicitação já foi encerrada. Os dados abaixo estão disponíveis para consulta.');
   }
   function edit(result) {
     const d = result.draft, warnings = result.warnings || [];
@@ -60,8 +65,9 @@ window.OpportunityIntake = (() => {
     q('#intakeJump').textContent = `Ver candidatos (${candidates.length})`;
     q('#intakeOriginal').textContent = `Assunto: ${d.email.subject || 'Não fornecido no teste'}\nRemetente: poolterceiros@deloitte.com\n\n${d.email.body}`;
     q('#intakeFields').innerHTML = Object.entries(fields).map(([key, label]) => {
-      const value = e(d.fields[key]);
-      const control = key === 'contractType' ? '<input name="contractType" value="PJ" readonly aria-label="Tipo de contratação fixo PJ">' : options[key] ? `<select name="${key}">${options[key].map(v => `<option value="${e(v)}" ${v === d.fields[key] ? 'selected' : ''}>${e(v || 'Não informado')}</option>`).join('')}</select>` : long.has(key) ? `<textarea name="${key}" rows="${key === 'requirements' ? 9 : 3}">${value}</textarea>` : `<input name="${key}" value="${value}" ${['quantity', 'minimumYears'].includes(key) ? 'type="number" min="0" step="1"' : ''}>`;
+      const value = e(key === 'clientName' ? 'DTT' : d.fields[key]);
+      const required = ['profile', 'coreSkill'].includes(key) ? ' required' : '';
+      const control = key === 'clientName' ? '<input name="clientName" value="DTT" readonly aria-label="Cliente fixo DTT">' : options[key] ? `<select name="${key}"${required}>${options[key].map(v => `<option value="${e(v)}" ${v === d.fields[key] ? 'selected' : ''}>${e(v || 'Não informado')}</option>`).join('')}</select>` : long.has(key) ? `<textarea name="${key}" rows="${key === 'requirements' ? 9 : 3}"${required}>${value}</textarea>` : `<input name="${key}" value="${value}"${required} ${['quantity', 'minimumYears'].includes(key) ? 'type="number" min="1" step="1"' : ''}>`;
       return `<label class="${long.has(key) ? 'intake-wide' : ''}">${e(label)}${control}</label>`;
     }).join('');
     syncDerivedFields();
@@ -84,15 +90,7 @@ window.OpportunityIntake = (() => {
     controls();
   }
   function syncDerivedFields() {
-    const remote = q('[name=workModel]').value === 'Remoto';
-    for (const key of ['city','state']) {
-      const input = q('[name=' + key + ']');
-      input.disabled = remote;
-      if (remote) input.value = '';
-      input.placeholder = remote ? 'Não se aplica — trabalho remoto' : '';
-    }
-    const core = q('[name=coreSkill]');
-    core.value = q('[name=profile]').value; core.readOnly = true;
+    q('[name=clientName]').readOnly = true;
   }
   function renderCandidates() {
     const rows = candidates.slice(page * 20, (page + 1) * 20);

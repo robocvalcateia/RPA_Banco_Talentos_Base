@@ -36,6 +36,20 @@ export function createHourlyIntake({ store, getToken, send, log, fetchMessages =
   let running = false;
   const actor = { id:'dtt-inbox-fifteen-minutes', name:'Rotina DTT a cada 15 minutos', email:DTT_MAILBOX };
   return {
+    async notifyUpdates(started=now(), owner=randomUUID()) {
+      const attempts = await store.claimUpdateNotifications(owner, started);
+      const errors = []; let sent = 0;
+      for (const attempt of attempts) {
+        let status='failed', error='';
+        try {
+          if (simulated) status='simulated';
+          else { await send({to:attempt.to,subject:attempt.subject,text:attempt.text}); status='sent'; sent++; }
+        } catch (failure) { error='Falha no transporte do aviso de atualização DTT.'; errors.push(error); }
+        const result=await store.finishReminder(attempt.id,owner,status,now(),error);
+        try { await log({...result,id:`dtt-update:${result.id}`,provider:'SMTP',source:'dtt_hourly_update'}); } catch { errors.push('Falha ao espelhar histórico do aviso de atualização DTT.'); }
+      }
+      return { sent, errors };
+    },
     async notify(draftId, refreshRevision, started=now(), owner=randomUUID(), manualReason='') {
       const draft=(await store.get(draftId)).draft;
       const errors=[]; let sent=0;
@@ -82,6 +96,8 @@ export function createHourlyIntake({ store, getToken, send, log, fetchMessages =
             break; // notify handles all configured recipients
           }
         }
+        const updated = await this.notifyUpdates(started, owner);
+        sent += updated.sent; errors.push(...updated.errors);
         failure=[...new Set(errors)].join(' ');
         return {received,sent,errors};
       } catch(error) { failure=error.message; throw error; }

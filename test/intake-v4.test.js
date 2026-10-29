@@ -77,10 +77,10 @@ test('related troubleshooting phrases share one scoring group and FA spelling do
 });
 
 
-test('remote intake clears stale locality, uses subject title and permits distant or unknown residence', () => {
+test('remote intake keeps locality editable, uses subject title and permits distant or unknown residence', () => {
   const f=extractIntake({subject:'SOLICITAÇÃO DE COTAÇÃO - VAGA 2059 - SuccessFactors EC/Benefits/Onboarding',body:'Vaga: perfil incorreto\nModelo de trabalho: Remoto\nCidade: REMOTO\nEstado: REMOTO\nConhecimento Técnico Requerido:\nSuccessFactors EC/Benefits/Onboarding'});
   assert.equal(f.profile,'SuccessFactors EC/Benefits/Onboarding'); assert.equal(f.coreSkill,f.profile);
-  assert.equal(f.city,null); assert.equal(f.state,null);
+  assert.equal(f.city,'REMOTO'); assert.equal(f.state,'REMOTO');
   assert.ok(!intakeWarnings(f).some(w=>w.includes('Cidade')));
   const rows=matchIntakeCandidates([
     {id:'1',endereco:'Manaus/AM',experiencia_profissional:'Implementei SAP SuccessFactors Employee Central, Global Benefits e Onboarding.'},
@@ -93,8 +93,8 @@ test('remote intake clears stale locality, uses subject title and permits distan
   assert.equal(rows[1].comparison.find(c=>c.criterionId==='sf-benefits').status,'unknown');
   assert.ok(rows[1].evidenceCoverage<100);
   const revised=cleanIntakeFields({...f,profile:'Consultor Kubernetes Pleno',coreSkill:'wrong',city:'São Paulo',state:'SP'});
-  assert.equal(revised.coreSkill,revised.profile); assert.equal(revised.city,null);
-  assert.equal(matchIntakeCandidates([{id:'k',experiencia_profissional:'Implementei Kubernetes para o cliente.'}],revised).length,1);
+  assert.equal(revised.coreSkill,'wrong'); assert.equal(revised.city,'São Paulo');
+  assert.equal(matchIntakeCandidates([{id:'k',experiencia_profissional:'Implementei Kubernetes para o cliente.'}],revised).length,0);
 });
 
 
