@@ -2824,7 +2824,7 @@ function startLegacyEmailProcessing(options = {}) {
         try {
           const sync = await withTimeout(
             syncLegacyCandidatesIntoCurriculums(),
-            Number(process.env.EMAIL_PROCESSING_SYNC_TIMEOUT_MS || 120000),
+            Number(process.env.EMAIL_PROCESSING_SYNC_TIMEOUT_MS || 600000),
             'Tempo esgotado ao sincronizar curriculos apos processamento de e-mails.'
           );
           if (emailProcessing.jobId !== jobId) return;

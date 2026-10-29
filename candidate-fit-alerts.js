@@ -31,6 +31,27 @@ const DOMAIN_RULES = [
   { product: 'Datasul', vacancy: /\b(?:totvs\s+)?datasul\b/i, evidence: /\b(?:totvs\s+)?datasul\b/i, requirements: [] }
 ];
 
+const VACANCY_CORE_RULES = [
+  { skill: 'Tax One', pattern: /\b(?:tax\s*one|mastersaf\s+(?:dw|data warehouse))\b/i },
+  { skill: 'Datasul', pattern: /\b(?:totvs\s+)?datasul\b/i },
+  { skill: 'Oracle Cloud', pattern: /\b(?:oracle\s+(?:erp\s+)?cloud|oracle\s+fusion|erp\s+oracle)\b/i },
+  { skill: 'Protheus', pattern: /\b(?:totvs\s+)?protheus\b/i },
+  { skill: 'SAP CI-DS', pattern: /\bSAP\s+(?:CI|CPI)[-\s]?DS\b/i },
+  { skill: 'SAP CCS FICA', pattern: /\bSAP\s+CCS\s+FICA\b/i },
+  { skill: 'SAP Ariba', pattern: /\bSAP\s+Ariba\b/i },
+  { skill: 'SAP ABAP', pattern: /\bSAP\s+ABAP\b/i },
+  { skill: 'SAP FICO', pattern: /\bSAP\s+FI(?:CO)?\b/i },
+  { skill: 'SAP MM', pattern: /\bSAP\s+MM\b/i },
+  { skill: 'SAP SD', pattern: /\bSAP\s+SD\b/i },
+  { skill: '.NET', pattern: /\b(?:\.NET|dotnet|C#|ASP\.NET)\b/i },
+  { skill: 'PMO', pattern: /\b(?:PMO|gerente\s+de\s+projetos|gest[aã]o\s+de\s+projetos|project\s+manager)\b/i },
+  { skill: 'Compras', pattern: /\b(?:compras|procurement|buyer|comprador(?:a)?)\b/i },
+  { skill: 'Faturamento', pattern: /\bfaturamento\b/i },
+  { skill: 'PIS/COFINS', pattern: /\bPIS\s*[/\\-]?\s*COFINS\b/i },
+  { skill: 'SPED', pattern: /\b(?:SPED\s+fiscal|ICMS\s*[/\\-]?\s*IPI)\b/i },
+  { skill: 'Contas a pagar', pattern: /\b(?:contas\s+a\s+pagar|accounts\s+payable|tesouraria)\b/i }
+];
+
 function professionalBlocks(curriculum = {}) {
   return String(curriculum.experiencia_profissional || '').split(/\n\s*\n+/).map(block => block.trim()).filter(Boolean);
 }
@@ -45,6 +66,7 @@ function recentProfessionalBlock(block, now = new Date()) {
 function domainEvidenceDecision(curriculum = {}, filter = {}, plan = interpretVacancy(filter)) {
   const vacancyText = [filter.coreSkill, filter.mandatorySkills, filter.technicalSkills, filter.jobDescription].filter(Boolean).join('\n');
   const rule = DOMAIN_RULES.find(item => item.vacancy.test(vacancyText));
+  if (!rule) return { status: 'not_required', reasons: [] };
   const blocks = professionalBlocks(curriculum);
   const productName = rule?.product || plan.core;
   const productBlocks = blocks.filter(block =>
@@ -106,14 +128,11 @@ function strictAlertDecision(curriculum, filter, evaluation) {
   const exactCorePresent = Boolean(plan.core && hasSkill(text, plan.core));
   const automatic = Boolean(
     evaluation.classification === 'approved'
-    && Number(evaluation.score || 0) > 0
     && exactCorePresent
     && coreHasProfessionalEvidence
     && mandatoryMissing.length === 0
-    && centralMissing.length === 0
-    && operationalPending.length === 0
     && !roleBlocked
-    && domain.status === 'meets'
+    && ['meets', 'not_required'].includes(domain.status)
   );
   return {
     version: ALERT_RULE_VERSION,
@@ -123,7 +142,6 @@ function strictAlertDecision(curriculum, filter, evaluation) {
       ...mandatoryMissing.map(item => `requisito obrigatório sem evidência: ${item}`),
       ...centralMissing.map(item => `requisito central sem evidência: ${item}`),
       ...operationalPending.map(item => `${item.requirement}: ${item.detail}`),
-      ...(Number(evaluation.score || 0) <= 0 ? ['aderência técnica sem pontuação comprovada'] : []),
       ...(!exactCorePresent || !coreHasProfessionalEvidence ? [`atuação profissional em ${plan.core || 'competência principal'} não comprovada`] : []),
       ...(roleBlocked ? [role.detail] : []),
       ...domain.reasons
@@ -135,6 +153,10 @@ function inferredCoreSkill(opportunity = {}) {
   const details = opportunity.intakeDetails || {};
   const explicit = details.coreSkill || opportunity.coreSkill || opportunity.skill || '';
   if (String(explicit).trim()) return String(explicit).trim();
+
+  const vacancyText = [opportunity.opportunity, opportunity.jobDescription].filter(Boolean).join('\n');
+  const recognized = VACANCY_CORE_RULES.find(rule => rule.pattern.test(vacancyText));
+  if (recognized) return recognized.skill;
 
   const title = String(opportunity.opportunity || '').replace(
     /\b(?:vaga|oportunidade|consultor(?:a)?|analista|especialista|desenvolvedor(?:a)?|arquiteto(?:a)?|funcional|t[eé]cnico|t[eé]cnica|j[uú]nior|junior|jr|pleno|s[eê]nior|senior|sr)\b/gi,
@@ -174,7 +196,7 @@ export function matchingOpenOpportunities(curriculum, opportunities = []) {
   for (const opportunity of opportunities) {
     if (opportunity?.status !== 'Open') continue;
     const filter = opportunityFitFilter(opportunity);
-    if (!filter.coreSkill || !filter.jobDescription) continue;
+    if (!filter.coreSkill) continue;
     const evaluation = evaluateInternalCandidateForFilter(curriculum, filter);
     const operationalConflict = (evaluation.row.operationalChecks || []).some(item => item.status === 'incompatible');
     const alertDecision = strictAlertDecision(curriculum, filter, evaluation.row);
@@ -210,7 +232,7 @@ export function buildCandidateFitAlert({ curriculum, matches, baseUrl }) {
   const vacancies = matches.flatMap(({ opportunity, filter, evaluation }, index) => [
     `${index + 1}. ${[opportunity.opportunityCode, opportunity.opportunity].filter(Boolean).join(' - ')}`,
     `   Skill relacionada: ${filter.coreSkill}`,
-    `   Aderência técnica: ${evaluation.score}%`
+    `   Aderência técnica: ${Number(evaluation.score || 0) > 0 ? `${evaluation.score}%` : 'skill principal comprovada no currículo'}`
   ]);
   return {
     to: CANDIDATE_FIT_ALERT_RECIPIENTS.join(','),

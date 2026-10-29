@@ -78,6 +78,28 @@ test('matches only technically approved open opportunities without operational c
   assert.deepEqual(rows.map(row => row.opportunity.id), ['opp-tax']);
 });
 
+test('matches PMO professionals to a PMO vacancy without requiring a functional consultant title', () => {
+  const pmo = {
+    id_controle: 'CV-PMO', nome: 'Pessoa PMO',
+    skills: 'Profissional com 14 anos de experiência em Gestão de Projetos e PMO.',
+    experiencia_profissional: '2022 a atual - PMO responsável pela gestão de portfólio, riscos, cronograma e equipes multidisciplinares.'
+  };
+  const vacancy = {
+    id: 'opp-pmo', opportunityCode: '203', opportunity: 'Gerente de Projetos PMO Pleno', status: 'Open', workModel: 'Remoto',
+    jobDescription: 'Experiência comprovada como PMO. Conhecimento em PMBOK, Agile e Scrum.'
+  };
+  assert.equal(opportunityFitFilter(vacancy).coreSkill, 'PMO');
+  assert.deepEqual(matchingOpenOpportunities(pmo, [vacancy]).map(row => row.opportunity.id), ['opp-pmo']);
+});
+
+test('uses the title skill when an open vacancy has no job description', () => {
+  const taxVacancy = {
+    id: 'tax-title-only', opportunityCode: '202', opportunity: 'Consultor Junior TaxOne', status: 'Open', workModel: 'Remoto', jobDescription: ''
+  };
+  assert.equal(opportunityFitFilter(taxVacancy).coreSkill, 'Tax One');
+  assert.deepEqual(matchingOpenOpportunities(curriculum, [taxVacancy]).map(row => row.opportunity.id), ['tax-title-only']);
+});
+
 test('sends one grouped email to Gerson and Bruno and never duplicates curriculum-vacancy alert', async () => {
   const logs = [];
   const sent = [];
@@ -142,10 +164,12 @@ test('does not combine old Protheus PCP management with unrelated fiscal knowled
   assert.deepEqual(matchingOpenOpportunities(tseng, vacancies), []);
 });
 
-test('never sends an automatic alert with zero technical score', () => {
+test('core professional evidence can alert when the vacancy has no additional scored requirements', () => {
   const vagueOpportunity = {
     id: 'zero', opportunity: 'Consultor Tax One', status: 'Open', workModel: 'Remoto',
     intakeDetails: { coreSkill: 'Tax One' }, jobDescription: 'Experiência profissional em Tax One.'
   };
-  assert.deepEqual(matchingOpenOpportunities(curriculum, [vagueOpportunity]), []);
+  const matches = matchingOpenOpportunities(curriculum, [vagueOpportunity]);
+  assert.deepEqual(matches.map(row => row.opportunity.id), ['zero']);
+  assert.match(buildCandidateFitAlert({ curriculum, matches, baseUrl: 'https://example.test' }).text, /skill principal comprovada no currículo/);
 });
