@@ -46,7 +46,9 @@ const state = {
   dashboardMonth: '',
   dashboardModel: '',
   dashboardAnalyticsCsvUrl: '',
+  dashboardAnalyticsMetric: '',
   activeView: 'dashboard',
+  navigationHistory: [],
   activeFormsPanel: 'request',
   activeBillingReportPanel: 'query',
   activeStatusReportPanel: 'editor',
@@ -75,6 +77,7 @@ const state = {
   curriculumActiveTab: 'list',
   cvReturnContext: null,
   selectedCvSearchResultKeys: new Set(),
+  opportunityCandidateSearchResults: [],
   editing: {
     clientId: '',
     contactClientId: '',
@@ -96,6 +99,7 @@ const state = {
     selectingCandidateId: '',
     movingCandidateId: '',
     viewingOpportunityCandidatesId: '',
+    searchingOpportunityCandidatesId: '',
     observingCurriculumId: ''
   },
   indicators: null
@@ -1461,8 +1465,9 @@ function formatDateOnlyBR(value) {
 
 function opportunityAnalyticsRow(opportunity, includeClosedValue = false) {
   const closedValue = Number(opportunity.closedQuantity ?? 0) * Number(opportunity.contractValue ?? 0);
+  const linkedCandidateCount = linkedCandidatesForOpportunity(opportunity.id).length;
   const row = {
-    __meta: { type: 'opportunity', id: opportunity.id },
+    __meta: { type: 'opportunity', id: opportunity.id, insufficientCandidates: opportunity.status === 'Open' && linkedCandidateCount < 3 },
     'Código': opportunity.opportunityCode || '',
     'Oportunidade': opportunity.opportunity || '',
     'Cliente': clientNameById(opportunity.clientId),
@@ -1473,6 +1478,7 @@ function opportunityAnalyticsRow(opportunity, includeClosedValue = false) {
     'Fechamento': formatDateBR(opportunity.closingDate),
     'Qtde vagas': opportunity.quantity ?? 0,
     'Qtde fechada': opportunity.closedQuantity ?? 0,
+    'Candidatos vinculados': linkedCandidateCount,
     'Valor contrato': formatCurrency(opportunity.contractValue)
   };
 
@@ -1668,7 +1674,7 @@ function renderAnalyticsTable(rows) {
         </thead>
         <tbody>
           ${rows.map((row) => `
-            <tr data-dashboard-analytics-row>
+            <tr data-dashboard-analytics-row class="${row.__meta?.insufficientCandidates ? 'opportunity-needs-candidates' : ''}">
               ${hasActions ? `<td>${renderAnalyticsEditAction(row)}</td>` : ''}
               ${columns.map((column) => `<td data-dashboard-analytics-column="${escapeHtml(column)}">${escapeHtml(row[column] ?? '')}</td>`).join('')}
             </tr>
@@ -1776,6 +1782,11 @@ function ensureDashboardAnalyticsModal() {
   `;
   document.body.appendChild(modal);
   initPanelMaximizeControls();
+  modal.addEventListener('click', (event) => {
+    if (event.target.closest('[data-close-opportunity-candidate-search]') || event.target === modal) closeOpportunityCandidateSearch();
+  });
+  $('#opportunityCandidateSearchFilter', modal)?.addEventListener('input', () => renderOpportunityCandidateSearchRows(state.opportunityCandidateSearchResults));
+  $('#linkOpportunityCandidatesButton', modal)?.addEventListener('click', linkSelectedOpportunityCandidates);
   return modal;
 }
 
@@ -1833,8 +1844,8 @@ function editDashboardAnalyticsRecord(type, id) {
       toast('Oportunidade não encontrada para edição.');
       return;
     }
-    closeDashboardAnalytics();
     showView('opportunities');
+    closeDashboardAnalytics();
     loadOpportunityForEdit(opportunity);
     return;
   }
@@ -1845,8 +1856,8 @@ function editDashboardAnalyticsRecord(type, id) {
       toast('Candidato não encontrado para edição.');
       return;
     }
-    closeDashboardAnalytics();
     showView('candidates');
+    closeDashboardAnalytics();
     loadCandidateForEdit(candidate);
     return;
   }
@@ -1857,8 +1868,8 @@ function editDashboardAnalyticsRecord(type, id) {
       toast('Cliente não encontrado para edição.');
       return;
     }
-    closeDashboardAnalytics();
     showView('clients');
+    closeDashboardAnalytics();
     loadClientForEdit(client);
   }
 }
@@ -1866,6 +1877,7 @@ function editDashboardAnalyticsRecord(type, id) {
 function openDashboardAnalytics(metricId) {
   const analytics = buildDashboardAnalytics(metricId);
   if (!analytics) return;
+  state.dashboardAnalyticsMetric = metricId;
 
   const modal = ensureDashboardAnalyticsModal();
   $('#dashboardAnalyticsTitle').textContent = analytics.title;
@@ -2985,8 +2997,10 @@ function renderOpportunities() {
     .map((opportunity) => {
       const client = state.clients.find((item) => item.id === opportunity.clientId);
       const contact = state.contactClients.find((item) => item.id === opportunity.contactClientId);
+      const linkedCandidateCount = linkedCandidatesForOpportunity(opportunity.id).length;
+      const needsCandidates = opportunity.status === 'Open' && linkedCandidateCount < 3;
       return `
-        <tr class="clickable-row" data-edit-opportunity="${opportunity.id}">
+        <tr class="clickable-row ${needsCandidates ? 'opportunity-needs-candidates' : ''}" data-edit-opportunity="${opportunity.id}">
           <td><strong>${opportunity.opportunity}</strong></td>
           <td>${opportunity.opportunityCode || '-'}</td>
           <td>${escapeHtml(opportunity.clientOpportunityCode || '-')}</td>
@@ -3004,15 +3018,36 @@ function renderOpportunities() {
           <td>${formatCurrency(opportunity.contractValue)}</td>
           <td>${escapeHtml(opportunity.jobDescription || '-')}</td>
           <td>${opportunity.observation || '-'}</td>
-          <td><button class="primary-action compact-action" type="button" data-open-opportunity-candidates="${opportunity.id}">Candidatos</button></td>
+          <td><button class="primary-action compact-action" type="button" data-open-opportunity-candidates="${opportunity.id}">Candidatos (${linkedCandidateCount})</button></td>
         </tr>
       `;
     })
     .join('');
 }
 
+function linkedCandidateKey(candidate = {}) {
+  return String(candidate.curriculumId || candidate.email || candidate.name || candidate.id || '').trim().toLowerCase();
+}
+
+function linkedCandidatesForOpportunity(opportunityId) {
+  const merged = [
+    ...state.candidates
+      .filter((candidate) => candidate.opportunityId === opportunityId && candidate.stage !== 'Reprovado')
+      .map((candidate) => ({ ...candidate, linkedCollection: 'candidates' })),
+    ...state.selectedCandidates
+      .filter((candidate) => candidate.opportunityId === opportunityId && candidate.stage !== 'Reprovado')
+      .map((candidate) => ({ ...candidate, linkedCollection: 'selectedCandidates' }))
+  ];
+  const unique = new Map();
+  merged.forEach((candidate) => {
+    const key = linkedCandidateKey(candidate);
+    if (key && !unique.has(key)) unique.set(key, candidate);
+  });
+  return [...unique.values()];
+}
+
 function activeCandidatesForOpportunity(opportunityId) {
-  return state.candidates.filter((candidate) => candidate.opportunityId === opportunityId && candidate.stage !== 'Reprovado');
+  return linkedCandidatesForOpportunity(opportunityId);
 }
 
 function ensureOpportunityCandidatesModal() {
@@ -3042,13 +3077,143 @@ function renderOpportunityCandidatesModal(opportunityId) {
   const candidates = activeCandidatesForOpportunity(opportunityId);
   $('#opportunityCandidatesSummary', modal).textContent = `${opportunityLabel(opportunity)} · ${candidates.length} candidato(s) ativo(s)`;
   $('#opportunityCandidatesTable', modal).innerHTML = candidates.length ? candidates.map((candidate) => `
-    <tr><td><strong>${escapeHtml(candidate.name || '-')}</strong></td><td><span class="tag">${escapeHtml(candidate.stage || 'Triagem')}</span></td><td><span class="score">${candidate.aderencia ?? 0}%</span></td><td><div class="stage-actions"><button class="ghost-action compact-action" type="button" data-opportunity-move-candidate="${candidate.id}">Mover</button><button class="danger-action compact-action" type="button" data-reject-opportunity-candidate="${candidate.id}">Reprovado</button></div></td></tr>`).join('') : '<tr><td colspan="4">Nenhum candidato ativo vinculado a esta oportunidade.</td></tr>';
+    <tr><td><strong>${escapeHtml(candidate.name || '-')}</strong></td><td><span class="tag">${escapeHtml(candidate.stage || 'Triagem')}</span></td><td><span class="score">${candidate.aderencia ?? candidate.score ?? 0}%</span></td><td>${candidate.linkedCollection === 'candidates' ? `<div class="stage-actions"><button class="ghost-action compact-action" type="button" data-opportunity-move-candidate="${candidate.id}">Mover</button><button class="danger-action compact-action" type="button" data-reject-opportunity-candidate="${candidate.id}">Reprovado</button></div>` : '<span class="tag">Selecionado</span>'}</td></tr>`).join('') : '<tr><td colspan="4">Nenhum candidato ativo vinculado a esta oportunidade.</td></tr>';
   openSurfaceDialog(modal);
 }
 
 function closeOpportunityCandidatesModal() {
   state.editing.viewingOpportunityCandidatesId = '';
   closeSurfaceDialog('#opportunityCandidatesModal');
+}
+
+function ensureOpportunityCandidateSearchModal() {
+  let modal = $('#opportunityCandidateSearchModal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'opportunityCandidateSearchModal';
+  modal.className = 'modal-backdrop hidden';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-labelledby', 'opportunityCandidateSearchTitle');
+  modal.innerHTML = `
+    <section class="modal-card opportunity-candidate-search-card">
+      <div class="modal-heading">
+        <div><h2 id="opportunityCandidateSearchTitle">Procurar candidatos no Banco Alcateia</h2><span id="opportunityCandidateSearchSummary"></span></div>
+        <button class="surface-window-control surface-close-button" type="button" data-close-opportunity-candidate-search aria-label="Fechar painel" title="Fechar"></button>
+      </div>
+      <div class="dashboard-analytics-toolbar">
+        <label>Filtrar resultados<input id="opportunityCandidateSearchFilter" type="search" placeholder="Nome, skill ou evidência"></label>
+        <span id="opportunityCandidateSearchCount"></span>
+      </div>
+      <p class="form-help" id="opportunityCandidateSearchStatus">Consultando exclusivamente o Banco de Talentos da Alcateia.</p>
+      <div class="table-wrap opportunity-candidate-search-table-wrap">
+        <table>
+          <thead><tr><th>Selecionar</th><th>Profissional</th><th>Aderência</th><th>Classificação</th><th>Evidências</th></tr></thead>
+          <tbody id="opportunityCandidateSearchTable"></tbody>
+        </table>
+      </div>
+      <div class="candidate-stage-move-actions">
+        <button class="secondary-action" type="button" data-close-opportunity-candidate-search>Cancelar</button>
+        <button class="primary-action" id="linkOpportunityCandidatesButton" type="button">Vincular selecionados</button>
+      </div>
+    </section>`;
+  document.body.appendChild(modal);
+  initPanelMaximizeControls();
+  return modal;
+}
+
+function renderOpportunityCandidateSearchRows(results = []) {
+  const modal = ensureOpportunityCandidateSearchModal();
+  const filter = normalizeText($('#opportunityCandidateSearchFilter', modal)?.value);
+  const visible = results.filter((candidate) => !filter || normalizeText([
+    candidate.name, candidate.observation, candidate.classification,
+    ...(candidate.matchedMandatorySkills || []), ...(candidate.jobDescriptionHits || [])
+  ].join(' ')).includes(filter));
+  $('#opportunityCandidateSearchTable', modal).innerHTML = visible.length ? visible.map((candidate) => `
+    <tr>
+      <td><input type="checkbox" data-opportunity-candidate-result value="${escapeHtml(candidate.curriculumId)}"></td>
+      <td><strong>${escapeHtml(candidate.name || '-')}</strong><br><small>Banco Alcateia</small></td>
+      <td><span class="score">${Number(candidate.score || 0)}%</span></td>
+      <td><span class="tag">${escapeHtml(candidate.classification || 'análise')}</span></td>
+      <td>${escapeHtml(candidate.observation || (candidate.matchedMandatorySkills || []).join(', ') || '-')}</td>
+    </tr>`).join('') : '<tr><td colspan="5">Nenhum profissional encontrado para o filtro informado.</td></tr>';
+  $('#opportunityCandidateSearchCount', modal).textContent = `${visible.length} de ${results.length} resultado(s)`;
+}
+
+async function openOpportunityCandidateSearch(opportunityId) {
+  const opportunity = state.opportunities.find((item) => item.id === opportunityId);
+  if (!opportunity) return;
+  const modal = ensureOpportunityCandidateSearchModal();
+  state.editing.searchingOpportunityCandidatesId = opportunityId;
+  state.opportunityCandidateSearchResults = [];
+  $('#opportunityCandidateSearchSummary', modal).textContent = opportunityLabel(opportunity);
+  $('#opportunityCandidateSearchStatus', modal).textContent = 'Consultando exclusivamente o Banco de Talentos da Alcateia...';
+  $('#opportunityCandidateSearchTable', modal).innerHTML = '<tr><td colspan="5">Pesquisa em andamento...</td></tr>';
+  $('#opportunityCandidateSearchFilter', modal).value = '';
+  openSurfaceDialog(modal);
+  try {
+    const response = await api(`/api/opportunities/${encodeURIComponent(opportunityId)}/candidate-search`, {
+      method: 'POST', body: JSON.stringify({})
+    });
+    state.opportunityCandidateSearchResults = response.results || [];
+    $('#opportunityCandidateSearchStatus', modal).textContent = `Competência: ${response.coreSkill}. ${response.totalEvaluated} currículo(s) avaliados. Fonte exclusiva: Alcateia.`;
+    renderOpportunityCandidateSearchRows(state.opportunityCandidateSearchResults);
+  } catch (error) {
+    $('#opportunityCandidateSearchStatus', modal).textContent = error.message || 'Não foi possível pesquisar candidatos.';
+    $('#opportunityCandidateSearchTable', modal).innerHTML = '<tr><td colspan="5">Pesquisa não concluída.</td></tr>';
+  }
+}
+
+function closeOpportunityCandidateSearch() {
+  state.editing.searchingOpportunityCandidatesId = '';
+  state.opportunityCandidateSearchResults = [];
+  closeSurfaceDialog('#opportunityCandidateSearchModal');
+}
+
+function nearestAderenciaOption(score) {
+  return state.aderenciaOptions.reduce((nearest, option) => (
+    Math.abs(Number(option) - Number(score || 0)) < Math.abs(Number(nearest) - Number(score || 0)) ? option : nearest
+  ), state.aderenciaOptions[0] || 0);
+}
+
+async function linkSelectedOpportunityCandidates() {
+  const modal = $('#opportunityCandidateSearchModal');
+  const opportunityId = state.editing.searchingOpportunityCandidatesId;
+  const selectedIds = $$('[data-opportunity-candidate-result]:checked', modal).map((input) => input.value);
+  if (!selectedIds.length) { toast('Selecione ao menos um profissional.'); return; }
+  const button = $('#linkOpportunityCandidatesButton', modal);
+  const original = setSubmitButtonBusy(button, 'Vinculando...');
+  let linked = 0;
+  const errors = [];
+  for (const curriculumId of selectedIds) {
+    const result = state.opportunityCandidateSearchResults.find((candidate) => candidate.curriculumId === curriculumId);
+    if (!result) continue;
+    try {
+      const candidate = await api('/api/candidates', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: result.name,
+          curriculumId,
+          opportunityId,
+          stage: 'Triagem',
+          aderencia: nearestAderenciaOption(result.score),
+          source: 'ALCATEIA',
+          observation: `Vinculado pela busca interna da oportunidade. Aderência técnica calculada: ${Number(result.score || 0)}%.`
+        })
+      });
+      upsertStateItem('candidates', candidate);
+      linked += 1;
+    } catch (error) {
+      errors.push(`${result.name}: ${error.message}`);
+    }
+  }
+  restoreSubmitButton(button, original || 'Vincular selecionados');
+  renderOpportunities();
+  if (linked) {
+    closeOpportunityCandidateSearch();
+    renderOpportunityCandidatesModal(opportunityId);
+  }
+  toast(errors.length ? `${linked} vinculado(s). ${errors.length} não vinculado(s).` : `${linked} candidato(s) vinculado(s) à oportunidade.`);
 }
 
 function requestCandidateRejection(candidate) {
@@ -8572,15 +8737,25 @@ function setDashboardInsightsVisible(visible) {
   $('#dashboard')?.classList.toggle('dashboard-drill-active', visible);
 }
 
-function showView(viewId) {
+function showView(viewId, options = {}) {
   if (viewId === 'opportunityIntake') {
     if (!state.localIntakeEnabled) { toast('Tela de solicitações DTT não disponível neste ambiente.'); return; }
     window.OpportunityIntake.mount();
   }
   if (!canAccessView(viewId)) {
     toast(isCurrentUserConsultant() ? 'Acesse os serviços disponíveis na sua tela inicial.' : 'Acesso restrito a administradores.');
-    showView('dashboard');
+    showView('dashboard', { skipHistory: true });
     return;
+  }
+  if (!options.skipHistory && state.activeView && state.activeView !== viewId) {
+    state.navigationHistory.push({
+      viewId: state.activeView,
+      scrollY: window.scrollY,
+      dashboardAnalyticsMetric: state.activeView === 'dashboard' && !$('#dashboardAnalyticsModal')?.classList.contains('hidden')
+        ? state.dashboardAnalyticsMetric
+        : ''
+    });
+    if (state.navigationHistory.length > 40) state.navigationHistory.shift();
   }
   state.activeView = viewId;
   $$('.view').forEach((view) => view.classList.toggle('active', view.id === viewId));
@@ -8596,7 +8771,20 @@ function showView(viewId) {
   if (viewId === 'statusReportManagement') renderStatusReportManagement();
   if (viewId === 'statusReportParameters') renderStatusReportParameters();
   window.setTimeout(() => maximizeActiveViewPrimaryPanel(viewId), 0);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  window.scrollTo({ top: Number(options.restoreScrollY || 0), behavior: options.restoreScrollY ? 'auto' : 'smooth' });
+}
+
+function goBackOneScreen() {
+  const previous = state.navigationHistory.pop();
+  if (!previous) {
+    showView('dashboard', { skipHistory: true });
+    renderLauncherDrill(state.launcherReturnNodeId || launcherRootId);
+    return;
+  }
+  showView(previous.viewId, { skipHistory: true, restoreScrollY: previous.scrollY });
+  if (previous.dashboardAnalyticsMetric) {
+    window.setTimeout(() => openDashboardAnalytics(previous.dashboardAnalyticsMetric), 0);
+  }
 }
 
 function setSubmitLabel(form, label) {
@@ -8659,6 +8847,7 @@ function clearEditing(form, key, submitLabel) {
     form.reset();
     if (form.id === 'opportunityForm' && form.elements.opportunityCode) {
       form.elements.opportunityCode.readOnly = true;
+      $('#opportunityCandidateActions')?.setAttribute('hidden', '');
     }
     setSubmitLabel(form, submitLabel);
   }
@@ -8743,6 +8932,7 @@ function loadOpportunityForEdit(opportunity) {
   }, 'Atualizar oportunidade');
   $('#opportunityForm input[name="opportunityCode"]').readOnly = true;
   updateOpportunityContactOptions(opportunity.contactClientId || '');
+  $('#opportunityCandidateActions')?.removeAttribute('hidden');
   toast('Oportunidade carregada para atualização.');
 }
 
@@ -9281,9 +9471,7 @@ function rememberLauncherReturnForView(viewId, panel = '') {
 function returnToPreviousLauncherMenu() {
   $$('.panel-maximized').forEach((panel) => setSurfaceMaximized(panel, false));
   $$('.surface-minimized').forEach((panel) => setSurfaceMinimized(panel, false));
-  showView('dashboard');
-  renderLauncherDrill(state.launcherReturnNodeId || launcherRootId);
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  goBackOneScreen();
 }
 
 function readLauncherFavoriteIds() {
@@ -11867,6 +12055,13 @@ function bindEditableRows() {
     const row = event.target.closest('[data-edit-opportunity]');
     const opportunity = state.opportunities.find((item) => item.id === row?.dataset.editOpportunity);
     if (opportunity) loadOpportunityForEdit(opportunity);
+  });
+
+  $('#opportunityLinkedCandidatesButton')?.addEventListener('click', () => {
+    if (state.editing.opportunityId) renderOpportunityCandidatesModal(state.editing.opportunityId);
+  });
+  $('#opportunitySearchCandidatesButton')?.addEventListener('click', () => {
+    if (state.editing.opportunityId) openOpportunityCandidateSearch(state.editing.opportunityId);
   });
 
   document.addEventListener('click', async (event) => {

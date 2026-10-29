@@ -74,7 +74,7 @@ import { summarizeCandidateEmails, summarizeSentMessages } from './email-diagnos
 import { CvSearchJobs, uniqueApproved, recommendedCandidates, APPROVED_TARGET } from './cv-search-jobs.js';
 const cvSearchJobs = new CvSearchJobs();
 import { coreKeyword, screeningStats, interpretVacancy } from './candidate-screening.js';
-import { notifyNewCurriculumFits, recentCurriculumIds } from './candidate-fit-alerts.js';
+import { notifyNewCurriculumFits, opportunityFitFilter, recentCurriculumIds } from './candidate-fit-alerts.js';
 import { promises as fs } from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -6011,6 +6011,45 @@ async function handleApi(request, response) {
       return;
     }
 
+    if (request.method === 'POST' && /^\/api\/opportunities\/[^/]+\/candidate-search$/.test(pathname)) {
+      const opportunityId = pathname.split('/').at(-2);
+      const payload = await readJsonBody(request).catch(() => ({}));
+      const db = await readDatabaseCollections(['opportunities', 'candidates', 'selectedCandidates']);
+      const opportunity = db.opportunities.find((item) => item.id === opportunityId);
+      if (!opportunity) { sendError(response, 404, 'Oportunidade nao encontrada.'); return; }
+      requireOpenCandidateOpportunity(db, opportunity.id);
+
+      const baseFilter = opportunityFitFilter(opportunity);
+      const coreSkill = String(payload.coreSkill || baseFilter.coreSkill || '').trim();
+      if (!coreSkill) { sendError(response, 422, 'A oportunidade precisa de uma competencia principal para pesquisar candidatos.'); return; }
+      const filter = {
+        ...baseFilter,
+        coreSkill,
+        mandatorySkills: String(payload.mandatorySkills || baseFilter.mandatorySkills || coreSkill).trim(),
+        searchAlcateia: true,
+        searchApinfo: false,
+        searchLinkedin: false,
+        resultLimit: 1000
+      };
+      const search = await searchAlcateiaCandidates(filter, 1000);
+      const linkedIds = new Set([...(db.candidates || []), ...(db.selectedCandidates || [])]
+        .filter((candidate) => candidate.opportunityId === opportunity.id && candidate.stage !== 'Reprovado')
+        .map((candidate) => String(candidate.curriculumId || '').trim())
+        .filter(Boolean));
+      const results = [...(search.results || [])]
+        .filter((candidate) => candidate.curriculumId && !linkedIds.has(String(candidate.curriculumId)))
+        .sort((first, second) => Number(second.score || 0) - Number(first.score || 0));
+      sendJson(response, 200, {
+        opportunityId: opportunity.id,
+        coreSkill,
+        source: 'ALCATEIA',
+        externalSourcesUsed: false,
+        totalEvaluated: Number(search.stats?.evaluated || search.totalFound || 0),
+        results
+      });
+      return;
+    }
+
     if (request.method === 'GET' && /^\/api\/cv-search-jobs\/[^/]+$/.test(pathname)) {
       const searchJobId = pathname.split('/').at(-1);
       const job = cvSearchJobs.get(searchJobId, auth.user.id);
@@ -6777,6 +6816,14 @@ async function handleApi(request, response) {
         return;
       }
       requireOpenCandidateOpportunity(db, candidate.opportunityId);
+      if (candidate.curriculumId && [...(db.candidates || []), ...(db.selectedCandidates || [])].some((item) => (
+        item.opportunityId === candidate.opportunityId
+        && item.stage !== 'Reprovado'
+        && String(item.curriculumId || '').trim() === candidate.curriculumId
+      ))) {
+        sendError(response, 409, 'Este profissional ja esta vinculado a oportunidade.');
+        return;
+      }
 
       db.candidates.push(candidate);
       candidateDb.candidates = db.candidates;
