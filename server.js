@@ -484,16 +484,51 @@ async function triggerNewCurriculumFitAlert(curriculum) {
   });
 }
 
-async function triggerNewCurriculumFitAlerts(curriculumIds = []) {
+function curriculumLookupKeys(curriculum = {}) {
+  return [
+    curriculum.id_controle,
+    curriculum.id,
+    curriculum.mongoId,
+    curriculum.legacy_candidato_id,
+    curriculum.legacy_id_controle
+  ].map(value => String(value || '').trim()).filter(Boolean);
+}
+
+async function triggerNewCurriculumFitAlerts(curriculumIds = [], curriculumPool = null) {
   const uniqueIds = [...new Set(curriculumIds.map(value => String(value || '').trim()).filter(Boolean))];
+  const pool = Array.isArray(curriculumPool)
+    ? curriculumPool
+    : (await getCurriculumsFromMongo({ all: true })).curriculums || [];
+  const curriculumByIdentifier = new Map();
+  for (const curriculum of pool) {
+    for (const key of curriculumLookupKeys(curriculum)) curriculumByIdentifier.set(key, curriculum);
+  }
+  const db = await readDatabase();
+  const smtp = getSmtpConfigFromEnv();
+  const emailLogs = await readEmailLogs();
   const results = [];
   for (const identifier of uniqueIds) {
-    const curriculum = await getCurriculumFromMongo(identifier).catch(() => null);
+    const curriculum = curriculumByIdentifier.get(identifier) || await getCurriculumFromMongo(identifier).catch(() => null);
     if (!curriculum) {
       results.push({ identifier, status: 'not_found', sent: false, matches: [] });
       continue;
     }
-    results.push({ identifier, ...(await triggerNewCurriculumFitAlert(curriculum)) });
+    if (!smtp.host || !smtp.user || !smtp.password || !smtp.from) {
+      results.push({ identifier, status: 'smtp_not_configured', sent: false, matches: [] });
+      continue;
+    }
+    const result = await notifyNewCurriculumFits({
+      curriculum,
+      opportunities: db.opportunities || [],
+      baseUrl: getPublicBaseUrl(),
+      readLogs: async () => emailLogs,
+      writeLog: async entry => {
+        await writeEmailLog(entry);
+        emailLogs.push(entry);
+      },
+      send: message => sendMail({ ...smtp, ...message })
+    });
+    results.push({ identifier, ...result });
   }
   return results;
 }
@@ -515,7 +550,7 @@ function startCandidateFitReconciliation(since) {
     try {
       const mongoResponse = await getCurriculumsFromMongo({ all: true });
       const identifiers = recentCurriculumIds(mongoResponse.curriculums || [], since);
-      const results = await triggerNewCurriculumFitAlerts(identifiers);
+      const results = await triggerNewCurriculumFitAlerts(identifiers, mongoResponse.curriculums || []);
       candidateFitReconciliation.result = {
         since,
         evaluated: identifiers.length,

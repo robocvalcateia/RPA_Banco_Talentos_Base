@@ -113,6 +113,24 @@ test('evaluates an unknown skill without depending on a fixed technology catalog
   assert.deepEqual(matchingOpenOpportunities(person, [vacancy]).map(row => row.opportunity.id), ['unknown-skill']);
 });
 
+test('does not confuse a developer mentioning purchases with a procurement professional', () => {
+  const developer = {
+    id_controle: 'CV-KLEBER', nome: 'Kleber',
+    skills: 'Desenvolvedor .NET, C#, PHP, JavaScript e bancos de dados.',
+    experiencia_profissional: '2023 a atual - Desenvolvedor de portal que permite compras online e integração de pagamentos.'
+  };
+  const buyer = {
+    id_controle: 'CV-COMPRAS', nome: 'Pessoa Compras',
+    experiencia_profissional: '2022 a atual - Analista de Compras responsável por cotação, negociação com fornecedores, contratos e pedidos de compra.'
+  };
+  const vacancy = {
+    id: 'compras', opportunity: 'Analista de Compras Pleno', status: 'Open', workModel: 'Remoto',
+    jobDescription: 'Experiência em Compras, fornecedores, contratos, cotações, negociação e ciclo P2P.'
+  };
+  assert.deepEqual(matchingOpenOpportunities(developer, [vacancy]), []);
+  assert.deepEqual(matchingOpenOpportunities(buyer, [vacancy]).map(row => row.opportunity.id), ['compras']);
+});
+
 test('sends one grouped email to Gerson and Bruno and never duplicates curriculum-vacancy alert', async () => {
   const logs = [];
   const sent = [];

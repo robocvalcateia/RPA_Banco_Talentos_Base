@@ -31,6 +31,15 @@ const DOMAIN_RULES = [
   { product: 'Datasul', vacancy: /\b(?:totvs\s+)?datasul\b/i, evidence: /\b(?:totvs\s+)?datasul\b/i, requirements: [] }
 ];
 
+const BUSINESS_DOMAIN_RULES = [
+  {
+    product: 'Compras',
+    vacancy: /\b(?:compras|procurement|buyer|comprador(?:a)?)\b/i,
+    evidence: /\b(?:compras|procurement|buyer|comprador(?:a)?|suprimentos|sourcing)\b/i,
+    context: /\b(?:fornecedores?|cota[cç][aã]o|negocia[cç][aã]o|pedidos?\s+de\s+compra|contratos?|sourcing|suprimentos|supply\s+chain|procure\s+to\s+pay|P2P|e-?procurement)\b/i
+  }
+];
+
 const VACANCY_CORE_RULES = [
   { skill: 'Tax One', pattern: /\b(?:tax\s*one|mastersaf\s+(?:dw|data warehouse))\b/i },
   { skill: 'Datasul', pattern: /\b(?:totvs\s+)?datasul\b/i },
@@ -66,8 +75,16 @@ function recentProfessionalBlock(block, now = new Date()) {
 function domainEvidenceDecision(curriculum = {}, filter = {}, plan = interpretVacancy(filter)) {
   const vacancyText = [filter.coreSkill, filter.mandatorySkills, filter.technicalSkills, filter.jobDescription].filter(Boolean).join('\n');
   const rule = DOMAIN_RULES.find(item => item.vacancy.test(vacancyText));
-  if (!rule) return { status: 'not_required', reasons: [] };
   const blocks = professionalBlocks(curriculum);
+  if (!rule) {
+    const businessRule = BUSINESS_DOMAIN_RULES.find(item => item.vacancy.test(vacancyText));
+    if (!businessRule) return { status: 'not_required', reasons: [] };
+    const supportedBlocks = blocks.filter(block => businessRule.evidence.test(block) && businessRule.context.test(block));
+    if (!supportedBlocks.length) {
+      return { status: 'missing', reasons: [`atuação profissional em ${businessRule.product} não comprovada por atividades do processo`] };
+    }
+    return { status: 'meets', reasons: [] };
+  }
   const productName = rule?.product || plan.core;
   const productBlocks = blocks.filter(block =>
     (rule ? rule.evidence.test(block) : hasSkill(block, plan.core))
