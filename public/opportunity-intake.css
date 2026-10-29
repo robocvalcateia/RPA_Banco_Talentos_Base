@@ -7,8 +7,25 @@
 #opportunityIntake textarea { min-height: 95px; resize: vertical; }
 #opportunityIntake .intake-wide { grid-column: 1 / -1; }
 #opportunityIntake .intake-actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin: 18px 0; }
-#opportunityIntake button { padding: 10px 16px; border: 1px solid #aacac4; border-radius: 7px; background: #fff; color: #174d42; font: inherit; font-weight: 600; cursor: pointer; }
-#opportunityIntake button.primary-action { background: #007d69; color: #fff; border-color: #007d69; }
+#opportunityIntake button {
+  align-items: center;
+  background: var(--alcateia-green, #00b99a);
+  border-color: var(--alcateia-green, #00b99a);
+  border-radius: 6px;
+  color: var(--alcateia-black, #071c1a);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-weight: 800;
+  height: var(--action-button-height, 52px);
+  justify-content: center;
+  max-width: var(--action-button-width, 180px);
+  min-height: var(--action-button-height, 52px);
+  min-width: var(--action-button-width, 180px);
+  padding: 0 14px;
+  text-align: center;
+  width: var(--action-button-width, 180px);
+}
 #opportunityIntake button:disabled { opacity: .5; cursor: not-allowed; }
 #opportunityIntake button:focus-visible, #opportunityIntake summary:focus-visible { outline: 3px solid #008b75; outline-offset: 3px; }
 #opportunityIntake .intake-warning { background: #fff7e5; border: 1px solid #ead09a; padding: 14px 18px; border-radius: 8px; color: #68430e; }

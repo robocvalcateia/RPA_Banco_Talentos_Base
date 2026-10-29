@@ -7,6 +7,7 @@ const html = readFileSync(new URL('../public/index.html', import.meta.url), 'utf
 const styles = readFileSync(new URL('../public/styles.css', import.meta.url), 'utf8');
 const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
 const intake = readFileSync(new URL('../public/opportunity-intake.js', import.meta.url), 'utf8');
+const intakeCss = readFileSync(new URL('../public/opportunity-intake.css', import.meta.url), 'utf8');
 
 test('Voltar usa histórico de uma tela e preserva a tela anterior', () => {
   assert.match(app, /navigationHistory:\s*\[\]/);
@@ -71,4 +72,12 @@ test('revisao DTT abre editavel e rejeicao nao se confunde com cadastro', () => 
   assert.match(intake, /Nova proposta rejeitada\. Nenhuma oportunidade ou vínculo foi criado\./);
   assert.match(intake, /Salvar correção/);
   assert.match(intake, /Correção salva na oportunidade existente\. Nenhuma nova oportunidade foi criada\./);
+});
+
+test('confirmar e rejeitar proposta DTT usam o mesmo tamanho e a mesma cor', () => {
+  assert.match(intake, /id="intakeConfirm" class="primary-action"/);
+  assert.match(intake, /id="intakeCancel" class="primary-action"/);
+  assert.match(intakeCss, /#opportunityIntake button\s*\{[\s\S]*background:\s*var\(--alcateia-green/);
+  assert.match(intakeCss, /#opportunityIntake button\s*\{[\s\S]*width:\s*var\(--action-button-width/);
+  assert.match(intakeCss, /#opportunityIntake button\s*\{[\s\S]*height:\s*var\(--action-button-height/);
 });

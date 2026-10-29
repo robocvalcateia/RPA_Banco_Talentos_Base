@@ -137,7 +137,7 @@ window.OpportunityIntake = (() => {
       <div id="intakeWarnings" class="intake-warning"></div><div class="intake-actions"><button id="intakeSearch" type="button">Salvar revisão</button></div>
       <h2>Profissionais do banco de talentos</h2><div id="intakeCandidates"></div>
       <label class="intake-check"><input id="intakeAcknowledge" type="checkbox">Revisei os dados e as pendências. A seleção é uma indicação para avaliação, sujeita à confirmação dos requisitos com o profissional.</label>
-      <div class="intake-actions"><button id="intakeConfirm" class="primary-action" type="button">Confirmar</button><button id="intakeCancel" type="button">Rejeitar nova proposta</button><strong id="selectedCount"></strong></div></section>`;
+      <div class="intake-actions"><button id="intakeConfirm" class="primary-action" type="button">Confirmar</button><button id="intakeCancel" class="primary-action" type="button">Rejeitar nova proposta</button><strong id="selectedCount"></strong></div></section>`;
     q('#intakeForm').onsubmit = ev => ev.preventDefault();
     q('#intakeFields').oninput = () => { syncDerivedFields(); dirty = true; q('#intakeAcknowledge').checked = false; controls(); message('Dados alterados: salve a revisão antes de confirmar. A pesquisa existente será preservada.'); };
     q('#intakeReload').onclick = () => run(load);
