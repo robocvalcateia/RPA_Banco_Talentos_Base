@@ -832,22 +832,35 @@ async function api(path, options = {}) {
     delete headers['content-type'];
   }
   const { headers: _ignoredHeaders, ...requestOptions } = options;
-  const response = await fetch(path, {
-    ...requestOptions,
-    headers
-  });
+  let response;
+  try {
+    response = await fetch(path, { ...requestOptions, headers });
+  } catch (cause) {
+    const writing = !['GET', 'HEAD'].includes(String(options.method || 'GET').toUpperCase());
+    throw Object.assign(new Error(writing
+      ? 'A conexão foi interrompida. A gravação pode ter sido concluída; atualize a solicitação antes de tentar novamente.'
+      : 'Não foi possível conectar ao sistema. Verifique a conexão e tente atualizar novamente.'), { cause, uncertain: writing, path });
+  }
 
-  const payload = await response.json().catch(() => ({}));
+  const payload = await response.json().catch(() => null);
   if (!response.ok) {
     if (response.status === 401) {
       clearSession();
       showLogin();
     }
-    if (response.status === 403 && payload.error?.includes('senha')) {
+    if (response.status === 403 && payload?.error?.includes('senha')) {
       showPasswordChange();
     }
-    throw new Error(repairEncodingArtifacts(payload.error || 'Não foi possível concluir a ação.'));
+    const fallback = response.status === 401
+      ? 'Sua sessão expirou. Entre novamente para continuar.'
+      : response.status === 409
+        ? 'A solicitação mudou em outra tela. Atualize antes de continuar.'
+        : response.status >= 500
+          ? `O servidor ficou indisponível (HTTP ${response.status}). Atualize a solicitação para conferir o resultado antes de repetir a ação.`
+          : `Não foi possível concluir a ação (HTTP ${response.status}).`;
+    throw Object.assign(new Error(repairEncodingArtifacts(payload?.error || fallback)), { status: response.status, path, uncertain: response.status >= 500 && !['GET','HEAD'].includes(String(options.method || 'GET').toUpperCase()) });
   }
+  if (payload === null) throw Object.assign(new Error('O sistema devolveu uma resposta incompleta. Atualize a solicitação para conferir o resultado.'), { status: response.status, path });
   return sanitizeApiPayload(payload);
 }
 

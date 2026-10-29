@@ -18,12 +18,16 @@ export function createMongoIntakeAdapter({ env=process.env, loadTalent, searchCa
     })().catch(e=>{connection=null;throw e;});
     return connection;
   }
-  async function snapshot(collection,session) {
+  async function snapshot(collection,session,{draftId}={}) {
     const state={};
-    for(const name of readCollections) state[name]=(await collection(name).find({},{session}).toArray()).map(clean);
-    const results=(await collection('intakeSearchResults').find({}, {
+    for(const name of readCollections) {
+      if(draftId && ['selectedCandidates','candidateMovements','intakeNotifications','intakeRuntime'].includes(name)){state[name]=[];continue;}
+      const query=draftId && name==='opportunityIntakes'?{id:draftId}:{};
+      state[name]=(await collection(name).find(query,{session}).toArray()).map(clean);
+    }
+    const results=(await collection('intakeSearchResults').find(draftId?{draftId}:{}, {
       session,
-      projection:{'candidate.cvText':0}
+      ...(draftId?{}:{projection:{'candidate.cvText':0}})
     }).toArray()).map(clean);
     for(const draft of state.opportunityIntakes) if(draft.search) draft.search.candidates=results.filter(r=>r.draftId===draft.id).sort((a,b)=>a.position-b.position).map(r=>r.candidate);
     state.curriculums=await loadTalent([...new Set(results.map(r=>String(r.candidate.id)))]);
@@ -43,14 +47,16 @@ export function createMongoIntakeAdapter({ env=process.env, loadTalent, searchCa
     searchCandidates,
     async readRuntime(){const {collection}=await connect();const row=await collection('intakeRuntime').findOne({id:'hourly'});return row?clean(row):null;},
     async read(){const {collection}=await connect();return snapshot(collection);},
-    async transaction(operation){
+    async readDraft(id){const {collection}=await connect();return snapshot(collection,undefined,{draftId:id});},
+    async readSummary(){const {collection}=await connect();return {opportunityIntakes:(await collection('opportunityIntakes').find({}).toArray()).map(clean)};},
+    async transaction(operation,scope={}){
       const {client,collection}=await connect();const session=client.startSession();let result,phase='lock',timings={};
       try {await session.withTransaction(async()=>{
         const started=Date.now();timings={};phase='lock';
         // All DTT writes acquire the same transactional document before reading.
         await collection('intakeLocks').updateOne({_id:'transactions'},{$inc:{version:1}},{session});
         timings.lock=Date.now()-started;
-        phase='snapshot';const state=await snapshot(collection,session), before=documents(state);
+        phase='snapshot';const state=await snapshot(collection,session,scope), before=documents(state);
         timings.snapshot=Date.now()-started;
         phase='operation';result=await operation(state);timings.operation=Date.now()-started;const after=documents(state);
         timings.documents=Date.now()-started;

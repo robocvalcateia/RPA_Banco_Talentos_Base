@@ -1,10 +1,11 @@
 // Evidence-based screening. Unknown information is never treated as confirmation.
-export const VACANCY_RULE_VERSION = 'technical-triage-v4';
+export const VACANCY_RULE_VERSION = 'technical-triage-v5';
 export const normalize = (value = '') => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9+#]+/g, ' ').trim().replace(/\s+/g, ' ');
 export const phrases = (value = '') => [...new Set(String(value).split(/[,;\n]+/).map(s => s.trim()).filter(Boolean))];
 const aliases = {
   'tax one': ['TaxOne', 'Mastersaf DW', 'Mastersaf Data Warehouse'],
   'mastersaf dw': ['Tax One', 'TaxOne', 'Mastersaf Data Warehouse'],
+  successfactors: ['SAP SuccessFactors', 'Success Factors', 'SAP Success Factors'],
   datasul: ['TOTVS Datasul'],
   'oracle cloud': ['Oracle ERP Cloud', 'Oracle Fusion', 'Fusion', 'ERP Cloud', 'ERP Oracle'],
   'oracle erp cloud': ['Oracle Cloud', 'Oracle Fusion', 'Fusion', 'ERP Cloud', 'ERP Oracle'],
@@ -58,27 +59,39 @@ export function hasSkill(text, skill) {
   const haystack = ` ${normalize(text)} `;
   return skillAlternatives(skill).some(item => haystack.includes(` ${normalize(item)} `));
 }
+export function coreCompetencyParts(title) {
+  const parts=String(title || '').split(/\s+[–—-]\s+/).map(part=>part
+    .replace(/\b(?:s[eê]nior(?:es)?|pleno|j[uú]nior|senior|junior|sr|jr)\b/gi,' ')
+    .replace(/\(\s*\d+\s*(?:posi[cç][oõ]es|vagas?)\s*\)/gi,' ').trim()).filter(Boolean);
+  let primary=(parts.shift() || '').replace(/^(?:consultor(?:a|es|as)?|analistas?|especialistas?|desenvolvedor(?:a|es|as)?|gerente(?:\s+de\s+projetos)?|coordenador(?:a)?|engenheiro(?:a)?)\s+(?:(?:de|em|funcional|t[eé]cnico)\s+)*/i,'').trim();
+  primary=primary.replace(/\bfiscais\b/gi,'fiscal').replace(/[–—-]\s*$/,'').trim();
+  if (/\bsuccess\s*factors\b/i.test(primary)) primary='SuccessFactors';
+  const key=Object.keys(aliases).find(key=>normalize(key)===normalize(primary));
+  return {primary:key || primary,qualifiers:parts};
+}
 // A skill must be attached to the candidate's own work, never to a nearby
 // unrelated activity, desired position, course, or keyword/search index.
 export function professionalCoreEvidence(text, core) {
   const absent = { requirement: core, found: false, kind: 'experiência principal não comprovada', excerpt: '', strength: 0 };
   if (!String(core || '').trim()) return absent;
   const esc = value => normalize(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const terms = skillAlternatives(core).map(esc).filter(Boolean).join('|');
+  const competency=coreCompetencyParts(core);
+  const terms = [...skillAlternatives(core),...skillAlternatives(competency.primary)].map(esc).filter(Boolean).join('|');
   const role = new RegExp('\\b(?:consultor[a]?|analista|especialista|gerente|coordenador[a]?|desenvolvedor[a]?|engenheiro[a]?|administrador[a]?|tecnico|consultant|developer|engineer|manager) (?:funcional |tecnico |senior |pleno |junior |de |em |do |da |na area de ){0,4}(?:'+terms+')\\b');
   const activity = new RegExp('\\b(?:experiencia (?:profissional )?(?:em|com)|atuacao (?:profissional )?(?:em|com)|atuei (?:em|com)|trabalhei (?:em|com)|responsavel (?:por|pela|pelo)|gestao de|implementacao(?: de| do| da)?|implantacao(?: de| do| da)?|parametrizacao(?: de| do| da)?|configuracao(?: de| do| da)?|suporte (?:em|de|ao|a)|desenvolvimento (?:em|com)|experience (?:in|with)|worked (?:in|with)) (?:'+terms+')\\b');
   const trailing = new RegExp('\\b(?:'+terms+') (?:consultant|developer|engineer|manager)\\b');
   let trainingSection = false;
   for (const raw of String(text || '').split(/[\n|•]|(?<=[.;])\s+/)) {
     const line = normalize(raw);
-    if (/^(cursos|formacao|certificacoes|education|training)\b/.test(line)) trainingSection = true;
+    if (/^(cursos?|formacao|certificacoes|education|training)\b/.test(line)) trainingSection = true;
     if (/^(experiencia|historico profissional|projetos|professional experience|employment)\b/.test(line)) trainingSection = false;
-    if (!hasSkill(line, core)) continue;
+    if (!hasSkill(line, core) && !hasSkill(line, competency.primary)) continue;
+    if (competency.qualifiers.some(term=>!hasSkill(line,term))) continue;
     if (trainingSection || /\b(?:curso|cursos|certificacao|certificacoes|objetivo|desejo|pretendo|busco|vaga|sem experiencia|nao tenho|nao possuo|nunca atuei|no experience)\b/.test(line)) continue;
-    const procurement = /^(compras|suprimentos|procurement|purchasing)$/.test(normalize(core));
+    const procurement = /^(compras|suprimentos|procurement|purchasing)$/.test(normalize(competency.primary));
     if (procurement && /\b(?:sistema|sistemas|portal|software|erp|sap|protheus|requisitos|projeto de implantacao)\b/.test(line) && !role.test(line)) continue;
     const direct = role.test(line) || activity.test(line) || trailing.test(line)
-      || (normalize(core) === 'pmo' && /\bpmo (?:responsavel|atuando)\b/.test(line));
+      || (normalize(competency.primary) === 'pmo' && /\bpmo (?:responsavel|atuando)\b/.test(line));
     if (!direct) continue;
     // Existing domain checks still reject training, management-only SAP and data migration.
     const contextual = contextualEvidence(raw, core, core);
@@ -89,13 +102,16 @@ export function professionalCoreEvidence(text, core) {
 }
 
 export function curriculumProfessionalEvidence(curriculum, core) {
+  const workText=value=>Array.isArray(value)?value.map(workText).join('\n'):value && typeof value==='object'?Object.values(value).map(workText).join('\n'):String(value || '');
   const sources = [
     ['Cargo atual', curriculum.cargo_atual || curriculum.currentTitle],
     ['Experiência profissional', curriculum.experiencia_profissional],
-    ['Currículo original', curriculum.texto_integral_original || curriculum.texto_integral]
+    ['Currículo original', curriculum.texto_integral_original || curriculum.texto_integral],
+    ['Experiências', curriculum.experiencias || curriculum.experiences],
+    ['Projetos', curriculum.projetos]
   ];
   for (const [source, text] of sources) {
-    const evidence = professionalCoreEvidence(text, core);
+    const evidence = professionalCoreEvidence(workText(text), core);
     if (evidence.found) return { ...evidence, source };
   }
   return { ...professionalCoreEvidence('', core), source: 'Experiências e currículo original' };

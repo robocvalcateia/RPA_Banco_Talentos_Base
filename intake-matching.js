@@ -1,7 +1,7 @@
-import { normalize, skillAlternatives, experienceEvidence, curriculumProfessionalEvidence } from './candidate-screening.js';
+import { normalize, skillAlternatives, experienceEvidence, curriculumProfessionalEvidence, coreCompetencyParts } from './candidate-screening.js';
 import { locationEligibility } from './intake-location.js';
 
-export const INTAKE_MATCH_VERSION = 'email-full-cv-v6';
+export const INTAKE_MATCH_VERSION = 'email-full-cv-v7';
 const labels = { texto_integral_original: 'Currículo integral', experiencia_profissional: 'Experiência profissional', experiencias: 'Experiências', experiences: 'Experiências', projetos: 'Projetos', skills: 'Competências', conhecimento_tecnico: 'Conhecimento técnico', cursos_certificacoes: 'Cursos e certificações', formacao_academica: 'Formação', observacoes_entrevista: 'Entrevista', feedback_entrevista_ingles: 'Entrevista de inglês', nivel_ingles: 'Nível de inglês', nivel_espanhol: 'Nível de espanhol', search_text_all: 'Texto consolidado', versoes: 'Versões do currículo' };
 const cvFields = ['texto_integral_original', 'experiencia_profissional', 'experiencias', 'experiences', 'atividades', 'atividades_exercidas', 'empresas', 'projetos', 'tecnologias', 'skills', 'conhecimento_tecnico', 'formacao_academica', 'cursos_certificacoes', 'idiomas', 'nivel_ingles', 'nivel_espanhol', 'englishLevel', 'observacoes_entrevista', 'feedback_entrevista_ingles', 'disponibilidade', 'disponibilidade_viagem', 'cargo_alvo', 'resumo', 'summary', 'endereco', 'city', 'state', 'versoes', 'search_text_all', 'search_text', 'texto_pesquisa', 'texto_pesquisavel'];
 const excluded = /^(idade|age|data_nascimento|birthdate|estado_civil|nacionalidade|sexo|genero|gender|religiao|raca|cpf|rg|email|telefone|phone|password|passwordHash|foto|photo|arquivo_base64|base64|oportunidade.*|jobDescription|observacao_busca|score_busca)$/i;
@@ -72,7 +72,7 @@ export function compileIntakeRequirements(f) {
   // Titles are not limited to a fixed SAP module list. Remove only role/level
   // qualifiers; retain the product/technology as the search anchor.
   const technology = core.replace(/\b(consultor(?:a)?|analista|desenvolvedor(?:a)?|especialista|senior|sênior|pleno|junior|júnior|funcional|tecnico|técnico)\b/gi,' ').replace(/\s+/g,' ').trim();
-  const coreTerms = [...skillAlternatives(core), ...skillAlternatives(technology)].filter(Boolean);
+  const coreTerms = [...skillAlternatives(core), ...skillAlternatives(technology), ...skillAlternatives(coreCompetencyParts(core).primary)].filter(Boolean);
   const successFactors = /success\s*factors/i.test(core);
   if (successFactors) coreTerms.push('successfactors','success factors','sap employee central');
   const sapModule = technology.match(/\bsap\s+(fi(?:co)?|mm|sd|co|abap)\b/i)?.[0];

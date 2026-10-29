@@ -34,6 +34,10 @@ window.OpportunityIntake = (() => {
     if (q('#intakeNext')) q('#intakeNext').disabled = busy || (page + 1) * 20 >= candidates.length;
   }
   async function load() {
+    draft = null; selected = new Set(); candidates = [];
+    q('#intakeReview').hidden = true;
+    if (q('#intakeRejectPrompt')) q('#intakeRejectPrompt').hidden = true;
+    controls();
     message('Carregando a oportunidade e a pesquisa de candidatos…');
     let id = new URLSearchParams(location.search).get('request');
     if (!id) {
@@ -140,7 +144,7 @@ window.OpportunityIntake = (() => {
     return true;
   }
   function mount() {
-    if (root) return;
+    if (root) { run(load); return; }
     root = document.createElement('section'); root.className = 'view'; root.id = 'opportunityIntake';
     document.getElementById('opportunities').insertAdjacentElement('afterend', root);
     root.innerHTML = `<div id="intakeStatus" class="intake-status" role="status" aria-live="polite"></div>
@@ -152,7 +156,8 @@ window.OpportunityIntake = (() => {
       <div id="intakeWarnings" class="intake-warning"></div><div class="intake-actions"><button id="intakeSearch" type="button">Salvar revisão</button></div>
       <h2>Profissionais do banco de talentos</h2><div id="intakeCandidates"></div>
       <p id="intakeDecisionDone" class="intake-decision-status" hidden></p>
-      <div id="intakeDecision" class="intake-actions"><button id="intakeConfirm" class="primary-action" type="button">Aceitar proposta</button><button id="intakeCancel" class="primary-action" type="button">Rejeitar proposta</button><strong id="selectedCount"></strong></div></section>`;
+      <div id="intakeDecision" class="intake-actions"><button id="intakeConfirm" class="primary-action" type="button">Aceitar proposta</button><button id="intakeCancel" class="primary-action" type="button">Rejeitar proposta</button><strong id="selectedCount"></strong></div>
+      <div id="intakeRejectPrompt" class="intake-warning" hidden role="group" aria-label="Confirmar rejeição da proposta"><p>Confirma a rejeição desta nova proposta? Ela não será inserida nas oportunidades.</p><div class="intake-actions"><button id="intakeRejectYes" type="button">Confirmar rejeição</button><button id="intakeRejectNo" type="button">Manter proposta</button></div></div></section>`;
     q('#intakeForm').onsubmit = ev => ev.preventDefault();
     q('#intakeFields').oninput = () => { syncDerivedFields(); dirty = true; controls(); message('Dados alterados. Ao aceitar, a revisão será salva automaticamente.'); };
     q('#intakeReload').onclick = () => run(load);
@@ -160,17 +165,22 @@ window.OpportunityIntake = (() => {
     q('#intakeSearch').onclick = () => run(review);
     q('#intakeConfirm').onclick = () => run(async () => {
       if (dirty && !(await review())) return;
-      message('Conferindo a seleção e gravando a oportunidade na base local…');
+      message('Conferindo a seleção e gravando a oportunidade…');
       const result = await api(`/api/intake/${draft.id}/confirm`, { method: 'POST', body: JSON.stringify({ revision: draft.revision, selectedIds: [...selected], acknowledged: true }) });
-      await load(); await refresh(); showView('opportunityIntake');
-      message(`Oportunidade ${result.opportunity.opportunityCode} cadastrada como Open. ${result.selectedCount ?? result.draft.selectedIds.length} selecionado(s). Lembretes desta solicitação encerrados.`);
+      draft = result.draft;
+      const success = `Oportunidade ${result.opportunity.opportunityCode} cadastrada como Open. ${result.selectedCount ?? result.draft.selectedIds.length} selecionado(s). Lembretes desta solicitação encerrados.`;
+      controls();
+      try { await load(); await refresh(); showView('opportunityIntake'); message(success); }
+      catch { message(`${success} A atualização da tela falhou; clique em Atualizar solicitação. Não é necessário aceitar novamente.`); }
     });
-    q('#intakeCancel').onclick = () => {
-      if (!window.confirm('Confirma a rejeição desta nova proposta? Ela não será inserida nas oportunidades.')) return;
+    q('#intakeCancel').onclick = () => { q('#intakeRejectPrompt').hidden = false; q('#intakeRejectNo').focus(); };
+    q('#intakeRejectNo').onclick = () => { q('#intakeRejectPrompt').hidden = true; q('#intakeCancel').focus(); };
+    q('#intakeRejectYes').onclick = () => {
       run(async () => {
-        await api(`/api/intake/${draft.id}/cancel`, { method: 'POST', body: JSON.stringify({ revision: draft.revision }) });
-        await load();
-        message('Nova proposta rejeitada. Nenhuma oportunidade ou vínculo foi criado.');
+        draft = await api(`/api/intake/${draft.id}/cancel`, { method: 'POST', body: JSON.stringify({ revision: draft.revision }) });
+        controls();
+        try { await load(); message('Nova proposta rejeitada. Nenhuma oportunidade ou vínculo foi criado.'); }
+        catch { message('Proposta rejeitada e decisão gravada. A atualização da tela falhou; clique em Atualizar solicitação.'); }
       });
     };
     run(load);

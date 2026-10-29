@@ -38,7 +38,7 @@ export function haversineKm(a, b) {
 }
 export const withinRadius = distance => Number.isFinite(distance) && distance <= 100;
 export function locationEligibility(cv, fields) {
-  if (!['presencial', 'hibrido'].includes(norm(fields.workModel))) return { status: 'not_required', allowed: true, distanceKm: null, detail: 'Sem limite geográfico para trabalho remoto.' };
+  if (!['presencial', 'hibrido'].includes(norm(fields.workModel))) return { status: 'not_required', allowed: true, distanceKm: null, detail: norm(fields.workModel)==='remoto' ? 'Sem limite geográfico para trabalho remoto.' : 'Modalidade não informada: distância não aplicada; confirme a condição da vaga.' };
   const target = resolve(fields.city, fields.state), candidate = consultantLocation(cv);
   if (!target || !candidate) return { status: 'unknown', allowed: false, distanceKm: null, detail: !target ? 'Localização da oportunidade a confirmar.' : 'Localização do consultor a confirmar.' };
   const distanceKm = haversineKm(target, candidate);

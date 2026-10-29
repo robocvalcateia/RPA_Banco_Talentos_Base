@@ -277,7 +277,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20261029-core-experience-v4e';
+const APP_VERSION = '20261029-intake-e2e-v5';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -578,7 +578,7 @@ function startCandidateFitReconciliation(since, historicalReview = false) {
             savedResultsReviewed++;
             const revised = cv ? evaluateInternalCandidateForFilter(cv, filter).row : null;
             updatedSearchResults.push({ ...row, ...(revised || { classification: 'review', pendingChecks: ['Currículo completo necessário para comprovar a experiência principal.'] }),
-              fitReview: { reviewedAt: toISODate(), previousClassification: row.classification, previousScore: row.score, version: 'automatic-fit-alert-v3' } });
+              fitReview: { reviewedAt: toISODate(), previousClassification: row.classification, previousScore: row.score, version: 'automatic-fit-alert-v4' } });
           }
           filter.searchResults = updatedSearchResults;
           await writeDatabaseDocument('cvFilters', filter);
@@ -2582,6 +2582,7 @@ function parseLegacyProcessResult(output) {
   } catch {
     return null;
   }
+
 }
 
 export function shouldSyncLegacyAfterProcessing(result) {
@@ -3438,6 +3439,12 @@ async function authenticateRequest(request, response) {
   if (!user) {
     sessions.delete(token);
     sendError(response, 401, 'Usuario nao encontrado.');
+    return null;
+  }
+
+  if (user.active === false) {
+    sessions.delete(token);
+    sendError(response, 403, 'Usuário inativo. A sessão foi encerrada.');
     return null;
   }
 
@@ -4310,6 +4317,9 @@ async function handleApi(request, response) {
       const match = pathname.match(/^\/api\/intake\/([a-f0-9-]+)\/(review|select|confirm|cancel)$/);
       if (!match) { sendError(response, 404, 'Solicitação não encontrada.'); return; }
       const [, id, action] = match;
+      if (action === 'review' && (!payload.fields || typeof payload.fields !== 'object' || Array.isArray(payload.fields))) {
+        sendError(response, 422, 'Dados da revisão ausentes ou inválidos. Atualize a solicitação.'); return;
+      }
       const result = action === 'review'
         ? await intakeStore.review(id, payload.fields, payload.revision, auth.user)
         : action === 'select'

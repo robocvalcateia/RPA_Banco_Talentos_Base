@@ -178,8 +178,8 @@ test('invalid edited business fields and a blocked candidate cannot create a par
   const { store, read } = await fixture(t, { curriculums: [{ ...cvs[0], blackflag: true }] });
   const { draft } = await store.create(email, user);
   await assert.rejects(store.confirm(draft.id, 1, ['1'], user, true), { statusCode: 422 });
-  const review = await store.review(draft.id, { ...draft.fields, quantity: '1.5' }, 1, user);
-  await assert.rejects(store.confirm(draft.id, review.draft.revision, [], user, true), { statusCode: 422 });
+  await assert.rejects(store.review(draft.id, { ...draft.fields, quantity: '1.5' }, 1, user), { statusCode: 422 });
+  assert.equal((await store.get(draft.id)).draft.revision, 1);
   assert.equal((await read()).opportunities.length, 0);
 });
 test('SMTP is blocked in local pilot before opening any connection', async () => {

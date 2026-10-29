@@ -116,7 +116,7 @@ function updateOpportunityFromIntake(opportunity, fields, updatedAt) {
   Object.assign(opportunity, {
     opportunity: fields.profile,
     clientOpportunityCode: requestNumber(fields.requestId),
-    model: fields.model,
+    model: fields.model || 'Alocação',
     contractType: fields.contractType,
     workModel: fields.workModel,
     quantity: fields.quantity ? Number(fields.quantity) : 0,
@@ -161,11 +161,11 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
   const origin = new URL(baseUrl);
   if (simulated ? origin.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(origin.hostname) : origin.protocol !== 'https:' || !adapter) fail('Use endereço LOCAL para simulação; produção exige HTTPS e armazenamento transacional.');
   if (origin.username || origin.password || origin.search || origin.hash || origin.pathname !== '/') fail('Endereço base inválido.');
-  const read = () => adapter ? adapter.read() : fs.readFile(file, 'utf8').then(JSON.parse);
+  const read = (id) => adapter ? (id && adapter.readDraft ? adapter.readDraft(id) : adapter.read()) : fs.readFile(file, 'utf8').then(JSON.parse);
   const reviewLink = id => `${origin.origin}/?view=opportunityIntake&request=${encodeURIComponent(id)}`;
   let queue = Promise.resolve();
-  const transaction = operation => {
-    if (adapter) return adapter.transaction(operation);
+  const transaction = (operation, scope) => {
+    if (adapter) return adapter.transaction(operation, scope);
     const run = queue.then(async () => {
       const db = JSON.parse(await fs.readFile(file, 'utf8'));
       db.opportunityIntakes ||= [];
@@ -324,8 +324,8 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
         return { ok: true };
       });
     },
-    async list() { await queue; const db = await read(); return (db.opportunityIntakes || []).map(({ search, ...draft }) => ({ ...draft, searchReady: !!search, reviewLink: reviewLink(draft.id) })); },
-    async get(id) { await queue; const db = await read(); db.opportunityIntakes ||= []; return view(db, find(db, id)); },
+    async list() { await queue; const db = adapter?.readSummary ? await adapter.readSummary() : await read(); return (db.opportunityIntakes || []).map(({ search, ...draft }) => ({ ...draft, searchReady: !!search, reviewLink: reviewLink(draft.id) })); },
+    async get(id) { await queue; const db = await read(id); db.opportunityIntakes ||= []; return view(db, find(db, id)); },
     async notifications() { await queue; const db = await read(); return db.intakeNotifications || []; },
     async receive(email, user) {
       if (!String(email.subject || '').trim()) fail('O recebimento exige assunto no padrão SOLICITAÇÃO DE COTAÇÃO -.');
@@ -424,7 +424,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
     },
     async refreshSearch(id, revision, user, historicalSearch) {
       await queue;
-      const snapshot = await read(), before = find(snapshot, id);
+      const snapshot = await read(id), before = find(snapshot, id);
       if (before.status !== 'pending' || before.revision !== Number(revision)) fail('Solicitação alterada ou encerrada. Atualize antes de pesquisar.',409);
       const fields = cleanIntakeFields(before.fields, before.receivedAt || before.createdAt);
       // Stream CVs before opening the short write transaction.
@@ -438,7 +438,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
         draft.updatedAt = new Date().toISOString();
         draft.audit.push({action:'search_refreshed',revision:draft.revision,userId:user.id,at:draft.updatedAt,version:INTAKE_MATCH_VERSION,removedIds});
         return {...view(db,draft),removedIds};
-      });
+      }, {draftId:id});
     },
     review(id, fields, revision, user) {
       return transaction(db => {
@@ -448,6 +448,9 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
         const previousFields = draft.fields;
         draft.fields = cleanIntakeFields(fields);
         draft.seniorityAssessment = applySeniority(draft.fields, draft.seniorityAssessment, previousFields);
+        if (draft.fields.model && !['Alocação','Hunting','Projeto','Consultoria'].includes(draft.fields.model)) fail('Modelo da oportunidade inválido.');
+        if (!['Presencial','Remoto','Híbrido',''].includes(draft.fields.workModel)) fail('Modelo de trabalho inválido.');
+        if (draft.fields.quantity && (!Number.isInteger(Number(draft.fields.quantity)) || Number(draft.fields.quantity)<1)) fail('Quantidade deve ser um número inteiro maior que zero.');
         if (draft.fields.start && !/^(0[1-9]|1[0-2])\/\d{4}$/.test(draft.fields.start)) fail('Início deve estar no formato MM/AAAA, com mês válido.');
         if (draft.fields.requestId && !/^\d+\b[^\r\n]*$/.test(draft.fields.requestId)) fail('A identificação deve iniciar pela numeração da vaga, seguida do título.');
         draft.revision++;
@@ -460,7 +463,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
           draft.audit.push({ action: 'review', userId: user.id, at: draft.updatedAt });
         }
         return { ...view(db, draft), removedIds: [] };
-      });
+      }, {draftId:id});
     },
     select(id, revision, selectedIds, user) {
       return transaction(db => {
@@ -481,7 +484,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
         draft.updatedAt = new Date().toISOString();
         draft.audit.push({ action: 'selection', userId: user.id, userName: user.name, at: draft.updatedAt, selectedIds: ids });
         return { draft: view(db, draft).draft };
-      });
+      }, {draftId:id});
     },
     confirm(id, revision, selectedIds, user, acknowledged) {
       return transaction(db => {
@@ -507,7 +510,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
           if ([cv.blackflag, cv.blacklist].some(v => v === true || ['true', 'sim', '1'].includes(String(v).toLowerCase()))) fail('Profissional impedido no banco.');
         }
         const now = new Date().toISOString();
-        const opportunity = { id: `opp_${randomUUID()}`, clientId: draft.clientId, opportunity: f.profile, opportunityCode: String(Math.max(0, ...db.opportunities.map(o => Number(o.opportunityCode) || 0)) + 1), clientOpportunityCode: requestNumber(f.requestId), status: 'Open', openingDate: now.slice(0, 10), monthYear: now.slice(0, 7), closingDate: '', model: f.model, contractType: f.contractType, workModel: f.workModel, owner: user.name || '', quantity: f.quantity ? Number(f.quantity) : 0, closedQuantity: 0, contractValue: 0, jobDescription: intakeJobDescription(f), observation: intakeObservation(f), intakeDetails: f, intakeSource: { draftId: draft.id, emailKey: draft.emailKey, bodyHash: draft.bodyHash }, createdAt: now };
+        const opportunity = { id: `opp_${randomUUID()}`, clientId: draft.clientId, opportunity: f.profile, opportunityCode: String(Math.max(0, ...db.opportunities.map(o => Number(o.opportunityCode) || 0)) + 1), clientOpportunityCode: requestNumber(f.requestId), status: 'Open', openingDate: now.slice(0, 10), monthYear: now.slice(0, 7), closingDate: '', model: f.model || 'Alocação', contractType: f.contractType, workModel: f.workModel, owner: user.name || '', quantity: f.quantity ? Number(f.quantity) : 0, closedQuantity: 0, contractValue: 0, jobDescription: intakeJobDescription(f), observation: intakeObservation(f), intakeDetails: f, intakeSource: { draftId: draft.id, emailKey: draft.emailKey, bodyHash: draft.bodyHash }, createdAt: now };
         const links = selected.map(c => normalizeSelectedCandidate({ id: `sel_${randomUUID()}`, name: c.name, curriculumId: c.id, opportunityId: opportunity.id, source: 'Banco de Talentos', origin: simulated ? 'Solicitação DTT / teste LOCAL' : 'Solicitação DTT', score: c.score, observation: c.pending.join('\n'), createdAt: now, notifications: [] }));
         db.opportunities.push(opportunity);
         db.selectedCandidates.push(...links);
@@ -515,7 +518,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
         Object.assign(draft, { status: 'confirmed', opportunityId: opportunity.id, selectedIds: ids, confirmedAt: now, confirmedBy: user.id, confirmedByName: user.name, revision: draft.revision + 1 });
         draft.audit.push({ action: 'confirmed', userId: user.id, at: now, selectedIds: ids, warningsAcknowledged: acknowledged === true });
         return { draft, opportunity, selectedCount: links.length, emailsSent: 0 };
-      });
+      }, {draftId:id});
     },
     cancel(id, revision, user) {
       return transaction(db => {
@@ -528,7 +531,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
         draft.revision++;
         draft.audit.push({ action: 'cancelled', userId: user.id, at: new Date().toISOString() });
         return draft;
-      });
+      }, {draftId:id});
     }
   };
 }
