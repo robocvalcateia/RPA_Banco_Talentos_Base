@@ -277,7 +277,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20261029-core-experience-v4d';
+const APP_VERSION = '20261029-core-experience-v4e';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -553,7 +553,10 @@ function startCandidateFitReconciliation(since, historicalReview = false) {
         const fullCache = new Map();
         const fullCv = async id => {
           const key = String(id || '');
-          if (!fullCache.has(key)) fullCache.set(key, await getCurriculumFromMongo(key));
+          if (!fullCache.has(key)) {
+            if (fullCache.size >= 10) fullCache.delete(fullCache.keys().next().value);
+            fullCache.set(key, await getCurriculumFromMongo(key));
+          }
           return fullCache.get(key);
         };
         const rows = [];
@@ -4282,10 +4285,20 @@ async function handleApi(request, response) {
         if (requireAdmin(response, auth.user, 'Apenas ADMIN pode simular o recebimento.')) return;
         sendJson(response, 200, await intakeStore.receive(payload, auth.user)); return;
       }
-      const maintenance = pathname.match(/^\/api\/intake\/([a-f0-9-]+)\/(refresh-search|resend-review|resend-review-now)$/);
+      const maintenance = pathname.match(/^\/api\/intake\/([a-f0-9-]+)\/(refresh-search|review-indications|resend-review|resend-review-now)$/);
       if (maintenance) {
         if (requireAdmin(response,auth.user,'Apenas ADMIN pode atualizar a pesquisa e reenviar a revisão.')) return;
         const [,id,action] = maintenance;
+        if (action === 'review-indications') {
+          const current = await intakeStore.get(id);
+          const cvs = [];
+          for (const candidate of current.candidates || []) {
+            const cv = await getCurriculumFromMongo(candidate.id);
+            if (cv) cvs.push(cv);
+          }
+          const prepared = { candidates: matchIntakeCandidates(cvs, current.draft.fields), totalEvaluated: cvs.length };
+          sendJson(response, 200, await intakeStore.refreshSearch(id, payload.revision, auth.user, prepared)); return;
+        }
         if (action === 'resend-review-now' && !String(payload.reason || '').trim()) { sendError(response,422,'Informe o motivo único do reenvio.'); return; }
         const result = action === 'refresh-search'
           ? await intakeStore.refreshSearch(id,payload.revision,auth.user)
