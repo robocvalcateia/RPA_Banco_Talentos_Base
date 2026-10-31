@@ -999,6 +999,24 @@ label.full,
   grid-template-columns: repeat(3, minmax(180px, 1fr));
 }
 
+.timesheet-month-list { border-top: 1px solid var(--line); margin-top: 24px; padding-top: 20px; }
+.timesheet-month-list-heading { align-items: center; display: flex; gap: 20px; justify-content: space-between; margin-bottom: 14px; }
+.timesheet-month-list-heading h3 { margin: 0 0 4px; }
+.timesheet-month-list-heading span { color: var(--muted); }
+.timesheet-month-list-heading strong { background: var(--surface-soft); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; white-space: nowrap; }
+.timesheet-month-entries { display: grid; gap: 8px; }
+.timesheet-month-entry { align-items: center; background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--brand); border-radius: 8px; color: var(--text); cursor: pointer; display: grid; font: inherit; gap: 10px; grid-template-columns: 105px 90px minmax(160px, 1fr) minmax(180px, 1.4fr); min-height: 58px; padding: 10px 14px; text-align: left; width: 100%; }
+.timesheet-month-entry:hover, .timesheet-month-entry:focus-visible { background: var(--surface-soft); border-color: var(--brand); outline: none; }
+.timesheet-month-entry-date, .timesheet-month-entry-hours { font-weight: 700; }
+.timesheet-month-entry-detail { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timesheet-month-empty { color: var(--muted); margin: 0; padding: 14px 0; }
+
+@media (max-width: 800px) {
+  .timesheet-month-list-heading { align-items: flex-start; flex-direction: column; }
+  .timesheet-month-entry { grid-template-columns: 1fr 1fr; }
+  .timesheet-month-entry-detail { grid-column: 1 / -1; }
+}
+
 .work-hour-filter-bar {
   grid-template-columns: repeat(4, minmax(160px, 1fr));
 }

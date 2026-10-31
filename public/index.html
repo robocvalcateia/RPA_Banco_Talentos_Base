@@ -1519,8 +1519,16 @@
               <textarea name="observation" rows="3"></textarea>
             </label>
             <button class="primary-action" type="submit">Salvar apontamento</button>
+            <button class="secondary-action" id="workHourCancelEditButton" type="button" hidden>Cancelar edição</button>
             <output id="workHourDayTotal">Total lançado no dia: 0H00</output>
           </form>
+          <div class="timesheet-month-list" aria-live="polite">
+            <div class="timesheet-month-list-heading">
+              <div><h3>Lançamentos do mês</h3><span>Clique em um lançamento para editar ou corrigir</span></div>
+              <strong id="workHourMonthSummary">Total do mês: 0H00</strong>
+            </div>
+            <div id="workHourMonthList" class="timesheet-month-entries"></div>
+          </div>
         </section>
 
         <section class="panel" data-admin-only>
@@ -1892,7 +1900,15 @@
               <textarea name="observation" rows="3"></textarea>
             </label>
             <button class="primary-action" type="submit">Salvar apontamento</button>
+            <button class="secondary-action" id="billingEntryCancelEditButton" type="button" hidden>Cancelar edição</button>
           </form>
+          <div class="timesheet-month-list" aria-live="polite">
+            <div class="timesheet-month-list-heading">
+              <div><h3>Lançamentos do mês</h3><span>Clique em um lançamento para editar ou corrigir</span></div>
+              <strong id="billingEntryMonthSummary">Total do mês: 0H00</strong>
+            </div>
+            <div id="billingEntryMonthList" class="timesheet-month-entries"></div>
+          </div>
         </section>
 
         <section class="panel" data-billing-panel="registrations">

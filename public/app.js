@@ -96,6 +96,8 @@ const state = {
     formDefinitionId: '',
     formRequestId: '',
     timesheetProjectId: '',
+    workHourId: '',
+    workHourFormId: '',
     selectingCandidateId: '',
     movingCandidateId: '',
     viewingOpportunityCandidatesId: '',
@@ -5932,6 +5934,95 @@ function renderWorkHourDayTotal() {
   if ($('#workHourDayTotal')) $('#workHourDayTotal').textContent = `Total lançado no dia: ${formatWorkHours(total)}`;
 }
 
+function monthlyWorkHourRows(allocatedId = '', date = '') {
+  const monthYear = String(date || currentMonthValue()).slice(0, 7);
+  if (!allocatedId || !/^\d{4}-\d{2}$/.test(monthYear)) return { monthYear, rows: [], total: 0 };
+  const rows = state.workHours
+    .filter((entry) => entry.allocatedId === allocatedId && String(entry.date || '').startsWith(`${monthYear}-`))
+    .slice()
+    .sort((first, second) => String(first.date || '').localeCompare(String(second.date || ''))
+      || String(first.startTime || '').localeCompare(String(second.startTime || ''))
+      || String(first.createdAt || '').localeCompare(String(second.createdAt || '')));
+  return { monthYear, rows, total: rows.reduce((sum, entry) => sum + Number(entry.hours || 0), 0) };
+}
+
+function renderWorkHourMonthList({ formId, allocatedSelector, listSelector, summarySelector, target }) {
+  const form = $(`#${formId}`);
+  const list = $(listSelector);
+  const summary = $(summarySelector);
+  if (!form || !list || !summary) return;
+  const { rows, total } = monthlyWorkHourRows($(allocatedSelector)?.value || '', form.elements.date?.value || currentMonthValue());
+  summary.textContent = `Total do mês: ${formatWorkHours(total)} • ${rows.length} lançamento(s)`;
+  list.innerHTML = rows.length ? rows.map((entry) => {
+    const detail = entry.mode === 'detailed'
+      ? [entry.activity, entry.startTime && entry.endTime ? `${entry.startTime}–${entry.endTime}` : ''].filter(Boolean).join(' • ')
+      : entry.observation || 'Sem observação';
+    return `<button class="timesheet-month-entry" type="button" data-edit-work-hour="${escapeHtml(entry.id)}" data-edit-work-hour-target="${target}">
+      <span class="timesheet-month-entry-date">${escapeHtml(formatDateBR(entry.date))}</span>
+      <span class="timesheet-month-entry-hours">${escapeHtml(formatWorkHours(entry.hours))}</span>
+      <span>${escapeHtml(entry.project || '-')}</span>
+      <span class="timesheet-month-entry-detail" title="${escapeHtml(detail)}">${escapeHtml(detail)}</span>
+    </button>`;
+  }).join('') : '<p class="timesheet-month-empty">Nenhum lançamento realizado neste mês.</p>';
+}
+
+function renderWorkHourMonthLists() {
+  renderWorkHourMonthList({ formId: 'workHourForm', allocatedSelector: '#workHourAllocatedSelect', listSelector: '#workHourMonthList', summarySelector: '#workHourMonthSummary', target: 'workHourForm' });
+  renderWorkHourMonthList({ formId: 'billingEntryForm', allocatedSelector: '#billingEntryAllocatedSelect', listSelector: '#billingEntryMonthList', summarySelector: '#billingEntryMonthSummary', target: 'billingEntryForm' });
+}
+
+function loadWorkHourForEdit(entry, formId) {
+  const form = $(`#${formId}`);
+  if (!entry || !form) return;
+  state.editing.workHourId = entry.id;
+  state.editing.workHourFormId = formId;
+  if (formId === 'workHourForm') {
+    $('#workHourAllocatedSelect').value = entry.allocatedId;
+    const clientField = $('#workHourClientName');
+    if (clientField) clientField.value = workHourClientName(entry.allocatedId);
+    renderWorkHourProjects();
+    renderWorkHourMode();
+  } else {
+    $('#billingEntryAllocatedSelect').value = entry.allocatedId;
+    renderBillingEntrySelectors();
+  }
+  fillForm(`#${formId}`, { allocatedId: entry.allocatedId, date: entry.date, hours: entry.hours, projectId: entry.projectId, startTime: entry.startTime || '', endTime: entry.endTime || '', activity: entry.activity || '', observation: entry.observation || '' }, 'Atualizar apontamento');
+  const cancelButton = formId === 'workHourForm' ? $('#workHourCancelEditButton') : $('#billingEntryCancelEditButton');
+  if (cancelButton) cancelButton.hidden = false;
+  renderWorkHourDayTotal();
+  renderWorkHourMonthLists();
+  toast('Lançamento carregado para edição.');
+}
+
+function clearWorkHourEditor(formId, preserve = {}) {
+  const form = $(`#${formId}`);
+  if (!form) return;
+  if (state.editing.workHourFormId === formId) {
+    state.editing.workHourId = '';
+    state.editing.workHourFormId = '';
+  }
+  form.reset();
+  if (formId === 'workHourForm') {
+    renderWorkHourSelectors();
+    if (preserve.allocatedId) form.elements.allocatedId.value = preserve.allocatedId;
+    if (preserve.date) form.elements.date.value = preserve.date;
+    const clientField = $('#workHourClientName');
+    if (clientField) clientField.value = workHourClientName(form.elements.allocatedId?.value || '');
+    renderWorkHourProjects();
+    renderWorkHourMode();
+  } else {
+    renderBillingEntrySelectors();
+    if (preserve.allocatedId) form.elements.allocatedId.value = preserve.allocatedId;
+    if (preserve.date) form.elements.date.value = preserve.date;
+    renderBillingEntrySelectors();
+  }
+  setSubmitLabel(form, 'Salvar apontamento');
+  const cancelButton = formId === 'workHourForm' ? $('#workHourCancelEditButton') : $('#billingEntryCancelEditButton');
+  if (cancelButton) cancelButton.hidden = true;
+  renderWorkHourDayTotal();
+  renderWorkHourMonthLists();
+}
+
 function renderWorkHourSelectors() {
   const allocateds = workHourAllocatedOptions();
   const options = allocateds.map((allocated) => {
@@ -6032,6 +6123,7 @@ function renderWorkHourClosureStatus() {
 
 function renderWorkHours() {
   renderWorkHourSelectors();
+  renderWorkHourMonthLists();
   const accessSummary = $('#workHourAccessSummary');
   if (accessSummary) {
     accessSummary.textContent = isCurrentUserAdmin()
@@ -7396,6 +7488,7 @@ function billingReportCsvRows(rows = billingReportRows()) {
 function renderBillingReport() {
   renderBillingReportPanels();
   renderBillingEntrySelectors();
+  renderWorkHourMonthLists();
   renderTimesheetProjectMaintenance();
   renderBillingReportFilters();
   const rows = billingReportRows();
@@ -10885,8 +10978,9 @@ function bindWorkHourActions() {
     renderWorkHourProjects();
     renderWorkHourMode();
     renderWorkHourDayTotal();
+    renderWorkHourMonthLists();
   });
-  $('#workHourForm input[name="date"]')?.addEventListener('change', renderWorkHourDayTotal);
+  $('#workHourForm input[name="date"]')?.addEventListener('change', () => { renderWorkHourDayTotal(); renderWorkHourMonthLists(); });
 
   $('#timesheetPeriodForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -10906,31 +11000,39 @@ function bindWorkHourActions() {
     event.preventDefault();
     const form = event.currentTarget;
     const submitButton = $('button[type="submit"]', form);
+    const editingId = state.editing.workHourFormId === form.id ? state.editing.workHourId : '';
     const payload = formPayload(form);
     payload.mode = timesheetModeForAllocated(payload.allocatedId);
     payload.hours = String(payload.hours || '').replace(',', '.');
     delete payload.clientName;
 
-    const originalText = setSubmitButtonBusy(submitButton, 'Salvando...');
+    setSubmitButtonBusy(submitButton, 'Salvando...');
+    let savedSuccessfully = false;
     try {
-      const saved = await api('/api/work-hours', {
-        method: 'POST',
+      const saved = await api(editingId ? `/api/work-hours/${encodeURIComponent(editingId)}` : '/api/work-hours', {
+        method: editingId ? 'PATCH' : 'POST',
         body: JSON.stringify(payload)
       });
       upsertStateItem('workHours', saved);
       const savedAllocatedId = saved.allocatedId;
       const savedDate = saved.date;
-      form.reset();
-      form.elements.allocatedId.value = savedAllocatedId;
-      form.elements.date.value = savedDate;
+      clearWorkHourEditor(form.id, { allocatedId: savedAllocatedId, date: savedDate });
+      savedSuccessfully = true;
       renderWorkHours();
       const total = state.workHours.filter((item) => item.allocatedId === savedAllocatedId && item.date === savedDate).reduce((sum, item) => sum + Number(item.hours || 0), 0);
-      toast(`Apontamento salvo. Total do dia: ${formatWorkHours(total)}.`);
+      toast(`${editingId ? 'Apontamento atualizado' : 'Apontamento salvo'}. Total do dia: ${formatWorkHours(total)}.`);
     } catch (error) {
       toast(error.message || 'Não foi possível salvar o apontamento.');
     } finally {
-      restoreSubmitButton(submitButton, originalText || 'Salvar apontamento');
+      restoreSubmitButton(submitButton, savedSuccessfully ? 'Salvar apontamento' : (editingId ? 'Atualizar apontamento' : 'Salvar apontamento'));
     }
+  });
+
+  $('#workHourCancelEditButton')?.addEventListener('click', () => clearWorkHourEditor('workHourForm'));
+  $('#workHourMonthList')?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-edit-work-hour]');
+    const entry = state.workHours.find((item) => item.id === button?.dataset.editWorkHour);
+    if (entry) loadWorkHourForEdit(entry, 'workHourForm');
   });
 
   ['#workHourFilterAllocated', '#workHourFilterClient', '#workHourFilterDateFrom', '#workHourFilterDateTo'].forEach((selector) => {
@@ -11162,32 +11264,44 @@ function bindBillingReportActions() {
     const clientField = $('#billingEntryClientName');
     if (clientField) clientField.value = workHourClientName($('#billingEntryAllocatedSelect')?.value || '');
     renderBillingEntrySelectors();
+    renderWorkHourMonthLists();
   });
+  $('#billingEntryForm input[name="date"]')?.addEventListener('change', renderWorkHourMonthLists);
 
   $('#billingEntryForm')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const submitButton = $('button[type="submit"]', form);
+    const editingId = state.editing.workHourFormId === form.id ? state.editing.workHourId : '';
     const payload = formPayload(form);
     payload.mode = timesheetModeForAllocated(payload.allocatedId);
     payload.hours = String(payload.hours || '').replace(',', '.');
     delete payload.clientName;
 
-    const originalText = setSubmitButtonBusy(submitButton, 'Salvando...');
+    setSubmitButtonBusy(submitButton, 'Salvando...');
+    let savedSuccessfully = false;
     try {
-      const saved = await api('/api/work-hours', {
-        method: 'POST',
+      const saved = await api(editingId ? `/api/work-hours/${encodeURIComponent(editingId)}` : '/api/work-hours', {
+        method: editingId ? 'PATCH' : 'POST',
         body: JSON.stringify(payload)
       });
       upsertStateItem('workHours', saved);
-      form.reset();
+      clearWorkHourEditor(form.id, { allocatedId: saved.allocatedId, date: saved.date });
+      savedSuccessfully = true;
       renderBillingReport();
-      toast('Apontamento salvo.');
+      toast(editingId ? 'Apontamento atualizado.' : 'Apontamento salvo.');
     } catch (error) {
       toast(error.message || 'Não foi possível salvar o apontamento.');
     } finally {
-      restoreSubmitButton(submitButton, originalText || 'Salvar apontamento');
+      restoreSubmitButton(submitButton, savedSuccessfully ? 'Salvar apontamento' : (editingId ? 'Atualizar apontamento' : 'Salvar apontamento'));
     }
+  });
+
+  $('#billingEntryCancelEditButton')?.addEventListener('click', () => clearWorkHourEditor('billingEntryForm'));
+  $('#billingEntryMonthList')?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-edit-work-hour]');
+    const entry = state.workHours.find((item) => item.id === button?.dataset.editWorkHour);
+    if (entry) loadWorkHourForEdit(entry, 'billingEntryForm');
   });
 
   ['#billingReportMonthFilter', '#billingReportClientFilter', '#billingReportAllocatedFilter'].forEach((selector) => {
