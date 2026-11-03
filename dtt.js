@@ -703,22 +703,6 @@ async function renderDocx(templatePath, data) {
   });
   doc.render(data);
   const output = doc.getZip();
-  const documentEntry = output.file('word/document.xml');
-  if (documentEntry) {
-    let documentXml = documentEntry.asText();
-    if (/<w:background\b[^>]*\/>/i.test(documentXml)) {
-      documentXml = documentXml.replace(
-        /<w:background\b[^>]*\/>/i,
-        '<w:background w:color="FFFFFF"/>'
-      );
-    } else {
-      documentXml = documentXml.replace(
-        /(<w:document\b[^>]*>)/i,
-        '$1<w:background w:color="FFFFFF"/>'
-      );
-    }
-    output.file('word/document.xml', documentXml);
-  }
   const entries = Object.fromEntries(
     Object.keys(output.files)
       .filter((name) => !name.endsWith('/'))
