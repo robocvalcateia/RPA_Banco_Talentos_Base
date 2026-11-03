@@ -22,4 +22,14 @@ test('modelo Alcateia usa fundo branco e não contém marca d’água VML', () =
   assert.match(documentXml, /<w:background\s+w:color="FFFFFF"\s*\/>/);
   assert.doesNotMatch(headersXml, /wordpicturewatermark|marca d(?:'|&#39;|’)?agua/);
   assert.match(headersXml, /descr="logotipo, nome da empresa/);
+
+  const jpegFiles = Object.keys(zip.files).filter((name) => /\.(?:jpe?g)$/i.test(name));
+  for (const name of jpegFiles) {
+    const jpeg = zip.file(name).asNodeBuffer();
+    assert.equal(
+      jpeg.includes(Buffer.from('Adobe', 'ascii')),
+      false,
+      `${name} não pode permanecer em CMYK/Adobe JPEG`,
+    );
+  }
 });
