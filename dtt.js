@@ -853,6 +853,7 @@ export function enforceWhiteEditablePages(entries, { removeAlcateiaWatermark = f
 
 async function renderDocx(templatePath, data) {
   const template = await fs.readFile(templatePath);
+  const templateName = path.basename(templatePath).toLowerCase();
   const doc = new Docxtemplater(new PizZip(template, { createFolders: false }), {
     paragraphLoop: true,
     linebreaks: true,
@@ -865,9 +866,9 @@ async function renderDocx(templatePath, data) {
       .filter((name) => !name.endsWith('/'))
       .map((name) => [name, output.file(name).asUint8Array()])
   );
-  enforceWhiteEditablePages(entries, {
-    removeAlcateiaWatermark: path.basename(templatePath).toLowerCase() === 'alcateia-cv-pt.docx'
-  });
+  if (templateName !== 'alcateia-cv-pt.docx') {
+    enforceWhiteEditablePages(entries);
+  }
   return Buffer.from(zipSync(entries, { level: 6 }));
 }
 

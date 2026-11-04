@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -341,7 +342,7 @@ test('dados diretos de contato não dependem da IA', () => {
 
 test('templates geram os quatro DOCX e o pacote DTT com três arquivos', async () => {
   const documents = await renderCurriculumDocuments(curriculum, generated, TEMPLATE_DIR);
-  for (const document of Object.values(documents)) {
+  for (const document of [documents.portuguese, documents.english, documents.interview]) {
     assert.ok(Buffer.isBuffer(document));
     assert.ok(document.length > 10_000);
     const xml = allXml(document);
@@ -356,11 +357,24 @@ test('templates geram os quatro DOCX e o pacote DTT com três arquivos', async (
     assert.ok(zip.file('word/document.xml').asText().includes('<w:t'));
   }
 
+  assert.ok(Buffer.isBuffer(documents.alcateia));
+  assert.ok(documents.alcateia.length > 10_000);
+  const alcateiaXml = allXml(documents.alcateia);
+  assert.doesNotMatch(alcateiaXml, /\{[#\/.]?[a-z_]+\}/i);
+  assert.match(alcateiaXml, /WordPictureWatermark|MARCA\s+D(?:'|&#39;|&apos;)?[ÁA]GUA/i);
+  assert.doesNotMatch(alcateiaXml, /AlcateiaWhitePageBackground/);
+  const alcateiaZip = new PizZip(documents.alcateia);
+  assert.equal(alcateiaZip.file('word/media/alcateia-white-page-background.png'), null);
+  assert.ok(alcateiaZip.file('word/document.xml').asText().includes('<w:t'));
+  const alcateiaHeaderHash = createHash('sha256')
+    .update(Buffer.from(alcateiaZip.file('word/media/image2.jpg').asUint8Array()))
+    .digest('hex');
+  assert.equal(alcateiaHeaderHash, '22c1d73ed2817b16f91027615a7e12c13b837fc4ebd4af8d3dbd15825d256798');
+
   assert.match(allXml(documents.portuguese), /Empresa Antiga/);
   assert.match(allXml(documents.english), /Empresa Antiga/);
   assert.match(allXml(documents.interview), /Comunicação clara/);
   assert.match(allXml(documents.alcateia), /Empresa Antiga/);
-  assert.doesNotMatch(allXml(documents.alcateia), /WordPictureWatermark|MARCA\s+D(?:'|&#39;|&apos;)?[ÁA]GUA/i);
 
   const bundle = new PizZip(buildDttZip('Marina-Teste', documents));
   const names = Object.keys(bundle.files).sort();
