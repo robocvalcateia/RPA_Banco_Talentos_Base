@@ -694,6 +694,163 @@ export function prepareDocumentData(curriculum, generated) {
   });
 }
 
+const WHITE_PAGE_IMAGE_PATH = 'word/media/alcateia-white-page-background.png';
+const WHITE_PAGE_REL_ID = 'rIdAlcateiaWhitePageBackground';
+const WHITE_PAGE_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9WlLnB8AAAAASUVORK5CYII=',
+  'base64'
+);
+const WHITE_PARAGRAPH_SHADING = '<w:shd w:val="clear" w:color="auto" w:fill="FFFFFF"/>';
+
+function readDocxXml(entries, name) {
+  const value = entries[name];
+  return value ? Buffer.from(value).toString('utf8') : '';
+}
+
+function writeDocxXml(entries, name, value) {
+  entries[name] = new Uint8Array(Buffer.from(value, 'utf8'));
+}
+
+function ensureWhiteDocumentBackground(documentXml) {
+  if (/<w:background\b/i.test(documentXml)) {
+    return documentXml.replace(/<w:background\b[^>]*\/>/i, '<w:background w:color="FFFFFF"/>');
+  }
+
+  return documentXml.replace(/(<w:document\b[^>]*>)/i, '$1<w:background w:color="FFFFFF"/>');
+}
+
+function ensureWhiteParagraphShading(xml) {
+  let result = xml.replace(
+    /<w:pPr\b([^>]*)>([\s\S]*?)<\/w:pPr>/gi,
+    (match, attributes, content) => {
+      if (/<w:shd\b/i.test(content)) return match;
+      return `<w:pPr${attributes}>${WHITE_PARAGRAPH_SHADING}${content}</w:pPr>`;
+    }
+  );
+
+  result = result.replace(
+    /<w:p\b([^>]*)>(?!\s*<w:pPr\b)/gi,
+    `<w:p$1><w:pPr>${WHITE_PARAGRAPH_SHADING}</w:pPr>`
+  );
+
+  return result;
+}
+
+function removeAlcateiaPictureWatermarks(headerXml) {
+  return headerXml.replace(/<w:pict\b[\s\S]*?<\/w:pict>/gi, (picture) => {
+    return /WordPictureWatermark|MARCA\s+D(?:'|&#39;|&apos;)?[ÁA]GUA/i.test(picture) ? '' : picture;
+  });
+}
+
+function pageExtentFromDocument(documentXml) {
+  const pageSize = documentXml.match(/<w:pgSz\b[^>]*\/>/i)?.[0] || '';
+  const width = Number(pageSize.match(/\bw:w="(\d+)"/i)?.[1] || 12240);
+  const height = Number(pageSize.match(/\bw:h="(\d+)"/i)?.[1] || 15840);
+  return {
+    width: Math.round(width * 635),
+    height: Math.round(height * 635)
+  };
+}
+
+function whitePageDrawingRun(width, height, drawingId) {
+  return [
+    '<w:r>',
+    '<w:rPr><w:noProof/></w:rPr>',
+    '<w:drawing>',
+    '<wp:anchor xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="0" behindDoc="1" locked="1" layoutInCell="1" allowOverlap="1">',
+    '<wp:simplePos x="0" y="0"/>',
+    '<wp:positionH relativeFrom="page"><wp:posOffset>0</wp:posOffset></wp:positionH>',
+    '<wp:positionV relativeFrom="page"><wp:posOffset>0</wp:posOffset></wp:positionV>',
+    `<wp:extent cx="${width}" cy="${height}"/>`,
+    '<wp:effectExtent l="0" t="0" r="0" b="0"/>',
+    '<wp:wrapNone/>',
+    `<wp:docPr id="${drawingId}" name="AlcateiaWhitePageBackground" descr="Fundo branco do documento"/>`,
+    '<wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr>',
+    '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">',
+    '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">',
+    '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">',
+    `<pic:nvPicPr><pic:cNvPr id="${drawingId}" name="AlcateiaWhitePageBackground.png"/><pic:cNvPicPr/></pic:nvPicPr>`,
+    `<pic:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="${WHITE_PAGE_REL_ID}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>`,
+    `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${width}" cy="${height}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>`,
+    '</pic:pic>',
+    '</a:graphicData>',
+    '</a:graphic>',
+    '</wp:anchor>',
+    '</w:drawing>',
+    '</w:r>'
+  ].join('');
+}
+
+function insertWhitePageDrawing(headerXml, width, height, drawingId) {
+  if (headerXml.includes('AlcateiaWhitePageBackground')) return headerXml;
+
+  const paragraph = /<w:p\b[^>]*>/i.exec(headerXml);
+  if (!paragraph) return headerXml;
+
+  let insertionIndex = paragraph.index + paragraph[0].length;
+  const afterParagraphStart = headerXml.slice(insertionIndex);
+  const paragraphProperties = afterParagraphStart.match(/^\s*<w:pPr\b[^>]*>[\s\S]*?<\/w:pPr>/i)
+    || afterParagraphStart.match(/^\s*<w:pPr\b[^>]*\/>/i);
+  if (paragraphProperties) insertionIndex += paragraphProperties[0].length;
+
+  const run = whitePageDrawingRun(width, height, drawingId);
+  return `${headerXml.slice(0, insertionIndex)}${run}${headerXml.slice(insertionIndex)}`;
+}
+
+function ensureHeaderImageRelationship(entries, headerName) {
+  const fileName = path.posix.basename(headerName);
+  const relationshipName = `word/_rels/${fileName}.rels`;
+  let relationships = readDocxXml(entries, relationshipName);
+  if (relationships.includes(`Id="${WHITE_PAGE_REL_ID}"`)) return;
+
+  const relationship = `<Relationship Id="${WHITE_PAGE_REL_ID}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${path.posix.basename(WHITE_PAGE_IMAGE_PATH)}"/>`;
+  if (!relationships) {
+    relationships = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${relationship}</Relationships>`;
+  } else {
+    relationships = relationships.replace('</Relationships>', `${relationship}</Relationships>`);
+  }
+  writeDocxXml(entries, relationshipName, relationships);
+}
+
+function ensurePngContentType(entries) {
+  const name = '[Content_Types].xml';
+  let contentTypes = readDocxXml(entries, name);
+  if (/Extension="png"/i.test(contentTypes)) return;
+  contentTypes = contentTypes.replace(
+    '</Types>',
+    '<Default Extension="png" ContentType="image/png"/></Types>'
+  );
+  writeDocxXml(entries, name, contentTypes);
+}
+
+export function enforceWhiteEditablePages(entries, { removeAlcateiaWatermark = false } = {}) {
+  const documentName = 'word/document.xml';
+  let documentXml = readDocxXml(entries, documentName);
+  const extent = pageExtentFromDocument(documentXml);
+  documentXml = ensureWhiteDocumentBackground(documentXml);
+  documentXml = ensureWhiteParagraphShading(documentXml);
+  writeDocxXml(entries, documentName, documentXml);
+
+  const xmlParts = Object.keys(entries).filter((name) => /^word\/(?:header|footer)\d+\.xml$/i.test(name));
+  for (const name of xmlParts) {
+    let xml = readDocxXml(entries, name);
+    if (removeAlcateiaWatermark && /^word\/header/i.test(name)) {
+      xml = removeAlcateiaPictureWatermarks(xml);
+    }
+    xml = ensureWhiteParagraphShading(xml);
+
+    if (/^word\/header/i.test(name)) {
+      const drawingId = 910000 + Number(name.match(/(\d+)\.xml$/)?.[1] || 0);
+      xml = insertWhitePageDrawing(xml, extent.width, extent.height, drawingId);
+      ensureHeaderImageRelationship(entries, name);
+    }
+    writeDocxXml(entries, name, xml);
+  }
+
+  entries[WHITE_PAGE_IMAGE_PATH] = new Uint8Array(WHITE_PAGE_PNG);
+  ensurePngContentType(entries);
+}
+
 async function renderDocx(templatePath, data) {
   const template = await fs.readFile(templatePath);
   const doc = new Docxtemplater(new PizZip(template, { createFolders: false }), {
@@ -708,6 +865,9 @@ async function renderDocx(templatePath, data) {
       .filter((name) => !name.endsWith('/'))
       .map((name) => [name, output.file(name).asUint8Array()])
   );
+  enforceWhiteEditablePages(entries, {
+    removeAlcateiaWatermark: path.basename(templatePath).toLowerCase() === 'alcateia-cv-pt.docx'
+  });
   return Buffer.from(zipSync(entries, { level: 6 }));
 }
 

@@ -344,13 +344,23 @@ test('templates geram os quatro DOCX e o pacote DTT com três arquivos', async (
   for (const document of Object.values(documents)) {
     assert.ok(Buffer.isBuffer(document));
     assert.ok(document.length > 10_000);
-    assert.doesNotMatch(allXml(document), /\{[#/.]?[a-z_]+\}/i);
+    const xml = allXml(document);
+    assert.doesNotMatch(xml, /\{[#/.]?[a-z_]+\}/i);
+    assert.match(xml, /<w:background w:color="FFFFFF"\/>/);
+    assert.match(xml, /AlcateiaWhitePageBackground/);
+    assert.match(xml, /<w:shd w:val="clear" w:color="auto" w:fill="FFFFFF"\/>/);
+    assert.doesNotMatch(xml, /<w:background[^>]+w:color="(?:000000|242424)"/i);
+
+    const zip = new PizZip(document);
+    assert.ok(zip.file('word/media/alcateia-white-page-background.png'));
+    assert.ok(zip.file('word/document.xml').asText().includes('<w:t'));
   }
 
   assert.match(allXml(documents.portuguese), /Empresa Antiga/);
   assert.match(allXml(documents.english), /Empresa Antiga/);
   assert.match(allXml(documents.interview), /Comunicação clara/);
   assert.match(allXml(documents.alcateia), /Empresa Antiga/);
+  assert.doesNotMatch(allXml(documents.alcateia), /WordPictureWatermark|MARCA\s+D(?:'|&#39;|&apos;)?[ÁA]GUA/i);
 
   const bundle = new PizZip(buildDttZip('Marina-Teste', documents));
   const names = Object.keys(bundle.files).sort();
