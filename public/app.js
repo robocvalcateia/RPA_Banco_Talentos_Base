@@ -3091,7 +3091,13 @@ function ensureOpportunityCandidatesModal() {
   modal.setAttribute('aria-labelledby', 'opportunityCandidatesTitle');
   modal.innerHTML = `
     <section class="modal-card opportunity-candidates-card">
-      <div class="modal-heading"><div><h2 id="opportunityCandidatesTitle">Candidatos da oportunidade</h2><span id="opportunityCandidatesSummary"></span></div><button class="surface-window-control surface-close-button" type="button" data-close-opportunity-candidates aria-label="Fechar painel" title="Fechar"></button></div>
+      <div class="modal-heading">
+        <div><h2 id="opportunityCandidatesTitle">Candidatos da oportunidade</h2><span id="opportunityCandidatesSummary"></span></div>
+        <div class="heading-actions">
+          <button class="primary-action" type="button" data-add-opportunity-candidates>Incluir novos candidatos</button>
+          <button class="surface-window-control surface-close-button" type="button" data-close-opportunity-candidates aria-label="Fechar painel" title="Fechar"></button>
+        </div>
+      </div>
       <div class="table-wrap"><table><thead><tr><th>Candidato</th><th>Etapa</th><th>Aderência</th><th>Ações</th></tr></thead><tbody id="opportunityCandidatesTable"></tbody></table></div>
     </section>`;
   document.body.appendChild(modal);
@@ -3107,7 +3113,7 @@ function renderOpportunityCandidatesModal(opportunityId) {
   const candidates = activeCandidatesForOpportunity(opportunityId);
   $('#opportunityCandidatesSummary', modal).textContent = `${opportunityLabel(opportunity)} · ${candidates.length} candidato(s) ativo(s)`;
   $('#opportunityCandidatesTable', modal).innerHTML = candidates.length ? candidates.map((candidate) => `
-    <tr><td><strong>${escapeHtml(candidate.name || '-')}</strong></td><td><span class="tag">${escapeHtml(candidate.stage || 'Triagem')}</span></td><td><span class="score">${candidate.aderencia ?? candidate.score ?? 0}%</span></td><td>${candidate.linkedCollection === 'candidates' ? `<div class="stage-actions"><button class="ghost-action compact-action" type="button" data-opportunity-move-candidate="${candidate.id}">Mover</button><button class="danger-action compact-action" type="button" data-reject-opportunity-candidate="${candidate.id}">Reprovado</button></div>` : '<span class="tag">Selecionado</span>'}</td></tr>`).join('') : '<tr><td colspan="4">Nenhum candidato ativo vinculado a esta oportunidade.</td></tr>';
+    <tr><td><strong>${escapeHtml(candidate.name || '-')}</strong></td><td><span class="tag">${escapeHtml(candidate.stage || 'Triagem')}</span></td><td><span class="score">${candidate.aderencia ?? candidate.score ?? 0}%</span></td><td>${candidate.linkedCollection === 'candidates' ? `<div class="stage-actions"><button class="ghost-action compact-action" type="button" data-opportunity-move-candidate="${candidate.id}">Mover</button><button class="danger-action compact-action" type="button" data-reject-opportunity-candidate="${candidate.id}">Reprovado</button></div>` : `<div class="stage-actions"><span class="tag">Selecionado</span><button class="primary-action compact-action" type="button" data-opportunity-move-selected-candidate="${candidate.id}">Mover</button></div>`}</td></tr>`).join('') : '<tr><td colspan="4">Nenhum candidato ativo vinculado a esta oportunidade.</td></tr>';
   openSurfaceDialog(modal);
 }
 
@@ -12242,10 +12248,34 @@ function bindEditableRows() {
       closeOpportunityCandidatesModal();
       return;
     }
+    const addCandidatesButton = event.target.closest('[data-add-opportunity-candidates]');
+    if (addCandidatesButton) {
+      const opportunityId = state.editing.viewingOpportunityCandidatesId;
+      if (opportunityId) openOpportunityCandidateSearch(opportunityId);
+      return;
+    }
     const moveButton = event.target.closest('[data-opportunity-move-candidate]');
     if (moveButton) {
       const candidate = state.candidates.find((item) => item.id === moveButton.dataset.opportunityMoveCandidate);
       if (candidate) openCandidateStageMoveModal(candidate);
+      return;
+    }
+    const moveSelectedButton = event.target.closest('[data-opportunity-move-selected-candidate]');
+    if (moveSelectedButton) {
+      const candidate = state.selectedCandidates.find((item) => item.id === moveSelectedButton.dataset.opportunityMoveSelectedCandidate);
+      if (!candidate) return;
+      const originalText = setSubmitButtonBusy(moveSelectedButton, 'Movendo...');
+      try {
+        const advanced = await api(`/api/selected-candidates/${encodeURIComponent(candidate.id)}/advance`, { method: 'POST' });
+        upsertStateItem('candidates', advanced);
+        renderOpportunities();
+        renderOpportunityCandidatesModal(advanced.opportunityId || candidate.opportunityId);
+        toast(`${advanced.name || candidate.name} movido para ${advanced.stage || 'Entrevista Alcateia'}.`);
+      } catch (error) {
+        toast(error.message || 'Não foi possível mover o candidato selecionado.');
+      } finally {
+        restoreSubmitButton(moveSelectedButton, originalText || 'Mover');
+      }
       return;
     }
     const rejectButton = event.target.closest('[data-reject-opportunity-candidate]');
