@@ -28,6 +28,9 @@ test('a barra permanece fixa na area visivel e sincroniza nos dois sentidos', ()
   assert.match(styles, /\.sticky-horizontal-scrollbar-viewport\s*\{[\s\S]*overflow-x:\s*scroll/);
   assert.match(app, /target\.scrollLeft = viewport\.scrollLeft/);
   assert.match(app, /viewport\.scrollLeft = target\.scrollLeft/);
+  assert.match(app, /Math\.abs\(target\.scrollLeft - viewport\.scrollLeft\) > 0\.5/);
+  assert.match(app, /Math\.abs\(viewport\.scrollLeft - target\.scrollLeft\) > 0\.5/);
+  assert.doesNotMatch(app, /if \(!target \|\| stickyHorizontalScrollbarState\.syncing\) return/);
   assert.match(app, /document\.addEventListener\('scroll',[\s\S]*capture:\s*true/);
   assert.match(app, /initStickyHorizontalScrollbar\(\)/);
 });

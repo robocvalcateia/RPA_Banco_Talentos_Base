@@ -9609,7 +9609,6 @@ const stickyHorizontalScrollbarState = {
   targets: [],
   updateScheduled: false,
   refreshScheduled: false,
-  syncing: false,
   resizeObserver: null,
   mutationObserver: null
 };
@@ -9683,11 +9682,11 @@ function ensureStickyHorizontalScrollbar() {
   stickyHorizontalScrollbarState.spacer = $('.sticky-horizontal-scrollbar-spacer', bar);
   stickyHorizontalScrollbarState.viewport.addEventListener('scroll', () => {
     const { target, viewport } = stickyHorizontalScrollbarState;
-    if (!target || stickyHorizontalScrollbarState.syncing) return;
-    stickyHorizontalScrollbarState.syncing = true;
-    target.scrollLeft = viewport.scrollLeft;
+    if (!target) return;
+    if (Math.abs(target.scrollLeft - viewport.scrollLeft) > 0.5) {
+      target.scrollLeft = viewport.scrollLeft;
+    }
     viewport.setAttribute('aria-valuenow', String(Math.round(viewport.scrollLeft)));
-    window.requestAnimationFrame(() => { stickyHorizontalScrollbarState.syncing = false; });
   }, { passive: true });
   return bar;
 }
@@ -9724,9 +9723,9 @@ function updateStickyHorizontalScrollbar() {
   stickyHorizontalScrollbarState.viewport.setAttribute('aria-valuemin', '0');
   stickyHorizontalScrollbarState.viewport.setAttribute('aria-valuemax', String(Math.round(maxScroll)));
   stickyHorizontalScrollbarState.viewport.setAttribute('aria-valuenow', String(Math.round(target.scrollLeft)));
-  stickyHorizontalScrollbarState.syncing = true;
-  stickyHorizontalScrollbarState.viewport.scrollLeft = target.scrollLeft;
-  window.requestAnimationFrame(() => { stickyHorizontalScrollbarState.syncing = false; });
+  if (Math.abs(stickyHorizontalScrollbarState.viewport.scrollLeft - target.scrollLeft) > 0.5) {
+    stickyHorizontalScrollbarState.viewport.scrollLeft = target.scrollLeft;
+  }
 }
 
 function scheduleStickyHorizontalScrollbarUpdate() {
@@ -9797,11 +9796,11 @@ function initStickyHorizontalScrollbar() {
   });
   document.addEventListener('scroll', (event) => {
     const { target, viewport } = stickyHorizontalScrollbarState;
-    if (target && event.target === target && !stickyHorizontalScrollbarState.syncing) {
-      stickyHorizontalScrollbarState.syncing = true;
-      viewport.scrollLeft = target.scrollLeft;
+    if (target && event.target === target) {
+      if (Math.abs(viewport.scrollLeft - target.scrollLeft) > 0.5) {
+        viewport.scrollLeft = target.scrollLeft;
+      }
       viewport.setAttribute('aria-valuenow', String(Math.round(target.scrollLeft)));
-      window.requestAnimationFrame(() => { stickyHorizontalScrollbarState.syncing = false; });
     }
     scheduleStickyHorizontalScrollbarUpdate();
   }, { capture: true, passive: true });
