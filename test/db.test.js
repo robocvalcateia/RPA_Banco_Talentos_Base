@@ -40,6 +40,7 @@ import {
   readDatabaseCollections,
   sanitizeUser,
   syncCandidatesWithOpportunityClosures,
+  syncSelectedCandidatesWithCandidateRejections,
   fillMissingFinalOpportunityClosingDates,
   verifyPassword,
   writeDatabaseCollections,
@@ -874,6 +875,22 @@ test('candidato selecionado normaliza e vincula oportunidade', () => {
   assert.equal(normalized.candidateMessage, 'Mensagem de contato');
   assert.equal(enriched.opportunityName, 'Dev Backend');
   assert.equal(enriched.opportunityCode, 'OPP-001');
+});
+
+test('reprovação do candidato encerra o vínculo selecionado da mesma oportunidade', () => {
+  const db = {
+    candidates: [normalizeCandidate({
+      id: 'cand_agnis', name: 'Agnis Reis Frutuoso', curriculumId: '1001', opportunityId: 'opp_183',
+      stage: 'Reprovado', processCycle: 1, rejectionReason: 'Perfil não seguirá', rejectedAt: '2026-11-05T10:00:00.000Z'
+    })],
+    selectedCandidates: [normalizeSelectedCandidate({
+      id: 'sel_agnis', name: 'Agnis Reis Frutuoso', curriculumId: '1001', opportunityId: 'opp_183', processCycle: 1
+    })]
+  };
+  syncSelectedCandidatesWithCandidateRejections(db);
+  assert.equal(db.selectedCandidates[0].stage, 'Reprovado');
+  assert.equal(db.selectedCandidates[0].status, 'Reprovado');
+  assert.equal(db.selectedCandidates[0].rejectionReason, 'Perfil não seguirá');
 });
 
 test('candidato selecionado encontra curriculum pelo nome quando link externo existe', () => {

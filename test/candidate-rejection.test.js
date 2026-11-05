@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { moveCandidateStage } from '../db.js';
-import { syncApprovedCandidatePlacement } from '../server.js';
+import { rejectCandidateAcrossOpportunity, syncApprovedCandidatePlacement } from '../server.js';
 
 const app = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
 const server = readFileSync(new URL('../server.js', import.meta.url), 'utf8');
@@ -28,6 +28,23 @@ test('reprovar preserva vínculo e histórico, desfaz flag aprovado e não realo
   assert.equal(candidate.stageHistory[1].stage, 'Reprovado');
   assert.equal(syncApprovedCandidatePlacement(candidate, {}), null);
   assert.equal(candidate.stage, 'Reprovado');
+});
+
+test('reprovação encerra candidato e seleção duplicada somente na mesma oportunidade', () => {
+  const db = {
+    opportunities: [{ id: 'a' }, { id: 'b' }], candidateMovements: [],
+    candidates: [{ id: 'c', name: 'Agnis Reis Frutuoso', curriculumId: 'cv', opportunityId: 'a', stage: 'Triagem', processCycle: 1, stageHistory: [] }],
+    selectedCandidates: [
+      { id: 's', name: 'Agnis Reis Frutuoso', curriculumId: 'cv', opportunityId: 'a', processCycle: 1 },
+      { id: 's2', name: 'Agnis Reis Frutuoso', curriculumId: 'cv', opportunityId: 'b', processCycle: 1 }
+    ]
+  };
+  const result = rejectCandidateAcrossOpportunity(db, db.candidates[0], { name: 'Gerson' }, 'Não seguirá', '2026-11-05T10:00:00.000Z');
+  assert.equal(result.candidates[0].stage, 'Reprovado');
+  assert.equal(result.selectedCandidates[0].stage, 'Reprovado');
+  assert.equal(result.selectedCandidates[0].rejectedBy, 'Gerson');
+  assert.equal(db.selectedCandidates[1].stage, undefined);
+  assert.equal(db.candidateMovements.length, 1);
 });
 
 test('listas ativas ocultam reprovado em todos os filtros sem apagar estado ou outra vaga', () => {
@@ -68,6 +85,27 @@ test('botão principal aciona reprovação, atualiza lista e não abre painel in
   context.state.stages = ['Triagem', 'Entrevista', 'Aprovado', 'Reprovado'];
   vm.runInContext(extract(app, 'renderCandidateStageActions'), context);
   assert.match(context.renderCandidateStageActions({ id: 'c', stage: 'Entrevista' }), /Mover<\/button>[\s\S]*data-reject-opportunity-candidate="c"/);
+});
+
+test('candidato ainda selecionado também pode ser reprovado pela oportunidade', async () => {
+  let request;
+  const saved = [];
+  let modalRenders = 0;
+  const context = vm.createContext({
+    state: { editing: { viewingOpportunityCandidatesId: 'a' } },
+    requestCandidateRejection: async () => 'Sem aderência',
+    api: async (url, options) => {
+      request = { url, ...JSON.parse(options.body) };
+      return { selectedCandidate: { id: 's', stage: 'Reprovado' }, candidates: [{ id: 'c', stage: 'Reprovado' }], notification: { status: 'skipped' } };
+    },
+    upsertStateItem: (collection, value) => saved.push([collection, value.id]),
+    render: () => {}, renderOpportunityCandidatesModal: () => modalRenders++, toast: () => {}
+  });
+  vm.runInContext(extract(app, 'candidateMovementFeedback') + '\n' + extract(app, 'rejectSelectedOpportunityCandidate'), context);
+  await context.rejectSelectedOpportunityCandidate({ id: 's', name: 'Agnis', opportunityId: 'a' });
+  assert.deepEqual(request, { url: '/api/selected-candidates/s/reject', rejectionReason: 'Sem aderência' });
+  assert.deepEqual(saved, [['selectedCandidates', 's'], ['candidates', 'c']]);
+  assert.equal(modalRenders, 1);
 });
 
 function lifecycleContext({ email = 'candidate@example.test', configured = true, fail = false } = {}) {

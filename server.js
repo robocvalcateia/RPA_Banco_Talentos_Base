@@ -2537,6 +2537,30 @@ async function searchAlcateiaCandidates(filter, limit = 50) {
   };
 }
 
+async function searchAlcateiaCandidatesByQuery(query, filter, limit = 200) {
+  const terms = splitSearchTermsForCv(query);
+  if (!terms.length) return { totalFound: 0, totalEvaluated: 0, results: [] };
+  if (!isMongoTalentosConfigured()) throw new Error('MongoDB não configurado');
+  const mongoResponse = await getCurriculumsFromMongo({ all: true });
+  const curriculums = Array.isArray(mongoResponse.curriculums) ? mongoResponse.curriculums : [];
+  const matches = curriculums.filter((curriculum) => {
+    const searchable = normalizeSearchText(curriculumTextForAlcateia(curriculum));
+    return terms.every((term) => searchable.includes(term));
+  });
+  const rows = [];
+  for (let index = 0; index < matches.length; index += 1) {
+    rows.push(evaluateAlcateiaCurriculum(matches[index], filter).row);
+    if (index % 10 === 9) await new Promise(resolve => setImmediate(resolve));
+  }
+  rows.sort((first, second) => Number(second.score || 0) - Number(first.score || 0)
+    || String(first.name || '').localeCompare(String(second.name || ''), 'pt-BR', { sensitivity: 'base' }));
+  return {
+    totalFound: matches.length,
+    totalEvaluated: curriculums.length,
+    results: rows.slice(0, Math.max(1, Math.min(500, Number(limit || 200))))
+  };
+}
+
 function getPythonExecutable() {
   return process.env.PYTHON_EXECUTABLE || process.env.PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
 }
@@ -3712,6 +3736,42 @@ function comparableText(value) {
     .trim();
 }
 
+function candidateLinksMatch(first, second) {
+  if (String(first?.opportunityId || '').trim() !== String(second?.opportunityId || '').trim()) return false;
+  const firstCurriculumId = String(first?.curriculumId || '').trim();
+  const secondCurriculumId = String(second?.curriculumId || '').trim();
+  if (firstCurriculumId && secondCurriculumId) return firstCurriculumId === secondCurriculumId;
+  const firstName = comparableText(first?.name);
+  return Boolean(firstName && firstName === comparableText(second?.name));
+}
+
+function rejectCandidateRecord(record, user, reason, timestamp) {
+  const wasRejected = record.stage === 'Reprovado';
+  if (!wasRejected && Array.isArray(record.stageHistory)) moveCandidateStage(record, 'Reprovado', new Date(timestamp));
+  record.stage = 'Reprovado';
+  record.status = 'Reprovado';
+  record.approved = false;
+  record.rejectedAt = record.rejectedAt || timestamp;
+  record.rejectedBy = String(user?.name || user?.email || user?.id || '').trim();
+  record.rejectionReason = String(reason ?? record.rejectionReason ?? '').trim();
+  record.updatedAt = timestamp;
+  return !wasRejected;
+}
+
+export function rejectCandidateAcrossOpportunity(db, reference, user = {}, reason = '', timestamp = toISODate()) {
+  const processCycle = Math.max(1, Number(reference?.processCycle || 1));
+  const matchesCycle = (record) => Math.max(1, Number(record?.processCycle || 1)) === processCycle;
+  const selectedCandidates = (db.selectedCandidates || []).filter((record) => candidateLinksMatch(record, reference) && matchesCycle(record));
+  const candidates = (db.candidates || []).filter((record) => candidateLinksMatch(record, reference) && matchesCycle(record));
+
+  for (const selected of selectedCandidates) rejectCandidateRecord(selected, user, reason, timestamp);
+  for (const candidate of candidates) {
+    const changed = rejectCandidateRecord(candidate, user, reason, timestamp);
+    if (changed) appendCandidateMovement(db, candidate, 'Alterou etapa para Reprovado', user);
+  }
+  return { selectedCandidates, candidates };
+}
+
 function candidateAderenciaFromScore(score) {
   const numericScore = Number(score ?? 0);
   if (!Number.isFinite(numericScore)) return 50;
@@ -3779,6 +3839,11 @@ export function advanceSelectedCandidateToInterview(db, selectedCandidateId) {
   if (!selected) {
     const error = new Error('Candidato selecionado nao encontrado.');
     error.statusCode = 404;
+    throw error;
+  }
+  if (selected.stage === 'Reprovado' || selected.status === 'Reprovado') {
+    const error = new Error('Candidato selecionado ja foi reprovado nesta oportunidade.');
+    error.statusCode = 422;
     throw error;
   }
 
@@ -6266,18 +6331,20 @@ async function handleApi(request, response) {
       requireOpenCandidateOpportunity(db, opportunity.id);
 
       const baseFilter = opportunityFitFilter(opportunity);
-      const coreSkill = String(payload.coreSkill || baseFilter.coreSkill || '').trim();
+      const query = String(payload.query || '').trim();
+      if (!query) { sendError(response, 422, 'Informe o nome ou a skill para pesquisar.'); return; }
+      const coreSkill = String(baseFilter.coreSkill || '').trim();
       if (!coreSkill) { sendError(response, 422, 'A oportunidade precisa de uma competencia principal para pesquisar candidatos.'); return; }
       const filter = {
         ...baseFilter,
         coreSkill,
-        mandatorySkills: String(payload.mandatorySkills || baseFilter.mandatorySkills || coreSkill).trim(),
+        mandatorySkills: String(baseFilter.mandatorySkills || coreSkill).trim(),
         searchAlcateia: true,
         searchApinfo: false,
         searchLinkedin: false,
-        resultLimit: 1000
+        resultLimit: 500
       };
-      const search = await searchAlcateiaCandidates(filter, 1000);
+      const search = await searchAlcateiaCandidatesByQuery(query, filter, 500);
       const linkedIds = new Set([...(db.candidates || []), ...(db.selectedCandidates || [])]
         .filter((candidate) => candidate.opportunityId === opportunity.id && candidate.stage !== 'Reprovado')
         .map((candidate) => String(candidate.curriculumId || '').trim())
@@ -6287,10 +6354,12 @@ async function handleApi(request, response) {
         .sort((first, second) => Number(second.score || 0) - Number(first.score || 0));
       sendJson(response, 200, {
         opportunityId: opportunity.id,
+        query,
         coreSkill,
         source: 'ALCATEIA',
         externalSourcesUsed: false,
-        totalEvaluated: Number(search.stats?.evaluated || search.totalFound || 0),
+        totalEvaluated: Number(search.totalEvaluated || 0),
+        totalFound: results.length,
         results
       });
       return;
@@ -6687,6 +6756,32 @@ async function handleApi(request, response) {
         sent: false,
         delivery: dryRun ? 'mailto-dry-run' : 'mailto',
         smtpConfigured: isSmtpAccountConfigured(smtpConfig)
+      });
+      return;
+    }
+
+    if (request.method === 'POST' && /^\/api\/selected-candidates\/[^/]+\/reject$/.test(pathname)) {
+      const candidateId = pathname.split('/').at(-2);
+      const payload = await readJsonBody(request).catch(() => ({}));
+      const db = await readDatabaseCollections(['selectedCandidates', 'opportunities', 'candidates', 'candidateMovements', 'curriculums']);
+      const selected = db.selectedCandidates.find((item) => item.id === candidateId);
+      if (!selected) { sendError(response, 404, 'Candidato selecionado nao encontrado.'); return; }
+
+      const previousStage = selected.stage;
+      const rejected = rejectCandidateAcrossOpportunity(db, selected, auth.user, payload.rejectionReason);
+      await writeDatabaseCollections(db, ['selectedCandidates', 'candidates', 'candidateMovements']);
+      const notification = previousStage !== 'Reprovado'
+        ? await sendCandidateLifecycleEmail({
+            db,
+            record: selected,
+            type: 'rejected',
+            persist: () => writeDatabaseCollections(db, ['selectedCandidates'])
+          })
+        : null;
+      sendJson(response, 200, {
+        selectedCandidate: enrichSelectedCandidate(selected, db),
+        candidates: rejected.candidates.map((candidate) => enrichCandidate(candidate, db)),
+        notification
       });
       return;
     }
@@ -7999,6 +8094,7 @@ async function handleApi(request, response) {
           candidate.rejectedAt = toISODate();
           candidate.rejectedBy = String(auth.user.name || auth.user.email || auth.user.id || '').trim();
           candidate.rejectionReason = String(payload.rejectionReason ?? '').trim();
+          rejectCandidateAcrossOpportunity(db, candidate, auth.user, candidate.rejectionReason, candidate.rejectedAt);
         }
       }
       if (candidate.stage === 'Reprovado' && payload.rejectionReason !== undefined) candidate.rejectionReason = String(payload.rejectionReason ?? '').trim();
@@ -8028,7 +8124,7 @@ async function handleApi(request, response) {
       }
       const placement = syncApprovedCandidatePlacement(candidate, candidateDb);
 
-      await writeDatabaseCollections(db, ['candidates', 'allocateds', 'opportunities', 'candidateMovements', 'curriculumObservations', 'recordObservations']);
+      await writeDatabaseCollections(db, ['candidates', 'selectedCandidates', 'allocateds', 'opportunities', 'candidateMovements', 'curriculumObservations', 'recordObservations']);
       const notification = previousStage !== 'Reprovado' && candidate.stage === 'Reprovado'
         ? await sendCandidateLifecycleEmail({
             db: candidateDb,

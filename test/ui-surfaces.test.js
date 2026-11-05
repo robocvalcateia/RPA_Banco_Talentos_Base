@@ -142,6 +142,8 @@ test('oportunidade inclui novos candidatos, move selecionados e reprova somente 
   assert.match(appSource, /data-opportunity-move-candidate/);
   assert.match(appSource, /data-opportunity-move-selected-candidate/);
   assert.match(appSource, /\/api\/selected-candidates\/\$\{encodeURIComponent\(candidate\.id\)\}\/advance/);
+  assert.match(appSource, /data-reject-selected-opportunity-candidate/);
+  assert.match(appSource, /\/api\/selected-candidates\/\$\{encodeURIComponent\(candidate\.id\)\}\/reject/);
   assert.match(appSource, /data-reject-opportunity-candidate/);
   assert.match(appSource, /stage: 'Reprovado', rejectionReason: reason\.trim\(\)/);
   assert.match(serverSource, /candidate\.rejectedAt = toISODate\(\)/);

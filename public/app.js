@@ -1812,11 +1812,6 @@ function ensureDashboardAnalyticsModal() {
   `;
   document.body.appendChild(modal);
   initPanelMaximizeControls();
-  modal.addEventListener('click', (event) => {
-    if (event.target.closest('[data-close-opportunity-candidate-search]') || event.target === modal) closeOpportunityCandidateSearch();
-  });
-  $('#opportunityCandidateSearchFilter', modal)?.addEventListener('input', () => renderOpportunityCandidateSearchRows(state.opportunityCandidateSearchResults));
-  $('#linkOpportunityCandidatesButton', modal)?.addEventListener('click', linkSelectedOpportunityCandidates);
   return modal;
 }
 
@@ -3113,7 +3108,7 @@ function renderOpportunityCandidatesModal(opportunityId) {
   const candidates = activeCandidatesForOpportunity(opportunityId);
   $('#opportunityCandidatesSummary', modal).textContent = `${opportunityLabel(opportunity)} · ${candidates.length} candidato(s) ativo(s)`;
   $('#opportunityCandidatesTable', modal).innerHTML = candidates.length ? candidates.map((candidate) => `
-    <tr><td><strong>${escapeHtml(candidate.name || '-')}</strong></td><td><span class="tag">${escapeHtml(candidate.stage || 'Triagem')}</span></td><td><span class="score">${candidate.aderencia ?? candidate.score ?? 0}%</span></td><td>${candidate.linkedCollection === 'candidates' ? `<div class="stage-actions"><button class="ghost-action compact-action" type="button" data-opportunity-move-candidate="${candidate.id}">Mover</button><button class="danger-action compact-action" type="button" data-reject-opportunity-candidate="${candidate.id}">Reprovado</button></div>` : `<div class="stage-actions"><span class="tag">Selecionado</span><button class="primary-action compact-action" type="button" data-opportunity-move-selected-candidate="${candidate.id}">Mover</button></div>`}</td></tr>`).join('') : '<tr><td colspan="4">Nenhum candidato ativo vinculado a esta oportunidade.</td></tr>';
+    <tr><td><strong>${escapeHtml(candidate.name || '-')}</strong></td><td><span class="tag">${escapeHtml(candidate.stage || 'Triagem')}</span></td><td><span class="score">${candidate.aderencia ?? candidate.score ?? 0}%</span></td><td>${candidate.linkedCollection === 'candidates' ? `<div class="stage-actions"><button class="ghost-action compact-action" type="button" data-opportunity-move-candidate="${candidate.id}">Mover</button><button class="danger-action compact-action" type="button" data-reject-opportunity-candidate="${candidate.id}">Reprovado</button></div>` : `<div class="stage-actions"><span class="tag">Selecionado</span><button class="primary-action compact-action" type="button" data-opportunity-move-selected-candidate="${candidate.id}">Mover</button><button class="danger-action compact-action" type="button" data-reject-selected-opportunity-candidate="${candidate.id}">Reprovado</button></div>`}</td></tr>`).join('') : '<tr><td colspan="4">Nenhum candidato ativo vinculado a esta oportunidade.</td></tr>';
   openSurfaceDialog(modal);
 }
 
@@ -3137,11 +3132,12 @@ function ensureOpportunityCandidateSearchModal() {
         <div><h2 id="opportunityCandidateSearchTitle">Procurar candidatos no Banco Alcateia</h2><span id="opportunityCandidateSearchSummary"></span></div>
         <button class="surface-window-control surface-close-button" type="button" data-close-opportunity-candidate-search aria-label="Fechar painel" title="Fechar"></button>
       </div>
-      <div class="dashboard-analytics-toolbar">
-        <label>Filtrar resultados<input id="opportunityCandidateSearchFilter" type="search" placeholder="Nome, skill ou evidência"></label>
+      <div class="dashboard-analytics-toolbar opportunity-candidate-search-toolbar">
+        <label>Nome ou skill<input id="opportunityCandidateSearchQuery" type="search" placeholder="Digite o nome ou a skill"></label>
+        <button class="primary-action" id="opportunityCandidateSearchButton" type="button">Pesquisar</button>
         <span id="opportunityCandidateSearchCount"></span>
       </div>
-      <p class="form-help" id="opportunityCandidateSearchStatus">Consultando exclusivamente o Banco de Talentos da Alcateia.</p>
+      <p class="form-help" id="opportunityCandidateSearchStatus">Informe um nome ou uma skill e clique em Pesquisar.</p>
       <div class="table-wrap opportunity-candidate-search-table-wrap">
         <table>
           <thead><tr><th>Selecionar</th><th>Profissional</th><th>Aderência</th><th>Classificação</th><th>Evidências</th></tr></thead>
@@ -3155,17 +3151,23 @@ function ensureOpportunityCandidateSearchModal() {
     </section>`;
   document.body.appendChild(modal);
   initPanelMaximizeControls();
+  modal.addEventListener('click', (event) => {
+    if (event.target.closest('[data-close-opportunity-candidate-search]') || event.target === modal) closeOpportunityCandidateSearch();
+  });
+  $('#opportunityCandidateSearchButton', modal)?.addEventListener('click', searchOpportunityCandidates);
+  $('#opportunityCandidateSearchQuery', modal)?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      searchOpportunityCandidates();
+    }
+  });
+  $('#linkOpportunityCandidatesButton', modal)?.addEventListener('click', linkSelectedOpportunityCandidates);
   return modal;
 }
 
 function renderOpportunityCandidateSearchRows(results = []) {
   const modal = ensureOpportunityCandidateSearchModal();
-  const filter = normalizeText($('#opportunityCandidateSearchFilter', modal)?.value);
-  const visible = results.filter((candidate) => !filter || normalizeText([
-    candidate.name, candidate.observation, candidate.classification,
-    ...(candidate.matchedMandatorySkills || []), ...(candidate.jobDescriptionHits || [])
-  ].join(' ')).includes(filter));
-  $('#opportunityCandidateSearchTable', modal).innerHTML = visible.length ? visible.map((candidate) => `
+  $('#opportunityCandidateSearchTable', modal).innerHTML = results.length ? results.map((candidate) => `
     <tr>
       <td><input type="checkbox" data-opportunity-candidate-result value="${escapeHtml(candidate.curriculumId)}"></td>
       <td><strong>${escapeHtml(candidate.name || '-')}</strong><br><small>Banco Alcateia</small></td>
@@ -3173,30 +3175,47 @@ function renderOpportunityCandidateSearchRows(results = []) {
       <td><span class="tag">${escapeHtml(candidate.classification || 'análise')}</span></td>
       <td>${escapeHtml(candidate.observation || (candidate.matchedMandatorySkills || []).join(', ') || '-')}</td>
     </tr>`).join('') : '<tr><td colspan="5">Nenhum profissional encontrado para o filtro informado.</td></tr>';
-  $('#opportunityCandidateSearchCount', modal).textContent = `${visible.length} de ${results.length} resultado(s)`;
+  $('#opportunityCandidateSearchCount', modal).textContent = `${results.length} resultado(s)`;
 }
 
-async function openOpportunityCandidateSearch(opportunityId) {
+function openOpportunityCandidateSearch(opportunityId) {
   const opportunity = state.opportunities.find((item) => item.id === opportunityId);
   if (!opportunity) return;
   const modal = ensureOpportunityCandidateSearchModal();
   state.editing.searchingOpportunityCandidatesId = opportunityId;
   state.opportunityCandidateSearchResults = [];
   $('#opportunityCandidateSearchSummary', modal).textContent = opportunityLabel(opportunity);
+  $('#opportunityCandidateSearchStatus', modal).textContent = 'Informe um nome ou uma skill e clique em Pesquisar.';
+  $('#opportunityCandidateSearchTable', modal).innerHTML = '<tr><td colspan="5">A pesquisa ainda não foi iniciada.</td></tr>';
+  $('#opportunityCandidateSearchCount', modal).textContent = '';
+  $('#opportunityCandidateSearchQuery', modal).value = '';
+  openSurfaceDialog(modal);
+  $('#opportunityCandidateSearchQuery', modal)?.focus();
+}
+
+async function searchOpportunityCandidates() {
+  const modal = ensureOpportunityCandidateSearchModal();
+  const opportunityId = state.editing.searchingOpportunityCandidatesId;
+  const query = String($('#opportunityCandidateSearchQuery', modal)?.value || '').trim();
+  if (!query) { toast('Informe o nome ou a skill para pesquisar.'); return; }
+  const button = $('#opportunityCandidateSearchButton', modal);
+  const originalText = setSubmitButtonBusy(button, 'Pesquisando...');
+  state.opportunityCandidateSearchResults = [];
   $('#opportunityCandidateSearchStatus', modal).textContent = 'Consultando exclusivamente o Banco de Talentos da Alcateia...';
   $('#opportunityCandidateSearchTable', modal).innerHTML = '<tr><td colspan="5">Pesquisa em andamento...</td></tr>';
-  $('#opportunityCandidateSearchFilter', modal).value = '';
-  openSurfaceDialog(modal);
+  $('#opportunityCandidateSearchCount', modal).textContent = '';
   try {
     const response = await api(`/api/opportunities/${encodeURIComponent(opportunityId)}/candidate-search`, {
-      method: 'POST', body: JSON.stringify({})
+      method: 'POST', body: JSON.stringify({ query })
     });
     state.opportunityCandidateSearchResults = response.results || [];
-    $('#opportunityCandidateSearchStatus', modal).textContent = `Competência: ${response.coreSkill}. ${response.totalEvaluated} currículo(s) avaliados. Fonte exclusiva: Alcateia.`;
+    $('#opportunityCandidateSearchStatus', modal).textContent = `${response.totalFound || 0} candidato(s) encontrado(s) para “${query}”. Aderência calculada para ${response.coreSkill}. Fonte exclusiva: Alcateia.`;
     renderOpportunityCandidateSearchRows(state.opportunityCandidateSearchResults);
   } catch (error) {
     $('#opportunityCandidateSearchStatus', modal).textContent = error.message || 'Não foi possível pesquisar candidatos.';
     $('#opportunityCandidateSearchTable', modal).innerHTML = '<tr><td colspan="5">Pesquisa não concluída.</td></tr>';
+  } finally {
+    restoreSubmitButton(button, originalText || 'Pesquisar');
   }
 }
 
@@ -3300,6 +3319,22 @@ async function rejectOpportunityCandidate(candidate) {
     renderOpportunityCandidatesModal(state.editing.viewingOpportunityCandidatesId);
   }
   toast(candidateMovementFeedback(savedCandidate, `${candidate.name || 'Candidato'} reprovado somente nesta oportunidade.`));
+}
+
+async function rejectSelectedOpportunityCandidate(candidate) {
+  const reason = await requestCandidateRejection(candidate);
+  if (reason === null) return;
+  const result = await api(`/api/selected-candidates/${encodeURIComponent(candidate.id)}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ rejectionReason: reason.trim() })
+  });
+  if (result.selectedCandidate) upsertStateItem('selectedCandidates', result.selectedCandidate);
+  (result.candidates || []).forEach((savedCandidate) => upsertStateItem('candidates', savedCandidate));
+  render();
+  if (state.editing.viewingOpportunityCandidatesId) {
+    renderOpportunityCandidatesModal(state.editing.viewingOpportunityCandidatesId);
+  }
+  toast(candidateMovementFeedback({ notification: result.notification }, `${candidate.name || 'Candidato'} reprovado somente nesta oportunidade.`));
 }
 
 function candidateMovementFeedback(candidate, message) {
@@ -7783,7 +7818,7 @@ function getFilteredSelectedCandidates() {
     || '';
   const normalizedValue = normalizeText(value);
 
-  return state.selectedCandidates.filter((candidate) => {
+  return state.selectedCandidates.filter((candidate) => candidate.stage !== 'Reprovado').filter((candidate) => {
     const opportunity = state.opportunities.find((item) => item.id === candidate.opportunityId);
     const client = state.clients.find((item) => item.id === opportunity?.clientId);
 
@@ -12276,6 +12311,14 @@ function bindEditableRows() {
       } finally {
         restoreSubmitButton(moveSelectedButton, originalText || 'Mover');
       }
+      return;
+    }
+    const rejectSelectedButton = event.target.closest('[data-reject-selected-opportunity-candidate]');
+    if (rejectSelectedButton) {
+      const candidate = state.selectedCandidates.find((item) => item.id === rejectSelectedButton.dataset.rejectSelectedOpportunityCandidate);
+      if (!candidate) return;
+      rejectSelectedButton.disabled = true;
+      try { await rejectSelectedOpportunityCandidate(candidate); } catch (error) { toast(error.message || 'Não foi possível reprovar o candidato selecionado nesta oportunidade.'); } finally { rejectSelectedButton.disabled = false; }
       return;
     }
     const rejectButton = event.target.closest('[data-reject-opportunity-candidate]');

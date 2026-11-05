@@ -580,6 +580,7 @@ export function normalizeDatabase(data = {}) {
   data.recordObservations = data.recordObservations.map((observation) => normalizeRecordObservation(observation));
   data.candidateMovements = data.candidateMovements.map((movement) => normalizeCandidateMovement(movement));
   data.selectedCandidates = data.selectedCandidates.map((candidate) => normalizeSelectedCandidate(candidate));
+  syncSelectedCandidatesWithCandidateRejections(data);
   delete data.applications;
 
   return data;
@@ -1774,6 +1775,8 @@ export function normalizeCvSearchResult(result) {
 
 export function normalizeSelectedCandidate(candidate) {
   const score = Number(candidate.score ?? 0);
+  const stage = String(candidate.stage ?? '').trim();
+  const rejected = stage === 'Reprovado' || String(candidate.status ?? '').trim() === 'Reprovado';
 
   return {
     id: String(candidate.id ?? createId('sel', candidate.name ?? candidate.nome ?? candidate.link ?? 'candidato')).trim(),
@@ -1789,11 +1792,43 @@ export function normalizeSelectedCandidate(candidate) {
     origin: String(candidate.origin ?? candidate.origem ?? 'Resultado').trim(),
     candidateMessage: String(candidate.candidateMessage ?? candidate.mensagemCandidato ?? '').trim(),
     observation: String(candidate.observation ?? candidate.observacao ?? candidate['observação'] ?? candidate['observação'] ?? '').trim(),
+    stage: rejected ? 'Reprovado' : stage,
+    status: rejected ? 'Reprovado' : String(candidate.status ?? 'Selecionado').trim(),
     processCycle: Math.max(1, Number(candidate.processCycle || 1)),
     notifications: Array.isArray(candidate.notifications) ? candidate.notifications : [],
+    rejectedAt: String(candidate.rejectedAt ?? candidate.reprovado_em ?? '').trim(),
+    rejectedBy: String(candidate.rejectedBy ?? candidate.reprovado_por ?? '').trim(),
+    rejectionReason: String(candidate.rejectionReason ?? candidate.motivo_reprovacao ?? '').trim(),
     createdAt: String(candidate.createdAt ?? toISODate()).trim(),
     updatedAt: String(candidate.updatedAt ?? '').trim()
   };
+}
+
+function selectedCandidateMatchesCandidate(selected, candidate) {
+  if (selected.opportunityId !== candidate.opportunityId) return false;
+  const selectedCurriculumId = String(selected.curriculumId || '').trim();
+  const candidateCurriculumId = String(candidate.curriculumId || '').trim();
+  if (selectedCurriculumId && candidateCurriculumId) return selectedCurriculumId === candidateCurriculumId;
+  return Boolean(comparableName(selected.name) && comparableName(selected.name) === comparableName(candidate.name));
+}
+
+export function syncSelectedCandidatesWithCandidateRejections(data) {
+  const rejectedCandidates = (data.candidates || []).filter((candidate) => candidate.stage === 'Reprovado');
+  for (const selected of data.selectedCandidates || []) {
+    if (selected.stage === 'Reprovado') continue;
+    const rejected = rejectedCandidates.find((candidate) => (
+      selectedCandidateMatchesCandidate(selected, candidate)
+      && Math.max(1, Number(candidate.processCycle || 1)) >= Math.max(1, Number(selected.processCycle || 1))
+    ));
+    if (!rejected) continue;
+    selected.stage = 'Reprovado';
+    selected.status = 'Reprovado';
+    selected.rejectedAt = rejected.rejectedAt || selected.rejectedAt || toISODate();
+    selected.rejectedBy = rejected.rejectedBy || selected.rejectedBy || '';
+    selected.rejectionReason = rejected.rejectionReason || selected.rejectionReason || '';
+    selected.updatedAt = rejected.updatedAt || selected.updatedAt || selected.rejectedAt;
+  }
+  return data.selectedCandidates;
 }
 
 function normalizeBoolean(value) {

@@ -32,8 +32,15 @@ test('edicao oferece candidatos vinculados e busca exclusiva no Banco Alcateia',
   assert.match(html, /id="opportunityLinkedCandidatesButton"/);
   assert.match(html, /id="opportunitySearchCandidatesButton"/);
   assert.match(app, /openOpportunityCandidateSearch/);
+  assert.match(app, /id="opportunityCandidateSearchQuery"[^>]*placeholder="Digite o nome ou a skill"/);
+  assert.match(app, /id="opportunityCandidateSearchButton"[^>]*>Pesquisar<\/button>/);
+  assert.match(app, /data-opportunity-candidate-result/);
+  assert.match(app, /body: JSON\.stringify\(\{ query \}\)/);
+  assert.match(app, /A pesquisa ainda não foi iniciada/);
   assert.match(app, /Vincular selecionados/);
   assert.match(server, /candidate-search\$\/\.test\(pathname\)/);
+  assert.match(server, /Informe o nome ou a skill para pesquisar/);
+  assert.match(server, /searchAlcateiaCandidatesByQuery\(query, filter, 500\)/);
   assert.match(server, /searchAlcateia: true/);
   assert.match(server, /searchApinfo: false/);
   assert.match(server, /searchLinkedin: false/);
