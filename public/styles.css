@@ -937,6 +937,71 @@ label.full,
   overflow-x: auto;
 }
 
+.horizontal-scroll-target {
+  scrollbar-color: var(--alcateia-green) #dbe7e5;
+  scrollbar-width: auto;
+}
+
+.horizontal-scroll-target::-webkit-scrollbar {
+  height: 14px;
+}
+
+.horizontal-scroll-target::-webkit-scrollbar-track {
+  background: #dbe7e5;
+  border-radius: 999px;
+}
+
+.horizontal-scroll-target::-webkit-scrollbar-thumb {
+  background: var(--alcateia-green);
+  border: 3px solid #dbe7e5;
+  border-radius: 999px;
+}
+
+.sticky-horizontal-scrollbar {
+  background: #f7fbfa;
+  border: 1px solid #b8cfcb;
+  border-radius: 8px;
+  bottom: max(8px, env(safe-area-inset-bottom));
+  box-shadow: 0 8px 24px rgb(11 23 32 / 22%);
+  height: 24px;
+  padding: 2px 4px;
+  position: fixed;
+  transition: opacity 120ms ease;
+  z-index: 100;
+}
+
+.sticky-horizontal-scrollbar[hidden] {
+  display: none !important;
+}
+
+.sticky-horizontal-scrollbar-viewport {
+  height: 18px;
+  overflow-x: scroll;
+  overflow-y: hidden;
+  scrollbar-color: var(--alcateia-green) #dbe7e5;
+  scrollbar-width: auto;
+  width: 100%;
+}
+
+.sticky-horizontal-scrollbar-viewport::-webkit-scrollbar {
+  height: 14px;
+}
+
+.sticky-horizontal-scrollbar-viewport::-webkit-scrollbar-track {
+  background: #dbe7e5;
+  border-radius: 999px;
+}
+
+.sticky-horizontal-scrollbar-viewport::-webkit-scrollbar-thumb {
+  background: var(--alcateia-green);
+  border: 3px solid #dbe7e5;
+  border-radius: 999px;
+}
+
+.sticky-horizontal-scrollbar-spacer {
+  height: 1px;
+}
+
 .resizable-table th {
   position: relative;
 }
@@ -1893,7 +1958,20 @@ th {
 }
 
 .dashboard-analytics-modal-card {
+  display: flex;
+  flex-direction: column;
+  height: 92vh;
+  max-height: 92vh;
+  overflow: hidden;
   width: min(96vw, 1680px);
+}
+
+#dashboardAnalyticsContent {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .candidate-stage-move-card {
@@ -1915,8 +1993,10 @@ th {
 .dashboard-analytics-table-wrap {
   border: 1px solid var(--line);
   border-radius: 10px;
-  max-height: 58vh;
-  overflow-x: auto;
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 0;
+  overflow: auto;
   scrollbar-gutter: stable;
 }
 

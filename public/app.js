@@ -9592,6 +9592,224 @@ function initResizableTables(root = document) {
   });
 }
 
+const horizontalScrollContainerSelector = [
+  '.table-wrap',
+  '.intake-comparison',
+  '.client-org-report',
+  '.allocation-forecast-strip',
+  '.status-report-one-page',
+  '[data-horizontal-scroll]'
+].join(', ');
+
+const stickyHorizontalScrollbarState = {
+  bar: null,
+  viewport: null,
+  spacer: null,
+  target: null,
+  targets: [],
+  updateScheduled: false,
+  refreshScheduled: false,
+  syncing: false,
+  resizeObserver: null,
+  mutationObserver: null
+};
+
+function isHorizontalScrollContainer(element) {
+  if (!(element instanceof Element)) return false;
+  if (element.closest('.sticky-horizontal-scrollbar')) return false;
+  if (element.matches(horizontalScrollContainerSelector)) return true;
+  const style = window.getComputedStyle(element);
+  return style.overflowX === 'auto' || style.overflowX === 'scroll';
+}
+
+function horizontalScrollContainerIsVisible(element) {
+  if (!element?.isConnected || element.hidden || element.closest('[hidden], .hidden')) return false;
+  const style = window.getComputedStyle(element);
+  if (style.display === 'none' || style.visibility === 'hidden') return false;
+  const rect = element.getBoundingClientRect();
+  if (rect.width < 40 || rect.height < 20) return false;
+  if (rect.bottom <= 0 || rect.top >= window.innerHeight || rect.right <= 0 || rect.left >= window.innerWidth) return false;
+  return element.scrollWidth > element.clientWidth + 2;
+}
+
+function stickyHorizontalScrollbarPriority(element) {
+  if (element.matches('.table-wrap, .intake-comparison')) return 5;
+  if (element.matches('.client-org-report, .allocation-forecast-strip, .status-report-one-page, [data-horizontal-scroll]')) return 4;
+  if (element.matches('.modal-card, .modal-panel')) return 2;
+  if (element.matches('.panel, .view')) return 1;
+  return 3;
+}
+
+function stickyHorizontalScrollbarVisibleLayer() {
+  return $$('.modal:not(.hidden), .modal-backdrop:not(.hidden)')
+    .filter((element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+    })
+    .at(-1) || null;
+}
+
+function chooseStickyHorizontalScrollbarTarget() {
+  let candidates = stickyHorizontalScrollbarState.targets.filter(horizontalScrollContainerIsVisible);
+  const visibleLayer = stickyHorizontalScrollbarVisibleLayer();
+  if (visibleLayer) candidates = candidates.filter((element) => visibleLayer.contains(element));
+  if (!candidates.length) return null;
+  if (candidates.includes(stickyHorizontalScrollbarState.target)) return stickyHorizontalScrollbarState.target;
+
+  return candidates.sort((first, second) => {
+    const firstRect = first.getBoundingClientRect();
+    const secondRect = second.getBoundingClientRect();
+    const firstArea = Math.max(0, Math.min(firstRect.bottom, window.innerHeight) - Math.max(firstRect.top, 0))
+      * Math.max(0, Math.min(firstRect.right, window.innerWidth) - Math.max(firstRect.left, 0));
+    const secondArea = Math.max(0, Math.min(secondRect.bottom, window.innerHeight) - Math.max(secondRect.top, 0))
+      * Math.max(0, Math.min(secondRect.right, window.innerWidth) - Math.max(secondRect.left, 0));
+    return stickyHorizontalScrollbarPriority(second) - stickyHorizontalScrollbarPriority(first)
+      || secondArea - firstArea;
+  })[0];
+}
+
+function ensureStickyHorizontalScrollbar() {
+  if (stickyHorizontalScrollbarState.bar) return stickyHorizontalScrollbarState.bar;
+  const bar = document.createElement('div');
+  bar.className = 'sticky-horizontal-scrollbar';
+  bar.hidden = true;
+  bar.setAttribute('aria-hidden', 'true');
+  bar.innerHTML = '<div class="sticky-horizontal-scrollbar-viewport" tabindex="0" aria-label="Rolagem horizontal da tabela visível"><div class="sticky-horizontal-scrollbar-spacer"></div></div>';
+  document.body.appendChild(bar);
+
+  stickyHorizontalScrollbarState.bar = bar;
+  stickyHorizontalScrollbarState.viewport = $('.sticky-horizontal-scrollbar-viewport', bar);
+  stickyHorizontalScrollbarState.spacer = $('.sticky-horizontal-scrollbar-spacer', bar);
+  stickyHorizontalScrollbarState.viewport.addEventListener('scroll', () => {
+    const { target, viewport } = stickyHorizontalScrollbarState;
+    if (!target || stickyHorizontalScrollbarState.syncing) return;
+    stickyHorizontalScrollbarState.syncing = true;
+    target.scrollLeft = viewport.scrollLeft;
+    viewport.setAttribute('aria-valuenow', String(Math.round(viewport.scrollLeft)));
+    window.requestAnimationFrame(() => { stickyHorizontalScrollbarState.syncing = false; });
+  }, { passive: true });
+  return bar;
+}
+
+function updateStickyHorizontalScrollbar() {
+  stickyHorizontalScrollbarState.updateScheduled = false;
+  const bar = ensureStickyHorizontalScrollbar();
+  const target = chooseStickyHorizontalScrollbarTarget();
+  if (!target) {
+    bar.hidden = true;
+    bar.setAttribute('aria-hidden', 'true');
+    stickyHorizontalScrollbarState.target = null;
+    return;
+  }
+
+  stickyHorizontalScrollbarState.target = target;
+  const rect = target.getBoundingClientRect();
+  const left = Math.max(8, rect.left);
+  const right = Math.min(window.innerWidth - 8, rect.right);
+  const width = Math.max(0, right - left);
+  if (width < 80) {
+    bar.hidden = true;
+    bar.setAttribute('aria-hidden', 'true');
+    return;
+  }
+
+  const maxScroll = Math.max(0, target.scrollWidth - target.clientWidth);
+  bar.hidden = false;
+  bar.setAttribute('aria-hidden', 'false');
+  bar.dataset.targetView = target.closest('.view')?.id || target.closest('[role="dialog"]')?.id || '';
+  bar.style.left = `${Math.round(left)}px`;
+  bar.style.width = `${Math.round(width)}px`;
+  stickyHorizontalScrollbarState.spacer.style.width = `${Math.max(target.scrollWidth, target.clientWidth + 1)}px`;
+  stickyHorizontalScrollbarState.viewport.setAttribute('aria-valuemin', '0');
+  stickyHorizontalScrollbarState.viewport.setAttribute('aria-valuemax', String(Math.round(maxScroll)));
+  stickyHorizontalScrollbarState.viewport.setAttribute('aria-valuenow', String(Math.round(target.scrollLeft)));
+  stickyHorizontalScrollbarState.syncing = true;
+  stickyHorizontalScrollbarState.viewport.scrollLeft = target.scrollLeft;
+  window.requestAnimationFrame(() => { stickyHorizontalScrollbarState.syncing = false; });
+}
+
+function scheduleStickyHorizontalScrollbarUpdate() {
+  if (stickyHorizontalScrollbarState.updateScheduled) return;
+  stickyHorizontalScrollbarState.updateScheduled = true;
+  window.requestAnimationFrame(updateStickyHorizontalScrollbar);
+}
+
+function refreshStickyHorizontalScrollbarTargets() {
+  stickyHorizontalScrollbarState.refreshScheduled = false;
+  const explicitTargets = $$(horizontalScrollContainerSelector);
+  const discoveredTargets = $$('div, section, article, main')
+    .filter(isHorizontalScrollContainer);
+  const targets = [...new Set([...explicitTargets, ...discoveredTargets])];
+  stickyHorizontalScrollbarState.targets = targets;
+  targets.forEach((element) => element.classList.add('horizontal-scroll-target'));
+
+  if (stickyHorizontalScrollbarState.resizeObserver) {
+    stickyHorizontalScrollbarState.resizeObserver.disconnect();
+    targets.forEach((element) => stickyHorizontalScrollbarState.resizeObserver.observe(element));
+  }
+  scheduleStickyHorizontalScrollbarUpdate();
+}
+
+function scheduleStickyHorizontalScrollbarRefresh() {
+  if (stickyHorizontalScrollbarState.refreshScheduled) return;
+  stickyHorizontalScrollbarState.refreshScheduled = true;
+  window.requestAnimationFrame(refreshStickyHorizontalScrollbarTargets);
+}
+
+function stickyHorizontalScrollbarTargetFromNode(node) {
+  let element = node instanceof Element ? node : node?.parentElement;
+  while (element && element !== document.body) {
+    if (stickyHorizontalScrollbarState.targets.includes(element)) return element;
+    element = element.parentElement;
+  }
+  return null;
+}
+
+function initStickyHorizontalScrollbar() {
+  ensureStickyHorizontalScrollbar();
+  if (typeof ResizeObserver === 'function') {
+    stickyHorizontalScrollbarState.resizeObserver = new ResizeObserver(scheduleStickyHorizontalScrollbarUpdate);
+  }
+  stickyHorizontalScrollbarState.mutationObserver = new MutationObserver((mutations) => {
+    const bar = stickyHorizontalScrollbarState.bar;
+    if (mutations.every((mutation) => mutation.target === bar || bar?.contains(mutation.target))) return;
+    scheduleStickyHorizontalScrollbarRefresh();
+  });
+  stickyHorizontalScrollbarState.mutationObserver.observe(document.body, {
+    attributes: true,
+    attributeFilter: ['class', 'hidden', 'open', 'style'],
+    childList: true,
+    subtree: true
+  });
+
+  document.addEventListener('pointerover', (event) => {
+    const target = stickyHorizontalScrollbarTargetFromNode(event.target);
+    if (!target) return;
+    stickyHorizontalScrollbarState.target = target;
+    scheduleStickyHorizontalScrollbarUpdate();
+  }, { passive: true });
+  document.addEventListener('focusin', (event) => {
+    const target = stickyHorizontalScrollbarTargetFromNode(event.target);
+    if (!target) return;
+    stickyHorizontalScrollbarState.target = target;
+    scheduleStickyHorizontalScrollbarUpdate();
+  });
+  document.addEventListener('scroll', (event) => {
+    const { target, viewport } = stickyHorizontalScrollbarState;
+    if (target && event.target === target && !stickyHorizontalScrollbarState.syncing) {
+      stickyHorizontalScrollbarState.syncing = true;
+      viewport.scrollLeft = target.scrollLeft;
+      viewport.setAttribute('aria-valuenow', String(Math.round(target.scrollLeft)));
+      window.requestAnimationFrame(() => { stickyHorizontalScrollbarState.syncing = false; });
+    }
+    scheduleStickyHorizontalScrollbarUpdate();
+  }, { capture: true, passive: true });
+  window.addEventListener('resize', scheduleStickyHorizontalScrollbarRefresh, { passive: true });
+  window.addEventListener('orientationchange', scheduleStickyHorizontalScrollbarRefresh, { passive: true });
+  refreshStickyHorizontalScrollbarTargets();
+}
+
 function launcherLeafIds(nodeId = launcherRootId) {
   const node = launcherNodes[nodeId];
   if (!node || !canAccessLauncherNode(node)) return [];
@@ -12632,6 +12850,7 @@ bindEmailProcessing();
 bindCurriculumSelection();
 initPanelMaximizeControls();
 initSurfaceControlsObserver();
+initStickyHorizontalScrollbar();
 document.body.dataset.appReady = 'true';
 
 if (passwordResetTokenFromUrl()) {
