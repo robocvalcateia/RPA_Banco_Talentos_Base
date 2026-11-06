@@ -1520,11 +1520,8 @@ function buildOpportunityDetailsSnapshot() {
     .sort(byOpportunityCode);
   const workingOpportunities = openOpportunities
     .filter((opportunity) => linkedCandidatesForOpportunity(opportunity.id).length > 0);
-  const unattendedOpportunities = openOpportunities
-    .filter((opportunity) => (
-      opportunityOwnerLabel(opportunity) === 'Sem responsável'
-      && linkedCandidatesForOpportunity(opportunity.id).length === 0
-    ));
+  const opportunitiesWithoutCandidates = openOpportunities
+    .filter((opportunity) => linkedCandidatesForOpportunity(opportunity.id).length === 0);
   const clientGroups = groupOpportunityDetails(
     openOpportunities,
     (opportunity) => opportunity.clientId || '__no_client__',
@@ -1539,10 +1536,10 @@ function buildOpportunityDetailsSnapshot() {
   return {
     openOpportunities,
     workingOpportunities,
-    unattendedOpportunities,
+    opportunitiesWithoutCandidates,
     clientGroups,
     ownerGroups,
-    unattendedValue: unattendedOpportunities.reduce(
+    withoutCandidatesValue: opportunitiesWithoutCandidates.reduce(
       (sum, opportunity) => sum + Number(opportunity.contractValue || 0),
       0
     )
@@ -1677,13 +1674,13 @@ function buildDashboardAnalytics(metricId) {
     };
   }
 
-  if (metricId === 'opportunityDetailsUnattended') {
+  if (metricId === 'opportunityDetailsWithoutCandidates') {
     const snapshot = buildOpportunityDetailsSnapshot();
     return {
-      title: 'Oportunidades sem responsável e sem candidatos',
-      summary: `${snapshot.unattendedOpportunities.length} oportunidade(s); valor total de ${formatCurrency(snapshot.unattendedValue)}.`,
-      rows: snapshot.unattendedOpportunities.map((opportunity) => opportunityAnalyticsRow(opportunity, false)),
-      filename: 'dashboard-detalhes-oportunidades-sem-responsavel-sem-candidatos'
+      title: 'Oportunidades sem candidatos vinculados',
+      summary: `${snapshot.opportunitiesWithoutCandidates.length} oportunidade(s); valor total de ${formatCurrency(snapshot.withoutCandidatesValue)}.`,
+      rows: snapshot.opportunitiesWithoutCandidates.map((opportunity) => opportunityAnalyticsRow(opportunity, false)),
+      filename: 'dashboard-detalhes-oportunidades-sem-candidatos'
     };
   }
 
@@ -2675,12 +2672,12 @@ function renderOpportunityDetailsModal() {
     <button
       class="opportunity-details-unattended-card"
       type="button"
-      data-opportunity-details-drill="opportunityDetailsUnattended"
-      aria-label="Abrir oportunidades sem responsável e sem candidatos"
+      data-opportunity-details-drill="opportunityDetailsWithoutCandidates"
+      aria-label="Abrir oportunidades sem candidatos vinculados"
     >
-      <span>Sem responsável e sem candidatos vinculados</span>
-      <strong>${snapshot.unattendedOpportunities.length}</strong>
-      <b>${formatCurrency(snapshot.unattendedValue)}</b>
+      <span>Sem candidatos vinculados</span>
+      <strong>${snapshot.opportunitiesWithoutCandidates.length}</strong>
+      <b>${formatCurrency(snapshot.withoutCandidatesValue)}</b>
       <small>Clique para ver os detalhes</small>
     </button>
   `;

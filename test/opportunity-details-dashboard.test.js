@@ -24,26 +24,27 @@ test('formulario apresenta duas pizzas e o card de pendencias com detalhamento c
   assert.match(app, /modal\.id = 'opportunityDetailsModal'/);
   assert.match(app, /Oportunidades por cliente/);
   assert.match(app, /Oportunidades em trabalho/);
-  assert.match(app, /Sem responsável e sem candidatos vinculados/);
+  assert.match(app, /Sem candidatos vinculados/);
   assert.match(app, /data-opportunity-details-drill/);
   assert.match(app, /opportunityDetailsClient:/);
   assert.match(app, /opportunityDetailsWorking:/);
-  assert.match(app, /opportunityDetailsUnattended/);
+  assert.match(app, /opportunityDetailsWithoutCandidates/);
   assert.match(styles, /\.opportunity-details-grid\s*\{[\s\S]*grid-template-columns:\s*repeat\(2/);
 });
 
-test('calculo considera somente Open, candidatos ativos, responsavel e valor das pendencias', () => {
+test('calculo considera somente Open e inclui toda oportunidade sem candidatos, com ou sem responsavel', () => {
   const context = vm.createContext({
     state: {
       opportunities: [
         { id: 'o1', status: 'Open', clientId: 'c1', owner: 'Bruno', contractValue: 100, opportunityCode: 1 },
         { id: 'o2', status: 'Open', clientId: 'c1', owner: '', contractValue: 200, opportunityCode: 2 },
         { id: 'o3', status: 'Open', clientId: 'c2', owner: 'Gerson', contractValue: 300, opportunityCode: 3 },
+        { id: 'o5', status: 'Open', clientId: 'c2', owner: 'Bruno', contractValue: 500, opportunityCode: 5 },
         { id: 'o4', status: 'Closed', clientId: 'c2', owner: '', contractValue: 400, opportunityCode: 4 },
       ],
     },
     normalizeText: (value) => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(),
-    linkedCandidatesForOpportunity: (id) => ({ o1: [{}], o2: [], o3: [{}], o4: [] }[id] || []),
+    linkedCandidatesForOpportunity: (id) => ({ o1: [{}], o2: [], o3: [{}], o4: [], o5: [] }[id] || []),
     clientNameById: (id) => ({ c1: 'Cliente 1', c2: 'Cliente 2' }[id] || 'Sem cliente'),
     byOpportunityCode: (first, second) => first.opportunityCode - second.opportunityCode,
   });
@@ -54,14 +55,17 @@ test('calculo considera somente Open, candidatos ativos, responsavel e valor das
   ].join('\n'), context);
 
   const snapshot = context.buildOpportunityDetailsSnapshot();
-  assert.equal(snapshot.openOpportunities.length, 3);
+  assert.equal(snapshot.openOpportunities.length, 4);
   assert.equal(snapshot.workingOpportunities.length, 2);
-  assert.equal(snapshot.unattendedOpportunities.length, 1);
-  assert.equal(snapshot.unattendedOpportunities[0].id, 'o2');
-  assert.equal(snapshot.unattendedValue, 200);
+  assert.equal(snapshot.opportunitiesWithoutCandidates.length, 2);
+  assert.deepEqual(
+    Array.from(snapshot.opportunitiesWithoutCandidates, (opportunity) => opportunity.id),
+    ['o2', 'o5']
+  );
+  assert.equal(snapshot.withoutCandidatesValue, 700);
   assert.deepEqual(
     Array.from(snapshot.clientGroups, (item) => [item.label, item.value]),
-    [['Cliente 1', 2], ['Cliente 2', 1]]
+    [['Cliente 1', 2], ['Cliente 2', 2]]
   );
   assert.deepEqual(
     Array.from(snapshot.ownerGroups, (item) => [item.label, item.value]),
