@@ -58,6 +58,26 @@ test('lê todas as abas e usa o nome da aba quando não há coluna de status', (
   ]);
 });
 
+test('aceita o formato real da planilha DTT e elimina linhas idênticas repetidas', () => {
+  const file = workbook([
+    { name: 'Abertas 05.11.2026', rows: [
+      ['NºVaga', 'Data Solicitação do Cliente', 'Perfil Profissional/Especializado'],
+      ['2081', '23/10/2026', 'Consultor Coupa'],
+      ['2081', '23/10/2026', 'Consultor Coupa']
+    ] },
+    { name: 'Canceladas 05.11.2026', rows: [
+      ['NºVaga', 'Data Solicitação do Cliente', 'Perfil Profissional/Especializado'],
+      ['2095', '23/10/2026', 'Consultor Coupa'],
+      ['2095', '23/10/2026', 'Consultor Coupa']
+    ] }
+  ]);
+
+  assert.deepEqual(extractDttSpreadsheetRows(file).map(({ code, name, proposedStatus, sheet }) => ({ code, name, proposedStatus, sheet })), [
+    { code: '2081', name: 'Consultor Coupa', proposedStatus: 'Open', sheet: 'Abertas 05.11.2026' },
+    { code: '2095', name: 'Consultor Coupa', proposedStatus: 'LOST', sheet: 'Canceladas 05.11.2026' }
+  ]);
+});
+
 test('concilia primeiro pelo código DTT, usa nome exato como fallback e só habilita divergência segura', () => {
   const file = workbook([
     { name: 'Relação geral', rows: [

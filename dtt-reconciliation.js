@@ -124,8 +124,8 @@ export function dttStatusFromValue(value = '') {
 }
 
 const HEADER_ALIASES = {
-  code: new Set(['codigo', 'cod', 'codigo vaga', 'cod vaga', 'codigo da vaga', 'codigo oportunidade', 'cod oportunidade', 'codigo requisicao', 'requisicao', 'id requisicao', 'job id', 'id vaga', 'numero vaga', 'numero da vaga', 'codigo dtt', 'cod dtt', 'id']),
-  name: new Set(['vaga', 'nome vaga', 'nome da vaga', 'oportunidade', 'descricao vaga', 'descricao da vaga', 'descricao oportunidade', 'titulo vaga', 'titulo da vaga', 'job title', 'cargo', 'perfil', 'posicao']),
+  code: new Set(['codigo', 'cod', 'codigo vaga', 'cod vaga', 'codigo da vaga', 'codigo oportunidade', 'cod oportunidade', 'codigo requisicao', 'requisicao', 'id requisicao', 'job id', 'id vaga', 'n vaga', 'no vaga', 'n da vaga', 'no da vaga', 'numero vaga', 'numero da vaga', 'codigo dtt', 'cod dtt', 'id']),
+  name: new Set(['vaga', 'nome vaga', 'nome da vaga', 'oportunidade', 'descricao vaga', 'descricao da vaga', 'descricao oportunidade', 'titulo vaga', 'titulo da vaga', 'job title', 'cargo', 'perfil', 'perfil profissional', 'perfil especializado', 'perfil profissional especializado', 'posicao']),
   status: new Set(['status', 'situacao', 'situacao vaga', 'situacao da vaga', 'status vaga', 'status da vaga', 'estado', 'andamento'])
 };
 
@@ -146,6 +146,7 @@ function inferSheetStatus(sheetName) {
 
 export function extractDttSpreadsheetRows(buffer) {
   const rows = [];
+  const seenRows = new Set();
   const sheets = parseXlsxWorkbook(buffer);
   for (const sheet of sheets) {
     const sheetStatus = inferSheetStatus(sheet.name);
@@ -164,6 +165,15 @@ export function extractDttSpreadsheetRows(buffer) {
       const name = header.name === undefined ? '' : String(row.values[header.name] || '').trim();
       const rawStatus = header.status === undefined ? sheet.name : String(row.values[header.status] || '').trim();
       if (!code && !name) continue;
+      const proposedStatus = dttStatusFromValue(rawStatus);
+      const rowIdentity = [
+        normalizeDttText(sheet.name).replace(/\b\d{1,4}\b/g, '').trim(),
+        normalizedCode(code),
+        normalizeDttText(name),
+        proposedStatus
+      ].join('|');
+      if (seenRows.has(rowIdentity)) continue;
+      seenRows.add(rowIdentity);
       rows.push({
         key: `${sheet.name}:${row.rowNumber}`,
         sheet: sheet.name,
@@ -171,7 +181,7 @@ export function extractDttSpreadsheetRows(buffer) {
         code,
         name,
         sourceStatus: rawStatus,
-        proposedStatus: dttStatusFromValue(rawStatus)
+        proposedStatus
       });
     }
   }
