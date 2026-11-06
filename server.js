@@ -4,6 +4,7 @@ import { createIntakeStore, matchIntakeCandidates } from './opportunity-intake.j
 import { createMongoIntakeAdapter } from './intake-mongo.js';
 import { createHourlyIntake, DTT_MAILBOX, DTT_INBOX_INTERVAL_MS, DTT_REMINDER_INTERVAL_MS } from './intake-hourly.js';
 import { createIntakeTalentReader } from './intake-talent.js';
+import { createEmailProcessingRuntimeStore, createEmailProcessingScheduler } from './email-processing-runtime.js';
 import { DATA_FILE } from './db.js';
 const productionIntake = process.env.LOCAL_INTAKE_MODE !== 'true' && Boolean(process.env.MONGODB_URL || process.env.MONGODB_URI);
 const intakeAdapter = productionIntake ? createMongoIntakeAdapter(createIntakeTalentReader()) : undefined;
@@ -282,7 +283,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20261103-cv-white-background-v1';
+const APP_VERSION = '20261106-email-processing-runtime-v1';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -418,6 +419,7 @@ const emailProcessing = {
   erro: '',
   logs: ''
 };
+let emailProcessingRuntimeStore = null;
 const candidateFitReconciliation = {
   running: false,
   jobId: '',
@@ -433,6 +435,18 @@ const EMAIL_INBOX_PROCESSING_INTERVAL_MS = Math.max(
   1,
   Number(process.env.EMAIL_INBOX_INTERVAL_HOURS || 6)
 ) * 60 * 60 * 1000;
+const EMAIL_INBOX_PROCESSING_POLL_MS = Math.max(
+  10000,
+  Number(process.env.EMAIL_INBOX_POLL_SECONDS || 60) * 1000
+);
+const EMAIL_PROCESSING_MAX_RUNTIME_MS = Math.max(
+  5 * 60 * 1000,
+  Number(process.env.EMAIL_PROCESSING_MAX_RUNTIME_MINUTES || 45) * 60 * 1000
+);
+const EMAIL_PROCESSING_FAILURE_RETRY_MS = Math.max(
+  5 * 60 * 1000,
+  Number(process.env.EMAIL_PROCESSING_FAILURE_RETRY_MINUTES || 15) * 60 * 1000
+);
 
 function formatDateTimeBR(date = new Date()) {
   return date.toLocaleString('pt-BR', {
@@ -2749,6 +2763,50 @@ function buildGraphLogRecipients() {
   return PROCESSING_LOG_RECIPIENTS.join(',');
 }
 
+async function notifyScheduledEmailProcessingFailure(outcome = {}) {
+  const smtp = getSmtpConfigFromEnv();
+  const statusLabel = outcome.status === 'timeout' ? 'prazo maximo excedido' : 'falha';
+  const errorText = String(outcome.error || outcome.result?.message || 'Falha sem detalhe tecnico.').slice(0, 1500);
+  const notification = {
+    id: `email-processing-failure:${outcome.runId || randomBytes(8).toString('hex')}`,
+    provider: 'SMTP',
+    source: 'scheduled_email_processing',
+    type: 'email_processing_failure',
+    to: PROCESSING_LOG_RECIPIENTS.join(','),
+    status: 'sending',
+    createdAt: toISODate(),
+    sentAt: '',
+    error: ''
+  };
+
+  try {
+    if (!isSmtpAccountConfigured(smtp)) throw new Error('SMTP nao configurado para o alerta operacional.');
+    await sendMail({
+      ...smtp,
+      to: PROCESSING_LOG_RECIPIENTS,
+      subject: 'ALERTA PROD - Falha no Banco de Talentos',
+      text: [
+        'Gerson e Bruno,',
+        '',
+        `A atualizacao automatica do Banco de Talentos terminou com ${statusLabel}.`,
+        `Execucao: ${outcome.runId || 'nao identificada'}.`,
+        `Detalhe: ${errorText}`,
+        '',
+        `Uma nova tentativa sera feita automaticamente em ${EMAIL_PROCESSING_FAILURE_RETRY_MS / 60000} minutos.`,
+        `Diagnostico: ${getPublicBaseUrl()}/api/admin/email-processing-runtime`
+      ].join('\n')
+    });
+    notification.status = 'sent';
+    notification.sentAt = toISODate();
+  } catch (error) {
+    notification.status = 'failed';
+    notification.error = String(error?.message || error);
+    throw error;
+  } finally {
+    try { await writeEmailLog(notification); } catch {}
+  }
+}
+
 function getHostnameFromUrl(value) {
   try {
     return new URL(String(value || '').trim()).hostname.toLowerCase();
@@ -3020,6 +3078,11 @@ async function getMailSearchDiagnostics(query = '', options = {}) {
 
 function startLegacyEmailProcessing(options = {}) {
   const jobId = randomBytes(12).toString('hex');
+  const onSettled = typeof options.onSettled === 'function' ? options.onSettled : null;
+  const maxRuntimeMs = Math.max(
+    5 * 60 * 1000,
+    Number(options.maxRuntimeMs || EMAIL_PROCESSING_MAX_RUNTIME_MS)
+  );
   const subjectFilter = String(options.subjectFilter || options.query || '').trim();
   const repeatUntilEmpty = Boolean(options.repeatUntilEmpty || options.repeat_until_empty);
   const requestedMaxMessages = Number(options.maxMessages || options.limit || process.env.EMAIL_MAX_MESSAGES || 0);
@@ -3066,6 +3129,57 @@ function startLegacyEmailProcessing(options = {}) {
   });
 
   let combinedOutput = '';
+  let completionStarted = false;
+  let timedOut = false;
+  let killFallbackTimer;
+
+  function clearRuntimeTimers() {
+    clearTimeout(runtimeTimer);
+    clearTimeout(killFallbackTimer);
+  }
+
+  function notifySettled(status) {
+    if (!onSettled) return;
+    Promise.resolve(onSettled({
+      status,
+      jobId,
+      startedAt: emailProcessing.startedAt,
+      finishedAt: new Date(),
+      result: emailProcessing.resultado,
+      error: emailProcessing.erro
+    })).catch((error) => {
+      console.error('[email-processing] Falha no callback de conclusao:', error.message);
+    });
+  }
+
+  function finalizeTimeout() {
+    if (completionStarted) return;
+    completionStarted = true;
+    clearRuntimeTimers();
+    if (emailProcessing.jobId === jobId) {
+      emailProcessing.running = false;
+      emailProcessing.status = 'erro';
+      emailProcessing.finishedAt = formatDateTimeBR();
+      emailProcessing.erro = `Processamento interrompido apos exceder ${Math.round(maxRuntimeMs / 60000)} minutos.`;
+      emailProcessing.resultado = {
+        success: false,
+        message: emailProcessing.erro,
+        stats: { erros: 1 },
+        total_candidatos: 0,
+        timeout: true
+      };
+    }
+    notifySettled('timeout');
+  }
+
+  const runtimeTimer = setTimeout(() => {
+    timedOut = true;
+    emailProcessing.logs = clipLogs(`${emailProcessing.logs}\nPrazo maximo excedido; encerrando o processo Python.\n`);
+    try { child.kill(); } catch {}
+    killFallbackTimer = setTimeout(finalizeTimeout, 5000);
+    killFallbackTimer.unref?.();
+  }, maxRuntimeMs);
+  runtimeTimer.unref?.();
 
   child.stdout.on('data', (chunk) => {
     const text = chunk.toString('utf8');
@@ -3080,22 +3194,48 @@ function startLegacyEmailProcessing(options = {}) {
   });
 
   child.on('error', (error) => {
+    if (completionStarted) return;
+    completionStarted = true;
+    clearRuntimeTimers();
     if (emailProcessing.jobId !== jobId) return;
 
     emailProcessing.running = false;
     emailProcessing.status = 'erro';
     emailProcessing.finishedAt = formatDateTimeBR();
-    emailProcessing.erro = `Falha ao iniciar Python: ${error.message}`;
+    emailProcessing.erro = timedOut
+      ? `Processamento interrompido apos exceder ${Math.round(maxRuntimeMs / 60000)} minutos.`
+      : `Falha ao iniciar Python: ${error.message}`;
     emailProcessing.resultado = {
       success: false,
       message: emailProcessing.erro,
       stats: { erros: 1 },
-      total_candidatos: 0
+      total_candidatos: 0,
+      timeout: timedOut
     };
+    notifySettled(timedOut ? 'timeout' : 'failed');
   });
 
   child.on('close', async (code) => {
+    if (completionStarted) return;
+    completionStarted = true;
+    clearRuntimeTimers();
     if (emailProcessing.jobId !== jobId) return;
+
+    if (timedOut) {
+      emailProcessing.running = false;
+      emailProcessing.status = 'erro';
+      emailProcessing.finishedAt = formatDateTimeBR();
+      emailProcessing.erro = `Processamento interrompido apos exceder ${Math.round(maxRuntimeMs / 60000)} minutos.`;
+      emailProcessing.resultado = {
+        success: false,
+        message: emailProcessing.erro,
+        stats: { erros: 1 },
+        total_candidatos: 0,
+        timeout: true
+      };
+      notifySettled('timeout');
+      return;
+    }
 
     const result = parseLegacyProcessResult(combinedOutput);
     emailProcessing.finishedAt = formatDateTimeBR();
@@ -3181,6 +3321,8 @@ function startLegacyEmailProcessing(options = {}) {
         });
       }, 3000);
     }
+
+    notifySettled(emailProcessing.status === 'finalizado' ? 'success' : 'failed');
   });
 
   return jobId;
@@ -3190,29 +3332,32 @@ function startScheduledInboxEmailProcessingJob() {
   if (!isProductionRuntime()) return;
   if (String(process.env.EMAIL_INBOX_SCHEDULE_ENABLED || 'true').toLowerCase() === 'false') return;
 
-  const run = () => {
-    if (emailProcessing.running && isTerminalEmailProcessingState()) {
-      emailProcessing.running = false;
-    }
-    if (emailProcessing.running) {
-      console.log('Processamento agendado da caixa de entrada ignorado: ja existe processamento em andamento.');
-      return;
-    }
-
-    try {
-      const maxMessages = Number(process.env.EMAIL_INBOX_MAX_MESSAGES || 0) || 0;
-      const jobId = startLegacyEmailProcessing({
-        folders: 'inbox',
-        maxMessages
-      });
-      console.log(`Processamento agendado da caixa de entrada iniciado: ${jobId}`);
-    } catch (error) {
-      console.error('Falha ao iniciar processamento agendado da caixa de entrada:', error.message);
-    }
-  };
-
-  setInterval(run, EMAIL_INBOX_PROCESSING_INTERVAL_MS);
-  console.log(`Processamento agendado da caixa de entrada configurado a cada ${EMAIL_INBOX_PROCESSING_INTERVAL_MS / 3600000} hora(s).`);
+  emailProcessingRuntimeStore = createEmailProcessingRuntimeStore();
+  const maxMessages = Number(process.env.EMAIL_INBOX_MAX_MESSAGES || 0) || 0;
+  const scheduler = createEmailProcessingScheduler({
+    store: emailProcessingRuntimeStore,
+    intervalMs: EMAIL_INBOX_PROCESSING_INTERVAL_MS,
+    pollMs: EMAIL_INBOX_PROCESSING_POLL_MS,
+    maxRuntimeMs: EMAIL_PROCESSING_MAX_RUNTIME_MS,
+    failureRetryMs: EMAIL_PROCESSING_FAILURE_RETRY_MS,
+    isProcessing: () => {
+      if (emailProcessing.running && isTerminalEmailProcessingState()) emailProcessing.running = false;
+      return emailProcessing.running;
+    },
+    startProcessing: ({ onSettled, maxRuntimeMs }) => startLegacyEmailProcessing({
+      folders: 'inbox',
+      maxMessages,
+      maxRuntimeMs,
+      onSettled
+    }),
+    notifyFailure: notifyScheduledEmailProcessingFailure,
+    logger: console
+  });
+  scheduler.start();
+  console.log(
+    `Processamento persistente da caixa de entrada ativo: intervalo ${EMAIL_INBOX_PROCESSING_INTERVAL_MS / 3600000}h, `
+    + `verificacao ${EMAIL_INBOX_PROCESSING_POLL_MS / 1000}s, limite ${EMAIL_PROCESSING_MAX_RUNTIME_MS / 60000}min.`
+  );
 }
 
 async function listCurriculumTemplates() {
@@ -4714,6 +4859,36 @@ async function handleApi(request, response) {
       }
       const filters = Object.fromEntries(route.searchParams);
       sendJson(response, 200, queryEmailLogs([...legacyEmailLogs(db), ...await readEmailLogs()], filters));
+      return;
+    }
+
+    if (request.method === 'GET' && pathname === '/api/admin/email-processing-runtime') {
+      if (String(auth.user.role || '').toLowerCase() !== 'admin') {
+        sendError(response, 403, 'Apenas administradores podem consultar o agendador de e-mails.');
+        return;
+      }
+      if (!emailProcessingRuntimeStore) {
+        sendError(response, 503, 'Agendador persistente nao esta ativo neste ambiente.');
+        return;
+      }
+      const [runtime, runs] = await Promise.all([
+        emailProcessingRuntimeStore.status(),
+        emailProcessingRuntimeStore.recentRuns(20)
+      ]);
+      sendJson(response, 200, {
+        checkedAt: toISODate(),
+        version: APP_VERSION,
+        runtime,
+        runs,
+        inMemory: {
+          running: emailProcessing.running,
+          jobId: emailProcessing.jobId,
+          status: emailProcessing.status,
+          startedAt: emailProcessing.startedAt,
+          finishedAt: emailProcessing.finishedAt,
+          error: emailProcessing.erro
+        }
+      });
       return;
     }
 

@@ -42,12 +42,18 @@ test('email processing can repeat 100-message batches until folder is empty', ()
 
 test('production inbox processing is scheduled every six hours with log recipients', () => {
   const serverSource = readRepoFile('server.js');
+  const runtimeSource = readRepoFile('email-processing-runtime.js');
 
   assert.match(serverSource, /EMAIL_INBOX_PROCESSING_INTERVAL_MS/);
   assert.match(serverSource, /EMAIL_INBOX_INTERVAL_HOURS \|\| 6/);
   assert.match(serverSource, /startScheduledInboxEmailProcessingJob/);
   assert.match(serverSource, /folders: 'inbox'/);
   assert.match(serverSource, /GRAPH_EMAIL_TO: buildGraphLogRecipients/);
+  assert.match(serverSource, /createEmailProcessingRuntimeStore/);
+  assert.match(serverSource, /EMAIL_PROCESSING_MAX_RUNTIME_MINUTES \|\| 45/);
+  assert.match(runtimeSource, /tick\('startup'\)/);
+  assert.match(runtimeSource, /leaseExpiresAt/);
+  assert.match(runtimeSource, /emailProcessingRuns/);
 });
 
 test('admin mail search is read-only and uses Microsoft Graph diagnostics', () => {

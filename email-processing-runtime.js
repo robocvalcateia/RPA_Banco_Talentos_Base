@@ -1,0 +1,348 @@
+import { randomUUID } from 'node:crypto';
+import { MongoClient } from 'mongodb';
+
+const RUNTIME_ID = 'inbox';
+
+function asDate(value, fallback = new Date()) {
+  const date = value instanceof Date ? value : new Date(value || fallback);
+  return Number.isFinite(date.getTime()) ? date : new Date(fallback);
+}
+
+function conciseResult(result = {}) {
+  const stats = result?.stats && typeof result.stats === 'object' ? result.stats : {};
+  const allowedStats = [
+    'emails_processados',
+    'arquivos_baixados',
+    'arquivos_processados',
+    'novos_candidatos',
+    'candidatos_atualizados',
+    'sem_mudancas',
+    'erros'
+  ];
+  return {
+    success: result?.success === true,
+    message: String(result?.message || '').slice(0, 1000),
+    totalCandidates: Number(result?.total_candidatos || 0),
+    stats: Object.fromEntries(allowedStats.map((field) => [field, Number(stats[field] || 0)]))
+  };
+}
+
+export function createEmailProcessingRuntimeStore({
+  env = process.env,
+  clientFactory = (url) => new MongoClient(url, { serverSelectionTimeoutMS: 10000 })
+} = {}) {
+  let connection;
+
+  async function connect() {
+    if (!connection) {
+      connection = (async () => {
+        const url = env.MONGODB_URL || env.MONGODB_URI;
+        if (!url) throw new Error('MongoDB obrigatorio para o agendador persistente de e-mails.');
+        const client = await clientFactory(url).connect();
+        const database = client.db(env.MONGODB_DB || 'Banco_de_Talentos');
+        const prefix = env.MONGODB_APP_COLLECTION_PREFIX || '';
+        const runtime = database.collection(`${prefix}emailProcessingRuntime`);
+        const runs = database.collection(`${prefix}emailProcessingRuns`);
+        await runtime.createIndex({ id: 1 }, { unique: true });
+        await runs.createIndex({ runId: 1 }, { unique: true });
+        await runs.createIndex({ startedAt: -1 });
+        return { client, runtime, runs };
+      })().catch((error) => {
+        connection = null;
+        throw error;
+      });
+    }
+    return connection;
+  }
+
+  async function seedRuntime(now) {
+    const { runtime } = await connect();
+    await runtime.updateOne(
+      { id: RUNTIME_ID },
+      {
+        $setOnInsert: {
+          id: RUNTIME_ID,
+          enabled: true,
+          status: 'idle',
+          createdAt: now,
+          nextRunAt: new Date(0)
+        },
+        $set: { updatedAt: now }
+      },
+      { upsert: true }
+    );
+  }
+
+  return {
+    async claim({ now = new Date(), intervalMs, leaseMs, trigger = 'schedule' } = {}) {
+      const startedAt = asDate(now);
+      await seedRuntime(startedAt);
+      const { runtime, runs } = await connect();
+      const owner = randomUUID();
+      const runId = randomUUID();
+      const leaseExpiresAt = new Date(startedAt.getTime() + Math.max(60000, Number(leaseMs || 0)));
+      const claimed = await runtime.findOneAndUpdate(
+        {
+          id: RUNTIME_ID,
+          enabled: { $ne: false },
+          $and: [
+            { $or: [{ nextRunAt: { $exists: false } }, { nextRunAt: { $lte: startedAt } }] },
+            { $or: [{ leaseExpiresAt: { $exists: false } }, { leaseExpiresAt: null }, { leaseExpiresAt: { $lte: startedAt } }] }
+          ]
+        },
+        {
+          $set: {
+            status: 'running',
+            lastRunId: runId,
+            lastStartedAt: startedAt,
+            leaseOwner: owner,
+            leaseExpiresAt,
+            intervalMs: Number(intervalMs || 0),
+            updatedAt: startedAt
+          },
+          $unset: { lastError: '', lastFinishedAt: '', lastResult: '' }
+        },
+        { returnDocument: 'after' }
+      );
+      if (!claimed) return null;
+
+      await runs.updateMany(
+        { status: 'running', leaseExpiresAt: { $lte: startedAt } },
+        {
+          $set: {
+            status: 'abandoned',
+            finishedAt: startedAt,
+            error: 'Execucao anterior interrompida antes da conclusao; retomada automatica iniciada.'
+          }
+        }
+      );
+      await runs.insertOne({
+        runId,
+        runtimeId: RUNTIME_ID,
+        owner,
+        trigger,
+        status: 'running',
+        startedAt,
+        leaseExpiresAt,
+        createdAt: startedAt
+      });
+      return {
+        runId,
+        owner,
+        trigger,
+        startedAt: startedAt.toISOString(),
+        leaseExpiresAt: leaseExpiresAt.toISOString()
+      };
+    },
+
+    async markJob(claim, jobId, now = new Date()) {
+      if (!claim?.owner || !claim?.runId) return;
+      const at = asDate(now);
+      const { runtime, runs } = await connect();
+      await Promise.all([
+        runtime.updateOne(
+          { id: RUNTIME_ID, leaseOwner: claim.owner, lastRunId: claim.runId },
+          { $set: { jobId: String(jobId || ''), updatedAt: at } }
+        ),
+        runs.updateOne(
+          { runId: claim.runId, owner: claim.owner },
+          { $set: { jobId: String(jobId || ''), updatedAt: at } }
+        )
+      ]);
+    },
+
+    async defer(claim, reason, retryMs, now = new Date()) {
+      if (!claim?.owner || !claim?.runId) return;
+      const finishedAt = asDate(now);
+      const nextRunAt = new Date(finishedAt.getTime() + Math.max(60000, Number(retryMs || 0)));
+      const { runtime, runs } = await connect();
+      await Promise.all([
+        runtime.updateOne(
+          { id: RUNTIME_ID, leaseOwner: claim.owner, lastRunId: claim.runId },
+          {
+            $set: {
+              status: 'deferred',
+              lastFinishedAt: finishedAt,
+              lastError: String(reason || '').slice(0, 2000),
+              nextRunAt,
+              updatedAt: finishedAt
+            },
+            $unset: { leaseOwner: '', leaseExpiresAt: '', jobId: '' }
+          }
+        ),
+        runs.updateOne(
+          { runId: claim.runId, owner: claim.owner },
+          {
+            $set: {
+              status: 'deferred',
+              finishedAt,
+              nextRunAt,
+              error: String(reason || '').slice(0, 2000)
+            }
+          }
+        )
+      ]);
+    },
+
+    async finish(claim, { status, result, error, intervalMs, failureRetryMs, finishedAt = new Date() } = {}) {
+      if (!claim?.owner || !claim?.runId) return;
+      const completedAt = asDate(finishedAt);
+      const normalizedStatus = status === 'success' ? 'success' : (status === 'timeout' ? 'timeout' : 'failed');
+      const delayMs = normalizedStatus === 'success'
+        ? Math.max(60000, Number(intervalMs || 0))
+        : Math.max(60000, Number(failureRetryMs || 0));
+      const nextRunAt = new Date(completedAt.getTime() + delayMs);
+      const resultSummary = conciseResult(result);
+      const errorText = String(error || '').slice(0, 2000);
+      const { runtime, runs } = await connect();
+      await Promise.all([
+        runtime.updateOne(
+          { id: RUNTIME_ID, leaseOwner: claim.owner, lastRunId: claim.runId },
+          {
+            $set: {
+              status: normalizedStatus,
+              lastFinishedAt: completedAt,
+              lastResult: resultSummary,
+              lastError: errorText,
+              nextRunAt,
+              updatedAt: completedAt
+            },
+            $unset: { leaseOwner: '', leaseExpiresAt: '', jobId: '' }
+          }
+        ),
+        runs.updateOne(
+          { runId: claim.runId, owner: claim.owner },
+          {
+            $set: {
+              status: normalizedStatus,
+              finishedAt: completedAt,
+              result: resultSummary,
+              error: errorText,
+              nextRunAt
+            }
+          }
+        )
+      ]);
+      return { status: normalizedStatus, nextRunAt: nextRunAt.toISOString() };
+    },
+
+    async status() {
+      const now = new Date();
+      await seedRuntime(now);
+      const { runtime } = await connect();
+      const row = await runtime.findOne({ id: RUNTIME_ID }, { projection: { _id: 0 } });
+      return row || null;
+    },
+
+    async recentRuns(limit = 20) {
+      const { runs } = await connect();
+      return runs.find({}, { projection: { _id: 0 } })
+        .sort({ startedAt: -1 })
+        .limit(Math.max(1, Math.min(100, Number(limit || 20))))
+        .toArray();
+    }
+  };
+}
+
+export function createEmailProcessingScheduler({
+  store,
+  startProcessing,
+  isProcessing = () => false,
+  notifyFailure = async () => {},
+  intervalMs = 6 * 60 * 60 * 1000,
+  pollMs = 60 * 1000,
+  maxRuntimeMs = 45 * 60 * 1000,
+  failureRetryMs = 15 * 60 * 1000,
+  busyRetryMs = 5 * 60 * 1000,
+  logger = console
+} = {}) {
+  if (!store || typeof store.claim !== 'function') throw new Error('Store persistente do agendador nao informado.');
+  if (typeof startProcessing !== 'function') throw new Error('Processador de e-mails nao informado.');
+  let checking = false;
+  let timer;
+  let lastInfrastructureAlertAt = 0;
+
+  async function finishAndAlert(claim, outcome = {}) {
+    const status = outcome.status === 'success' ? 'success' : (outcome.status === 'timeout' ? 'timeout' : 'failed');
+    await store.finish(claim, {
+      status,
+      result: outcome.result,
+      error: outcome.error,
+      intervalMs,
+      failureRetryMs,
+      finishedAt: outcome.finishedAt || new Date()
+    });
+    logger.log(`[email-scheduler] Execucao ${claim.runId} finalizada: ${status}.`);
+    if (status !== 'success') {
+      try {
+        await notifyFailure({ ...outcome, status, runId: claim.runId });
+      } catch (error) {
+        logger.error('[email-scheduler] Falha ao enviar alerta operacional:', error.message);
+      }
+    }
+  }
+
+  async function tick(trigger = 'schedule') {
+    if (checking) return { skipped: true, reason: 'local_check_running' };
+    checking = true;
+    let claim;
+    try {
+      claim = await store.claim({
+        now: new Date(),
+        intervalMs,
+        leaseMs: maxRuntimeMs + 5 * 60 * 1000,
+        trigger
+      });
+      if (!claim) return { skipped: true, reason: 'not_due_or_leased' };
+      if (isProcessing()) {
+        await store.defer(claim, 'Outro processamento de e-mails esta em andamento.', busyRetryMs, new Date());
+        logger.log('[email-scheduler] Execucao adiada porque ja existe processamento em andamento.');
+        return { skipped: true, reason: 'processor_busy' };
+      }
+
+      const jobId = startProcessing({
+        scheduledRunId: claim.runId,
+        maxRuntimeMs,
+        onSettled: (outcome) => finishAndAlert(claim, outcome).catch((error) => {
+          logger.error('[email-scheduler] Falha ao persistir conclusao:', error.message);
+        })
+      });
+      await store.markJob(claim, jobId, new Date());
+      logger.log(`[email-scheduler] Execucao persistente iniciada: run=${claim.runId}, job=${jobId}.`);
+      return { started: true, runId: claim.runId, jobId };
+    } catch (error) {
+      logger.error('[email-scheduler] Falha ao iniciar ciclo:', error.message);
+      if (claim) {
+        await finishAndAlert(claim, { status: 'failed', error: error.message, finishedAt: new Date() }).catch(() => {});
+      } else if (Date.now() - lastInfrastructureAlertAt >= 60 * 60 * 1000) {
+        lastInfrastructureAlertAt = Date.now();
+        await notifyFailure({
+          status: 'failed',
+          runId: `scheduler-${new Date().toISOString()}`,
+          error: `O agendador nao conseguiu acessar o controle persistente: ${error.message}`,
+          finishedAt: new Date()
+        }).catch((notificationError) => {
+          logger.error('[email-scheduler] Falha ao alertar indisponibilidade do agendador:', notificationError.message);
+        });
+      }
+      return { started: false, error: error.message };
+    } finally {
+      checking = false;
+    }
+  }
+
+  return {
+    tick,
+    start() {
+      tick('startup').catch((error) => logger.error('[email-scheduler] Falha no ciclo inicial:', error.message));
+      timer = setInterval(() => {
+        tick('schedule').catch((error) => logger.error('[email-scheduler] Falha no ciclo agendado:', error.message));
+      }, Math.max(1000, Number(pollMs || 60000)));
+      timer.unref?.();
+      return () => {
+        if (timer) clearInterval(timer);
+        timer = undefined;
+      };
+    }
+  };
+}
