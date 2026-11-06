@@ -27,7 +27,10 @@ test('a barra permanece fixa na area visivel e sincroniza nos dois sentidos', ()
   assert.match(styles, /\.sticky-horizontal-scrollbar\s*\{[\s\S]*bottom:\s*max\(8px, env\(safe-area-inset-bottom\)\)[\s\S]*position:\s*fixed[\s\S]*z-index:\s*10000/);
   assert.match(styles, /\.sticky-horizontal-scrollbar-track\s*\{[\s\S]*cursor:\s*pointer[\s\S]*touch-action:\s*none/);
   assert.match(styles, /\.sticky-horizontal-scrollbar-thumb\s*\{[\s\S]*cursor:\s*grab[\s\S]*position:\s*absolute/);
-  assert.match(styles, /\.horizontal-scroll-target\.horizontal-scroll-controlled\s*\{[\s\S]*scrollbar-width:\s*none/);
+  assert.match(styles, /\.horizontal-scroll-target\.horizontal-scroll-controlled\s*\{[\s\S]*scrollbar-width:\s*auto/);
+  assert.match(styles, /\.horizontal-scroll-target\.horizontal-scroll-controlled::\-webkit-scrollbar:horizontal\s*\{[\s\S]*height:\s*0/);
+  assert.match(styles, /\.horizontal-scroll-target\.horizontal-scroll-controlled::\-webkit-scrollbar:vertical\s*\{[\s\S]*width:\s*14px/);
+  assert.doesNotMatch(styles, /\.horizontal-scroll-target\.horizontal-scroll-controlled::\-webkit-scrollbar\s*\{[\s\S]*width:\s*0/);
   assert.match(app, /track\.addEventListener\('pointerdown'/);
   assert.match(app, /track\.addEventListener\('pointermove'/);
   assert.match(app, /target\.scrollLeft = Math\.max/);

@@ -1491,6 +1491,73 @@ function opportunityById(opportunityId) {
   return state.opportunities.find((opportunity) => opportunity.id === opportunityId);
 }
 
+function opportunityOwnerLabel(opportunity = {}) {
+  const owner = String(opportunity.owner || '').trim();
+  const normalized = normalizeText(owner);
+  return !owner || ['-', 'selecione', 'nao informado', 'sem responsavel'].includes(normalized)
+    ? 'Sem responsável'
+    : owner;
+}
+
+function groupOpportunityDetails(opportunities, keyResolver, labelResolver) {
+  const groups = new Map();
+  opportunities.forEach((opportunity) => {
+    const key = keyResolver(opportunity);
+    const label = labelResolver(opportunity);
+    const current = groups.get(key) || { key, label, value: 0 };
+    current.value += 1;
+    groups.set(key, current);
+  });
+  return [...groups.values()].sort((first, second) => (
+    second.value - first.value
+    || String(first.label).localeCompare(String(second.label), 'pt-BR', { sensitivity: 'base' })
+  ));
+}
+
+function buildOpportunityDetailsSnapshot() {
+  const openOpportunities = state.opportunities
+    .filter((opportunity) => opportunity.status === 'Open')
+    .sort(byOpportunityCode);
+  const workingOpportunities = openOpportunities
+    .filter((opportunity) => linkedCandidatesForOpportunity(opportunity.id).length > 0);
+  const unattendedOpportunities = openOpportunities
+    .filter((opportunity) => (
+      opportunityOwnerLabel(opportunity) === 'Sem responsável'
+      && linkedCandidatesForOpportunity(opportunity.id).length === 0
+    ));
+  const clientGroups = groupOpportunityDetails(
+    openOpportunities,
+    (opportunity) => opportunity.clientId || '__no_client__',
+    (opportunity) => opportunity.clientId ? clientNameById(opportunity.clientId) : 'Sem cliente'
+  );
+  const ownerGroups = groupOpportunityDetails(
+    workingOpportunities,
+    (opportunity) => opportunityOwnerLabel(opportunity),
+    (opportunity) => opportunityOwnerLabel(opportunity)
+  );
+
+  return {
+    openOpportunities,
+    workingOpportunities,
+    unattendedOpportunities,
+    clientGroups,
+    ownerGroups,
+    unattendedValue: unattendedOpportunities.reduce(
+      (sum, opportunity) => sum + Number(opportunity.contractValue || 0),
+      0
+    )
+  };
+}
+
+function decodeOpportunityDetailsKey(metricId, prefix) {
+  const encoded = String(metricId || '').slice(prefix.length);
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return encoded;
+  }
+}
+
 function formatDateBR(value) {
   if (!value) return '-';
   const date = new Date(value);
@@ -1577,6 +1644,48 @@ function buildDashboardAnalytics(metricId) {
   const openCandidates = getDashboardOpenCandidates();
   const selectedMonthLabel = state.dashboardMonth ? formatMonthLabel(state.dashboardMonth) : 'todos os meses/anos';
   const selectedModelLabel = state.dashboardModel || 'todos os modelos';
+
+  if (metricId?.startsWith('opportunityDetailsClient:')) {
+    const prefix = 'opportunityDetailsClient:';
+    const clientKey = decodeOpportunityDetailsKey(metricId, prefix);
+    const snapshot = buildOpportunityDetailsSnapshot();
+    const rows = snapshot.openOpportunities
+      .filter((opportunity) => (
+        clientKey === '__all__'
+        || (clientKey === '__no_client__' ? !opportunity.clientId : opportunity.clientId === clientKey)
+      ));
+    const group = snapshot.clientGroups.find((item) => item.key === clientKey);
+    return {
+      title: clientKey === '__all__' ? 'Oportunidades abertas por cliente' : `Oportunidades abertas - ${group?.label || 'Cliente'}`,
+      summary: `${rows.length} oportunidade(s) aberta(s) no recorte selecionado.`,
+      rows: rows.map((opportunity) => opportunityAnalyticsRow(opportunity, false)),
+      filename: 'dashboard-detalhes-oportunidades-clientes'
+    };
+  }
+
+  if (metricId?.startsWith('opportunityDetailsWorking:')) {
+    const prefix = 'opportunityDetailsWorking:';
+    const ownerKey = decodeOpportunityDetailsKey(metricId, prefix);
+    const snapshot = buildOpportunityDetailsSnapshot();
+    const rows = snapshot.workingOpportunities
+      .filter((opportunity) => ownerKey === '__all__' || opportunityOwnerLabel(opportunity) === ownerKey);
+    return {
+      title: ownerKey === '__all__' ? 'Oportunidades em trabalho' : `Oportunidades em trabalho - ${ownerKey}`,
+      summary: `${rows.length} oportunidade(s) aberta(s) com candidato(s) ativo(s) vinculado(s).`,
+      rows: rows.map((opportunity) => opportunityAnalyticsRow(opportunity, false)),
+      filename: 'dashboard-detalhes-oportunidades-em-trabalho'
+    };
+  }
+
+  if (metricId === 'opportunityDetailsUnattended') {
+    const snapshot = buildOpportunityDetailsSnapshot();
+    return {
+      title: 'Oportunidades sem responsável e sem candidatos',
+      summary: `${snapshot.unattendedOpportunities.length} oportunidade(s); valor total de ${formatCurrency(snapshot.unattendedValue)}.`,
+      rows: snapshot.unattendedOpportunities.map((opportunity) => opportunityAnalyticsRow(opportunity, false)),
+      filename: 'dashboard-detalhes-oportunidades-sem-responsavel-sem-candidatos'
+    };
+  }
 
   if (metricId?.startsWith('candidateStage:')) {
     const stage = metricId.slice('candidateStage:'.length);
@@ -2215,7 +2324,7 @@ function renderMetrics() {
   const openCandidates = getDashboardOpenCandidates();
   const selectedMonthLabel = state.dashboardMonth ? formatMonthLabel(state.dashboardMonth) : 'todos os meses/anos';
   const selectedModelLabel = state.dashboardModel || 'todos os modelos';
-  $('#metrics').innerHTML = [
+  const metricCards = [
     ['won', `WON em ${selectedMonthLabel} (${selectedModelLabel})`, wonOpportunities.length],
     ['wonValue', `Valor fechado em ${selectedMonthLabel} (${selectedModelLabel})`, formatCurrencyK(wonContractValue)],
     ['activeValue', 'Oportunidades em aberto', formatCurrencyK(totals.activeContractValue ?? 0)],
@@ -2231,6 +2340,19 @@ function renderMetrics() {
       </button>
     `)
     .join('');
+  const opportunityDetailsCard = `
+    <button
+      class="metric-card metric-card-button opportunity-details-launch-card"
+      type="button"
+      data-open-opportunity-details
+      aria-label="Abrir detalhes das oportunidades"
+    >
+      <span>Detalhes das oportunidades</span>
+      <strong>Abrir</strong>
+      <small>Clientes, responsáveis e pendências</small>
+    </button>
+  `;
+  $('#metrics').innerHTML = `${metricCards}${opportunityDetailsCard}`;
 }
 
 function currentMonthKey() {
@@ -2409,7 +2531,7 @@ function openAllocatedMaintenance(clientName = '') {
   renderAllocateds();
 }
 
-function renderPieSvg(entries, total, colors) {
+function renderPieSvg(entries, total, colors, ariaLabel = 'Alocados ativos por cliente') {
   let offset = 25;
   const slices = entries
     .map(([, value], index) => {
@@ -2433,11 +2555,146 @@ function renderPieSvg(entries, total, colors) {
     .join('');
 
   return `
-    <svg class="pie-chart" viewBox="0 0 40 40" role="img" aria-label="Alocados ativos por cliente">
+    <svg class="pie-chart" viewBox="0 0 40 40" role="img" aria-label="${escapeHtml(ariaLabel)}">
       <circle cx="20" cy="20" r="15.915" fill="transparent" stroke="#e4eeee" stroke-width="11"></circle>
       ${slices}
     </svg>
   `;
+}
+
+const OPPORTUNITY_DETAILS_COLORS = ['#00b894', '#121212', '#2d9cdb', '#f5a524', '#dc4c64', '#7b61ff', '#20c997', '#6c757d'];
+
+function opportunityDetailsMetricId(prefix, key) {
+  return `${prefix}:${encodeURIComponent(key)}`;
+}
+
+function renderOpportunityDetailsPie(groups, total, prefix, ariaLabel, emptyMessage) {
+  if (!groups.length || !total) {
+    return `<p class="empty-state">${escapeHtml(emptyMessage)}</p>`;
+  }
+
+  const entries = groups.map((group) => [group.label, group.value]);
+  const allMetricId = opportunityDetailsMetricId(prefix, '__all__');
+  return `
+    <div class="opportunity-details-pie-layout">
+      <button
+        class="opportunity-details-pie-button"
+        type="button"
+        data-opportunity-details-drill="${escapeHtml(allMetricId)}"
+        aria-label="Abrir todos os detalhes de ${escapeHtml(ariaLabel)}"
+      >
+        ${renderPieSvg(entries, total, OPPORTUNITY_DETAILS_COLORS, ariaLabel)}
+        <span>Ver todas (${total})</span>
+      </button>
+      <div class="pie-legend opportunity-details-legend">
+        ${groups.map((group, index) => `
+          <button
+            class="pie-legend-row pie-legend-button"
+            type="button"
+            data-opportunity-details-drill="${escapeHtml(opportunityDetailsMetricId(prefix, group.key))}"
+            aria-label="Abrir ${escapeHtml(group.label)}"
+          >
+            <span class="legend-dot" style="background: ${OPPORTUNITY_DETAILS_COLORS[index % OPPORTUNITY_DETAILS_COLORS.length]}"></span>
+            <strong>${escapeHtml(group.label)}</strong>
+            <b>${group.value} (${formatPercent(group.value, total)})</b>
+          </button>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function ensureOpportunityDetailsModal() {
+  let modal = $('#opportunityDetailsModal');
+  if (modal) return modal;
+
+  modal = document.createElement('section');
+  modal.id = 'opportunityDetailsModal';
+  modal.className = 'modal hidden';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-labelledby', 'opportunityDetailsTitle');
+  modal.innerHTML = `
+    <div class="modal-card opportunity-details-modal-card">
+      <div class="modal-heading">
+        <div>
+          <h2 id="opportunityDetailsTitle">Detalhes das oportunidades</h2>
+          <span id="opportunityDetailsSummary"></span>
+        </div>
+        <button class="ghost-action" type="button" data-close-opportunity-details aria-label="Fechar">×</button>
+      </div>
+      <div class="opportunity-details-grid" id="opportunityDetailsContent"></div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  initPanelMaximizeControls();
+  return modal;
+}
+
+function renderOpportunityDetailsModal() {
+  const snapshot = buildOpportunityDetailsSnapshot();
+  const modal = ensureOpportunityDetailsModal();
+  const summary = $('#opportunityDetailsSummary', modal);
+  const content = $('#opportunityDetailsContent', modal);
+  if (summary) {
+    summary.textContent = `${snapshot.openOpportunities.length} oportunidade(s) com status Open.`;
+  }
+  if (!content) return modal;
+
+  content.innerHTML = `
+    <section class="opportunity-details-chart-card" aria-labelledby="opportunityDetailsClientsTitle">
+      <div class="opportunity-details-card-heading">
+        <div>
+          <h3 id="opportunityDetailsClientsTitle">Oportunidades por cliente</h3>
+          <span>${snapshot.openOpportunities.length} oportunidade(s) aberta(s)</span>
+        </div>
+      </div>
+      ${renderOpportunityDetailsPie(
+        snapshot.clientGroups,
+        snapshot.openOpportunities.length,
+        'opportunityDetailsClient',
+        'oportunidades abertas por cliente',
+        'Nenhuma oportunidade aberta para distribuir por cliente.'
+      )}
+    </section>
+    <section class="opportunity-details-chart-card" aria-labelledby="opportunityDetailsWorkingTitle">
+      <div class="opportunity-details-card-heading">
+        <div>
+          <h3 id="opportunityDetailsWorkingTitle">Oportunidades em trabalho</h3>
+          <span>Com candidato(s), distribuídas por responsável Alcateia</span>
+        </div>
+      </div>
+      ${renderOpportunityDetailsPie(
+        snapshot.ownerGroups,
+        snapshot.workingOpportunities.length,
+        'opportunityDetailsWorking',
+        'oportunidades em trabalho por responsável Alcateia',
+        'Nenhuma oportunidade aberta possui candidato ativo vinculado.'
+      )}
+    </section>
+    <button
+      class="opportunity-details-unattended-card"
+      type="button"
+      data-opportunity-details-drill="opportunityDetailsUnattended"
+      aria-label="Abrir oportunidades sem responsável e sem candidatos"
+    >
+      <span>Sem responsável e sem candidatos vinculados</span>
+      <strong>${snapshot.unattendedOpportunities.length}</strong>
+      <b>${formatCurrency(snapshot.unattendedValue)}</b>
+      <small>Clique para ver os detalhes</small>
+    </button>
+  `;
+  return modal;
+}
+
+function openOpportunityDetailsModal() {
+  const modal = renderOpportunityDetailsModal();
+  openSurfaceDialog(modal);
+  $('[data-close-opportunity-details]', modal)?.focus();
+}
+
+function closeOpportunityDetailsModal() {
+  closeSurfaceDialog('#opportunityDetailsModal');
 }
 
 function formatPercent(value, total) {
@@ -12151,6 +12408,12 @@ function bindDashboardFilters() {
   });
 
   $('#metrics')?.addEventListener('click', (event) => {
+    const opportunityDetailsCard = event.target.closest('[data-open-opportunity-details]');
+    if (opportunityDetailsCard) {
+      event.stopPropagation();
+      openOpportunityDetailsModal();
+      return;
+    }
     const card = event.target.closest('[data-dashboard-analytics]');
     if (!card) return;
     event.stopPropagation();
@@ -12172,6 +12435,13 @@ function bindDashboardFilters() {
   });
 
   document.addEventListener('click', (event) => {
+    const opportunityDetailsDrill = event.target.closest('[data-opportunity-details-drill]');
+    if (opportunityDetailsDrill) {
+      event.stopPropagation();
+      openDashboardAnalytics(opportunityDetailsDrill.dataset.opportunityDetailsDrill);
+      return;
+    }
+
     const editButton = event.target.closest('[data-dashboard-analytics-edit]');
     if (editButton) {
       editDashboardAnalyticsRecord(
@@ -12196,14 +12466,33 @@ function bindDashboardFilters() {
       return;
     }
 
+    if (event.target.closest('[data-close-opportunity-details]')) {
+      closeOpportunityDetailsModal();
+      return;
+    }
+
     if (event.target.id === 'dashboardAnalyticsModal') {
       closeDashboardAnalytics();
+      return;
+    }
+
+    if (event.target.id === 'opportunityDetailsModal') {
+      closeOpportunityDetailsModal();
     }
   });
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
-      closeDashboardAnalytics();
+      const analyticsModal = $('#dashboardAnalyticsModal');
+      if (analyticsModal && !analyticsModal.classList.contains('hidden')) {
+        closeDashboardAnalytics();
+        return;
+      }
+      const opportunityDetailsModal = $('#opportunityDetailsModal');
+      if (opportunityDetailsModal && !opportunityDetailsModal.classList.contains('hidden')) {
+        closeOpportunityDetailsModal();
+        return;
+      }
       closeCurriculumOpportunityModal();
       closeCurriculumBlacklistModal();
     }
