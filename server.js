@@ -168,7 +168,12 @@ import { promises as fs } from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import {
+  dttReconciliationInternals,
+  reconcileDttSpreadsheet,
+  reconciliationSummary
+} from './dtt-reconciliation.js';
 import {
   calculateIndicators,
   BRAZIL_UFS,
@@ -402,6 +407,7 @@ export function shouldResetEnvUserPasswords(env = process.env) {
 
 const PORT = Number(process.env.PORT || 3000);
 const sessions = new Map();
+const dttReconciliationBatches = new Map();
 const emailProcessing = {
   running: false,
   jobId: '',
@@ -2395,11 +2401,25 @@ function expandCityRadiusFilter(filter, radiusKm = 50) {
 export function buildCandidateLifecycleMessage(type, candidateName, opportunityName = '', opportunityStatus = '') {
   const name = String(candidateName || 'Candidato').trim();
   const opportunity = String(opportunityName || '').trim();
+  if (type === 'dtt-closed') {
+    return [
+      `Olá, ${name}.`,
+      '',
+      `Agradecemos sua participação no processo referente à oportunidade ${opportunity || 'em questão'}.`,
+      '',
+      'Recebemos a confirmação de que a oportunidade foi encerrada pela empresa contratante. Por esse motivo, o processo seletivo relacionado a essa vaga está sendo finalizado.',
+      '',
+      'Agradecemos seu interesse e sua disponibilidade. Seu perfil permanecerá em nosso Banco de Talentos para futuras oportunidades compatíveis com sua experiência.',
+      '',
+      'Atenciosamente,',
+      'Alcateia Consulting'
+    ].join('\n');
+  }
   if (type === 'selected') {
     return [`Olá ${name}`, '', 'Tudo bem?', '', `Avaliamos o seu CV e nosso analista de RH entendeu que ele tem aderência à oportunidade ${opportunity}.`, '', 'Manteremos contato para atualização sobre a evolução do processo.', '', 'Atenciosamente'].join('\n');
   }
   if (type === 'rejected') {
-    return [`Olá ${name}`, '', String(opportunityStatus).toLowerCase() === 'closed'
+    return [`Olá ${name}`, '', ['closed', 'lost'].includes(String(opportunityStatus).toLowerCase())
         ? `Informamos que a oportunidade ${opportunity || 'à qual você estava vinculado(a)'} foi encerrada. Por esse motivo, sua participação neste processo seletivo foi concluída.`
         : 'Encaminhamos os seus dados para o cliente e, após criteriosa avaliação, ele decidiu seguir com outros candidatos.', '', 'Não se preocupe. Você continuará fazendo parte do nosso pool de candidatos e seu CV continuará sob avaliação. Em breve, assim que uma nova oportunidade tiver aderência ao seu perfil, entraremos em contato.', '', 'Atenciosamente'].join('\n');
   }
@@ -2434,10 +2454,10 @@ async function sendCandidateLifecycleEmail({ db, record, type, persist }) {
     await persist();
     return notification;
   }
-  if (type === 'rejected' && String(opportunity?.status).toLowerCase() === 'closed') {
+  if ((type === 'dtt-closed' || type === 'rejected') && ['closed', 'lost'].includes(String(opportunity?.status).toLowerCase())) {
     const prior = [...(db.candidates || []), ...(db.selectedCandidates || [])]
       .flatMap(item => item.notifications || [])
-      .find(item => item !== notification && item.type === 'rejected'
+      .find(item => item !== notification && item.type === type
         && item.opportunityId === record.opportunityId
         && String(item.to || '').trim().toLowerCase() === email
         && item.status === 'sent');
@@ -2459,7 +2479,11 @@ async function sendCandidateLifecycleEmail({ db, record, type, persist }) {
     await sendMail({
       ...smtpConfig,
       to: email,
-      subject: type === 'selected' ? `[Alcateia] Processo seletivo - ${opportunity?.opportunity || 'Oportunidade'}` : '[Alcateia] Atualização do processo seletivo',
+      subject: type === 'selected'
+        ? `[Alcateia] Processo seletivo - ${opportunity?.opportunity || 'Oportunidade'}`
+        : type === 'dtt-closed'
+          ? `[Alcateia] Atualização sobre a oportunidade — ${opportunity?.opportunity || 'Oportunidade'}`
+          : '[Alcateia] Atualização do processo seletivo',
       text: buildCandidateLifecycleMessage(type, record.name || curriculum?.nome, opportunity?.opportunity, opportunity?.status)
     });
     notification.status = 'sent';
@@ -2470,6 +2494,152 @@ async function sendCandidateLifecycleEmail({ db, record, type, persist }) {
   }
   await persist();
   return notification;
+}
+
+function appendUniqueParagraph(currentValue, paragraph) {
+  const current = String(currentValue || '').trim();
+  const addition = String(paragraph || '').trim();
+  if (!addition || current.includes(addition)) return current;
+  return [current, addition].filter(Boolean).join('\n\n');
+}
+
+function appendRecordObservationOnce(db, entityType, entityId, text, user) {
+  const normalizedText = repairEncodingArtifacts(text || '').trim();
+  const exists = (db.recordObservations || []).some((observation) => (
+    observation.entityType === entityType
+    && observation.entityId === entityId
+    && repairEncodingArtifacts(observation.observation || '').trim() === normalizedText
+  ));
+  return exists ? null : appendRecordObservation(db, entityType, entityId, normalizedText, user);
+}
+
+function linkedCandidateGroupsForOpportunity(db, opportunityId) {
+  const groups = new Map();
+  for (const record of [...(db.candidates || []), ...(db.selectedCandidates || [])]) {
+    if (record.opportunityId !== opportunityId) continue;
+    const key = dttReconciliationInternals.candidateIdentity(record);
+    if (!key || key === 'name:') continue;
+    const group = groups.get(key) || [];
+    group.push(record);
+    groups.set(key, group);
+  }
+  return groups;
+}
+
+export async function applyDttReconciliationSelection({
+  db,
+  batch,
+  selectedKeys,
+  user = {},
+  persist = async () => {},
+  sendNotification = sendCandidateLifecycleEmail,
+  now = new Date()
+}) {
+  const keys = new Set((selectedKeys || []).map((value) => String(value || '').trim()).filter(Boolean));
+  if (!keys.size) {
+    const error = new Error('Selecione ao menos uma divergência para atualizar.');
+    error.statusCode = 422;
+    throw error;
+  }
+
+  const selectedRows = (batch?.rows || []).filter((row) => keys.has(row.key));
+  if (selectedRows.length !== keys.size) {
+    const error = new Error('A seleção contém linhas que não pertencem à conciliação atual. Recarregue a planilha.');
+    error.statusCode = 409;
+    throw error;
+  }
+
+  const timestamp = toISODate(now);
+  const closingDate = timestamp.slice(0, 10);
+  const updated = [];
+  const skipped = [];
+  const emailQueue = [];
+
+  for (const row of selectedRows) {
+    const opportunity = (db.opportunities || []).find((item) => item.id === row.opportunityId);
+    const client = opportunity ? (db.clients || []).find((item) => item.id === opportunity.clientId) : null;
+    const proposedStatus = String(row.proposedStatus || '');
+    if (!opportunity || !dttReconciliationInternals.isDttClientName(client?.customerName || opportunity.clientName)) {
+      skipped.push({ key: row.key, reason: 'Oportunidade DTT não encontrada.' });
+      continue;
+    }
+    if (!dttReconciliationInternals.FINAL_AUTO_STATUSES.has(proposedStatus)) {
+      skipped.push({ key: row.key, opportunityId: opportunity.id, reason: 'Status exige análise manual.' });
+      continue;
+    }
+    if (opportunity.status !== 'Open') {
+      skipped.push({ key: row.key, opportunityId: opportunity.id, reason: `Status atual já é ${opportunity.status}.` });
+      continue;
+    }
+
+    const previousStatus = opportunity.status;
+    opportunity.status = proposedStatus;
+    opportunity.updatedAt = timestamp;
+    if (['Closed', 'LOST'].includes(proposedStatus) && !String(opportunity.closingDate || '').trim()) {
+      opportunity.closingDate = closingDate;
+    }
+    const opportunityObservation = `Oportunidade atualizada automaticamente pela conciliação DTT a partir da planilha "${batch.fileName}". Status informado pela DTT: ${row.sourceStatus || proposedStatus}. Status anterior: ${previousStatus}. Status aplicado: ${proposedStatus}.`;
+    opportunity.observation = appendUniqueParagraph(opportunity.observation, opportunityObservation);
+    appendRecordObservationOnce(db, 'opportunity', opportunity.id, opportunityObservation, user);
+
+    const groups = linkedCandidateGroupsForOpportunity(db, opportunity.id);
+    if (['Closed', 'LOST'].includes(proposedStatus)) {
+      const candidateObservation = `Oportunidade ${opportunity.opportunity} encerrada automaticamente devido ao aviso de status da DTT na planilha de conciliação.`;
+      for (const records of groups.values()) {
+        for (const record of records) {
+          record.observation = appendUniqueParagraph(record.observation, candidateObservation);
+          appendRecordObservationOnce(db, 'candidate', record.id, candidateObservation, user);
+          const curriculum = findCurriculumForSelectedCandidate(record, db);
+          if (curriculum) appendCurriculumObservationOnce(db, curriculum, candidateObservation, user, record.curriculumId);
+          const changed = rejectCandidateRecord(record, user, candidateObservation, timestamp);
+          if (changed && (db.candidates || []).includes(record)) {
+            appendCandidateMovement(db, record, 'Alterou etapa para Reprovado', user, candidateObservation);
+          }
+        }
+        const primary = records.find((record) => (db.candidates || []).includes(record)) || records[0];
+        if (primary) emailQueue.push({ opportunityId: opportunity.id, record: primary });
+      }
+    }
+
+    updated.push({
+      key: row.key,
+      opportunityId: opportunity.id,
+      opportunityCode: opportunity.opportunityCode,
+      opportunity: opportunity.opportunity,
+      previousStatus,
+      status: proposedStatus,
+      linkedCandidateCount: groups.size
+    });
+  }
+
+  await persist();
+
+  const notifications = [];
+  for (const item of emailQueue) {
+    const notification = await sendNotification({
+      db,
+      record: item.record,
+      type: 'dtt-closed',
+      persist
+    });
+    notifications.push({
+      opportunityId: item.opportunityId,
+      candidateId: item.record.id,
+      candidateName: item.record.name,
+      ...notification
+    });
+  }
+
+  return {
+    updated,
+    skipped,
+    notifications,
+    emailSummary: {
+      sent: notifications.filter((item) => item.status === 'sent').length,
+      skipped: notifications.filter((item) => item.status === 'skipped').length,
+      failed: notifications.filter((item) => item.status === 'failed').length
+    }
+  };
 }
 
 function splitSearchTermsForCv(value = '') {
@@ -4166,7 +4336,7 @@ async function handleApi(request, response) {
   try {
     // Local pilot is fail-closed: only intake writes and session operations are enabled.
     if (process.env.LOCAL_INTAKE_MODE === 'true') {
-      const allowed = ['/api/health', '/api/login', '/api/logout', '/api/change-password', '/api/bootstrap', '/api/intake/config'];
+      const allowed = ['/api/health', '/api/login', '/api/logout', '/api/change-password', '/api/bootstrap', '/api/intake/config', '/api/opportunities/dtt-reconciliation/preview'];
       const intakeWrite = request.method === 'POST' && /^\/api\/intake\/(receive|[a-f0-9-]+\/(review|select|confirm|cancel))$/.test(pathname);
       const intakeRead = request.method === 'GET' && /^\/api\/intake\/(drafts|notifications|[a-f0-9-]+)$/.test(pathname);
       const cvRead = request.method === 'GET' && /^\/api\/curriculums\/[^/]+$/.test(pathname);
@@ -6001,6 +6171,85 @@ async function handleApi(request, response) {
 
       await writeDatabaseCollections(db, ['businessCalendar']);
       sendJson(response, 200, { ok: true });
+      return;
+    }
+
+    if (request.method === 'POST' && pathname === '/api/opportunities/dtt-reconciliation/preview') {
+      if (requireAdmin(response, auth.user, 'Apenas administradores podem conciliar oportunidades DTT.')) return;
+      const fileNameHeader = String(request.headers['x-file-name'] || 'conciliação-dtt.xlsx');
+      let fileName = fileNameHeader;
+      try { fileName = decodeURIComponent(fileNameHeader); } catch {}
+      if (!/\.xlsx$/i.test(fileName)) {
+        sendError(response, 422, 'Envie uma planilha no formato XLSX.');
+        return;
+      }
+      const fileBuffer = await readRequestBodyBuffer(request);
+      if (!fileBuffer.length) {
+        sendError(response, 422, 'Selecione a planilha DTT para conciliação.');
+        return;
+      }
+      if (fileBuffer.length > 15 * 1024 * 1024) {
+        sendError(response, 413, 'A planilha excede o limite de 15 MB.');
+        return;
+      }
+      const db = await readDatabase();
+      const rows = reconcileDttSpreadsheet({
+        buffer: fileBuffer,
+        opportunities: db.opportunities,
+        clients: db.clients,
+        candidates: db.candidates,
+        selectedCandidates: db.selectedCandidates
+      });
+      const createdAt = Date.now();
+      for (const [id, existing] of dttReconciliationBatches) {
+        if (createdAt - existing.createdAt > 30 * 60 * 1000) dttReconciliationBatches.delete(id);
+      }
+      const batchId = randomBytes(18).toString('hex');
+      const batch = {
+        id: batchId,
+        userId: String(auth.user.id || auth.user.email || ''),
+        fileName,
+        fileHash: createHash('sha256').update(fileBuffer).digest('hex'),
+        createdAt,
+        rows
+      };
+      dttReconciliationBatches.set(batchId, batch);
+      sendJson(response, 200, {
+        batchId,
+        fileName,
+        fileHash: batch.fileHash,
+        summary: reconciliationSummary(rows),
+        rows
+      });
+      return;
+    }
+
+    if (request.method === 'POST' && pathname === '/api/opportunities/dtt-reconciliation/apply') {
+      if (requireAdmin(response, auth.user, 'Apenas administradores podem aplicar a conciliação DTT.')) return;
+      const payload = await readJsonBody(request);
+      const batch = dttReconciliationBatches.get(String(payload.batchId || ''));
+      const currentUserId = String(auth.user.id || auth.user.email || '');
+      if (!batch || batch.userId !== currentUserId || Date.now() - batch.createdAt > 30 * 60 * 1000) {
+        sendError(response, 409, 'A prévia da conciliação expirou. Anexe a planilha novamente.');
+        return;
+      }
+      const db = await readDatabase();
+      const persistedCollections = [
+        'opportunities',
+        'candidates',
+        'selectedCandidates',
+        'candidateMovements',
+        'curriculumObservations',
+        'recordObservations'
+      ];
+      const result = await applyDttReconciliationSelection({
+        db,
+        batch,
+        selectedKeys: payload.selectedKeys,
+        user: auth.user,
+        persist: () => writeDatabaseCollections(db, persistedCollections)
+      });
+      sendJson(response, 200, result);
       return;
     }
 

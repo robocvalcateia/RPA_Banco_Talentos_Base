@@ -78,6 +78,17 @@ const state = {
   cvReturnContext: null,
   selectedCvSearchResultKeys: new Set(),
   opportunityCandidateSearchResults: [],
+  dttReconciliation: {
+    loading: false,
+    error: '',
+    batchId: '',
+    fileName: '',
+    summary: null,
+    rows: [],
+    selectedKeys: new Set(),
+    appliedKeys: new Set(),
+    result: null
+  },
   editing: {
     clientId: '',
     contactClientId: '',
@@ -8767,6 +8778,238 @@ function updateRecordObservationButtons() {
   }
 }
 
+function dttReconciliationResultLabel(result) {
+  return {
+    divergence: 'Divergência',
+    aligned: 'Já conciliada',
+    unmatched: 'Não encontrada no sistema',
+    ambiguous: 'Correspondência ambígua',
+    'unknown-status': 'Status não reconhecido',
+    'manual-review': 'Revisão manual obrigatória'
+  }[result] || result || '-';
+}
+
+function ensureDttReconciliationModal() {
+  let modal = $('#dttReconciliationModal');
+  if (modal) return modal;
+  modal = document.createElement('div');
+  modal.id = 'dttReconciliationModal';
+  modal.className = 'modal-backdrop hidden';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('aria-labelledby', 'dttReconciliationTitle');
+  modal.innerHTML = `
+    <section class="modal-card dtt-reconciliation-card">
+      <div class="modal-heading">
+        <div>
+          <h2 id="dttReconciliationTitle">Conciliação de oportunidades DTT</h2>
+          <span id="dttReconciliationFileName">Anexe a planilha para comparar os status.</span>
+        </div>
+        <button class="surface-window-control surface-close-button" type="button" data-close-dtt-reconciliation aria-label="Fechar painel" title="Fechar"></button>
+      </div>
+      <div id="dttReconciliationSummary" class="dtt-reconciliation-summary"></div>
+      <div id="dttReconciliationResult" class="dtt-reconciliation-result" hidden></div>
+      <div class="table-wrap dtt-reconciliation-table-wrap" data-horizontal-scroll>
+        <table>
+          <thead>
+            <tr>
+              <th><input id="dttReconciliationSelectAll" type="checkbox" aria-label="Selecionar todas as divergências"></th>
+              <th>Aba / linha</th><th>Código DTT</th><th>Vaga na planilha</th><th>Oportunidade no sistema</th>
+              <th>Status atual</th><th>Status DTT</th><th>Status a aplicar</th><th>Candidatos</th><th>Resultado</th>
+            </tr>
+          </thead>
+          <tbody id="dttReconciliationTable"></tbody>
+        </table>
+      </div>
+      <div class="candidate-stage-move-actions dtt-reconciliation-actions">
+        <button class="secondary-action" type="button" data-close-dtt-reconciliation>Fechar</button>
+        <button class="primary-action" id="applyDttReconciliation" type="button" disabled>Atualizar selecionadas</button>
+      </div>
+    </section>`;
+  document.body.appendChild(modal);
+  initPanelMaximizeControls();
+  modal.addEventListener('click', (event) => {
+    if (event.target === modal || event.target.closest('[data-close-dtt-reconciliation]')) {
+      closeSurfaceDialog(modal);
+      return;
+    }
+    const checkbox = event.target.closest('[data-dtt-reconciliation-key]');
+    if (checkbox) {
+      if (checkbox.checked) state.dttReconciliation.selectedKeys.add(checkbox.dataset.dttReconciliationKey);
+      else state.dttReconciliation.selectedKeys.delete(checkbox.dataset.dttReconciliationKey);
+      renderDttReconciliationModal();
+    }
+  });
+  $('#dttReconciliationSelectAll', modal)?.addEventListener('change', (event) => {
+    const eligible = state.dttReconciliation.rows.filter((row) => row.selectable && !state.dttReconciliation.appliedKeys.has(row.key));
+    state.dttReconciliation.selectedKeys = event.target.checked
+      ? new Set(eligible.map((row) => row.key))
+      : new Set();
+    renderDttReconciliationModal();
+  });
+  $('#applyDttReconciliation', modal)?.addEventListener('click', applySelectedDttReconciliation);
+  return modal;
+}
+
+function renderDttReconciliationModal() {
+  const modal = ensureDttReconciliationModal();
+  const reconciliation = state.dttReconciliation;
+  const summary = reconciliation.summary || {};
+  $('#dttReconciliationFileName', modal).textContent = reconciliation.fileName || 'Anexe a planilha para comparar os status.';
+  const summaryElement = $('#dttReconciliationSummary', modal);
+  if (reconciliation.loading) {
+    summaryElement.innerHTML = '<p><strong>Lendo todas as abas e conciliando as oportunidades...</strong></p>';
+  } else if (reconciliation.error) {
+    summaryElement.innerHTML = `<p class="form-error"><strong>${escapeHtml(reconciliation.error)}</strong></p>`;
+  } else if (reconciliation.summary) {
+    summaryElement.innerHTML = `
+      <div><strong>${summary.divergences || 0}</strong><span>Divergências atualizáveis</span></div>
+      <div><strong>${summary.aligned || 0}</strong><span>Já conciliadas</span></div>
+      <div><strong>${summary.unmatched || 0}</strong><span>Não encontradas</span></div>
+      <div><strong>${summary.ambiguous || 0}</strong><span>Ambíguas</span></div>
+      <div><strong>${summary.manualReview || 0}</strong><span>Revisão manual</span></div>`;
+  } else {
+    summaryElement.innerHTML = '';
+  }
+
+  const resultElement = $('#dttReconciliationResult', modal);
+  if (reconciliation.result) {
+    const { updated = [], skipped = [], emailSummary = {} } = reconciliation.result;
+    resultElement.hidden = false;
+    resultElement.innerHTML = `<strong>Última aplicação:</strong> ${updated.length} oportunidade(s) atualizada(s); ${skipped.length} ignorada(s). E-mails: ${emailSummary.sent || 0} enviado(s), ${emailSummary.skipped || 0} sem envio e ${emailSummary.failed || 0} com falha.`;
+  } else {
+    resultElement.hidden = true;
+    resultElement.textContent = '';
+  }
+
+  const visibleRows = reconciliation.rows
+    .filter((row) => row.result !== 'aligned' || reconciliation.appliedKeys.has(row.key))
+    .sort((first, second) => Number(second.selectable) - Number(first.selectable) || first.sheet.localeCompare(second.sheet) || first.rowNumber - second.rowNumber);
+  $('#dttReconciliationTable', modal).innerHTML = reconciliation.loading
+    ? '<tr><td colspan="10">Processando a planilha...</td></tr>'
+    : visibleRows.length
+      ? visibleRows.map((row) => {
+        const applied = reconciliation.appliedKeys.has(row.key);
+        const selectable = row.selectable && !applied;
+        const checked = reconciliation.selectedKeys.has(row.key);
+        return `<tr class="${row.result === 'divergence' && !applied ? 'dtt-reconciliation-divergence' : ''}">
+          <td>${selectable ? `<input type="checkbox" data-dtt-reconciliation-key="${escapeHtml(row.key)}" ${checked ? 'checked' : ''} aria-label="Selecionar ${escapeHtml(row.opportunityName || row.name)}">` : applied ? '<span class="tag">Aplicada</span>' : '-'}</td>
+          <td>${escapeHtml(row.sheet)} / ${row.rowNumber}</td>
+          <td>${escapeHtml(row.code || '-')}</td>
+          <td>${escapeHtml(row.name || '-')}</td>
+          <td><strong>${escapeHtml(row.opportunityName || '-')}</strong><br><small>${escapeHtml(row.opportunityCode || '')}</small></td>
+          <td>${escapeHtml(row.systemStatus || '-')}</td>
+          <td>${escapeHtml(row.sourceStatus || '-')}</td>
+          <td>${escapeHtml(row.proposedStatus || '-')}</td>
+          <td>${row.linkedCandidateCount || 0}</td>
+          <td>${applied ? 'Atualizada' : escapeHtml(dttReconciliationResultLabel(row.result))}</td>
+        </tr>`;
+      }).join('')
+      : '<tr><td colspan="10">Nenhuma divergência ou pendência encontrada.</td></tr>';
+
+  const eligible = reconciliation.rows.filter((row) => row.selectable && !reconciliation.appliedKeys.has(row.key));
+  const selectedEligible = eligible.filter((row) => reconciliation.selectedKeys.has(row.key));
+  const selectAll = $('#dttReconciliationSelectAll', modal);
+  selectAll.disabled = reconciliation.loading || eligible.length === 0;
+  selectAll.checked = eligible.length > 0 && selectedEligible.length === eligible.length;
+  selectAll.indeterminate = selectedEligible.length > 0 && selectedEligible.length < eligible.length;
+  const applyButton = $('#applyDttReconciliation', modal);
+  applyButton.disabled = reconciliation.loading || selectedEligible.length === 0;
+  applyButton.textContent = selectedEligible.length ? `Atualizar selecionadas (${selectedEligible.length})` : 'Atualizar selecionadas';
+  scheduleStickyHorizontalScrollbarRefresh();
+}
+
+async function previewDttReconciliation(file) {
+  const modal = ensureDttReconciliationModal();
+  state.dttReconciliation = {
+    loading: true,
+    error: '',
+    batchId: '',
+    fileName: file.name,
+    summary: null,
+    rows: [],
+    selectedKeys: new Set(),
+    appliedKeys: new Set(),
+    result: null
+  };
+  openSurfaceDialog(modal);
+  renderDttReconciliationModal();
+  try {
+    const preview = await api('/api/opportunities/dtt-reconciliation/preview', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'X-File-Name': encodeURIComponent(file.name)
+      },
+      body: file
+    });
+    Object.assign(state.dttReconciliation, {
+      loading: false,
+      batchId: preview.batchId,
+      fileName: preview.fileName,
+      summary: preview.summary,
+      rows: preview.rows,
+      selectedKeys: new Set(),
+      appliedKeys: new Set()
+    });
+  } catch (error) {
+    state.dttReconciliation.loading = false;
+    state.dttReconciliation.error = error.message || 'Não foi possível conciliar a planilha DTT.';
+  }
+  renderDttReconciliationModal();
+}
+
+async function applySelectedDttReconciliation() {
+  const reconciliation = state.dttReconciliation;
+  const selectedRows = reconciliation.rows.filter((row) => reconciliation.selectedKeys.has(row.key) && !reconciliation.appliedKeys.has(row.key));
+  if (!selectedRows.length) return;
+  const linkedCandidates = selectedRows.reduce((sum, row) => sum + Number(row.linkedCandidateCount || 0), 0);
+  const confirmed = window.confirm(`Confirma a atualização de ${selectedRows.length} oportunidade(s) conforme a planilha DTT? As vagas encerradas reprovarão os candidatos vinculados, registrarão as observações e poderão enviar até ${linkedCandidates} e-mail(s).`);
+  if (!confirmed) return;
+  const button = $('#applyDttReconciliation');
+  button.disabled = true;
+  button.textContent = 'Atualizando...';
+  try {
+    const result = await api('/api/opportunities/dtt-reconciliation/apply', {
+      method: 'POST',
+      body: JSON.stringify({
+        batchId: reconciliation.batchId,
+        selectedKeys: selectedRows.map((row) => row.key)
+      })
+    });
+    reconciliation.result = result;
+    for (const row of result.updated || []) {
+      reconciliation.appliedKeys.add(row.key);
+      reconciliation.selectedKeys.delete(row.key);
+      const previewRow = reconciliation.rows.find((item) => item.key === row.key);
+      if (previewRow) {
+        previewRow.systemStatus = row.status;
+        previewRow.selectable = false;
+      }
+    }
+    for (const row of result.skipped || []) reconciliation.selectedKeys.delete(row.key);
+    await refresh();
+    renderDttReconciliationModal();
+    toast(`${result.updated.length} oportunidade(s) atualizada(s). ${result.emailSummary.sent} e-mail(s) enviado(s).`);
+  } catch (error) {
+    reconciliation.error = error.message || 'Não foi possível aplicar a conciliação DTT.';
+    renderDttReconciliationModal();
+  }
+}
+
+function initDttReconciliationControls() {
+  const button = $('#uploadDttReconciliation');
+  const input = $('#dttReconciliationFile');
+  if (!button || !input || button.dataset.bound) return;
+  button.dataset.bound = 'true';
+  button.addEventListener('click', () => input.click());
+  input.addEventListener('change', () => {
+    const file = input.files?.[0];
+    input.value = '';
+    if (file) void previewDttReconciliation(file);
+  });
+}
+
 function render() {
   document.querySelectorAll('[data-local-intake]').forEach(el => { el.hidden = !state.localIntakeEnabled; });
   const intakeButton = document.getElementById('openIntake');
@@ -8790,6 +9033,10 @@ function render() {
       }
     };
     void refreshDttIntakeStatus();
+  }
+  initDttReconciliationControls();
+  if ($('#dttReconciliationModal') && !$('#dttReconciliationModal').classList.contains('hidden')) {
+    renderDttReconciliationModal();
   }
   applyRoleVisibility();
   renderFavoriteCards();
@@ -9603,10 +9850,13 @@ const horizontalScrollContainerSelector = [
 
 const stickyHorizontalScrollbarState = {
   bar: null,
-  viewport: null,
-  spacer: null,
+  track: null,
+  thumb: null,
   target: null,
   targets: [],
+  pointerId: null,
+  dragStartX: 0,
+  dragStartScrollLeft: 0,
   updateScheduled: false,
   refreshScheduled: false,
   resizeObserver: null,
@@ -9674,21 +9924,100 @@ function ensureStickyHorizontalScrollbar() {
   bar.className = 'sticky-horizontal-scrollbar';
   bar.hidden = true;
   bar.setAttribute('aria-hidden', 'true');
-  bar.innerHTML = '<div class="sticky-horizontal-scrollbar-viewport" tabindex="0" aria-label="Rolagem horizontal da tabela visível"><div class="sticky-horizontal-scrollbar-spacer"></div></div>';
+  bar.innerHTML = '<div class="sticky-horizontal-scrollbar-track" role="scrollbar" aria-orientation="horizontal" aria-label="Rolagem horizontal do formulário visível" aria-valuemin="0" tabindex="0"><div class="sticky-horizontal-scrollbar-thumb"></div></div>';
   document.body.appendChild(bar);
 
   stickyHorizontalScrollbarState.bar = bar;
-  stickyHorizontalScrollbarState.viewport = $('.sticky-horizontal-scrollbar-viewport', bar);
-  stickyHorizontalScrollbarState.spacer = $('.sticky-horizontal-scrollbar-spacer', bar);
-  stickyHorizontalScrollbarState.viewport.addEventListener('scroll', () => {
-    const { target, viewport } = stickyHorizontalScrollbarState;
+  stickyHorizontalScrollbarState.track = $('.sticky-horizontal-scrollbar-track', bar);
+  stickyHorizontalScrollbarState.thumb = $('.sticky-horizontal-scrollbar-thumb', bar);
+
+  const scrollTargetTo = (value) => {
+    const target = stickyHorizontalScrollbarState.target;
     if (!target) return;
-    if (Math.abs(target.scrollLeft - viewport.scrollLeft) > 0.5) {
-      target.scrollLeft = viewport.scrollLeft;
+    const maximum = Math.max(0, target.scrollWidth - target.clientWidth);
+    target.scrollLeft = Math.max(0, Math.min(maximum, Number(value) || 0));
+    updateStickyHorizontalScrollbarThumb();
+  };
+
+  stickyHorizontalScrollbarState.track.addEventListener('pointerdown', (event) => {
+    const { target, track, thumb } = stickyHorizontalScrollbarState;
+    if (!target || event.button !== 0) return;
+    event.preventDefault();
+    const trackRect = track.getBoundingClientRect();
+    const thumbRect = thumb.getBoundingClientRect();
+    if (event.target !== thumb) {
+      const maximum = Math.max(0, target.scrollWidth - target.clientWidth);
+      const travel = Math.max(1, trackRect.width - thumbRect.width);
+      const requestedOffset = Math.max(0, Math.min(travel, event.clientX - trackRect.left - thumbRect.width / 2));
+      scrollTargetTo(maximum * requestedOffset / travel);
     }
-    viewport.setAttribute('aria-valuenow', String(Math.round(viewport.scrollLeft)));
-  }, { passive: true });
+    stickyHorizontalScrollbarState.pointerId = event.pointerId;
+    stickyHorizontalScrollbarState.dragStartX = event.clientX;
+    stickyHorizontalScrollbarState.dragStartScrollLeft = target.scrollLeft;
+    track.setPointerCapture?.(event.pointerId);
+    bar.classList.add('is-dragging');
+  });
+
+  stickyHorizontalScrollbarState.track.addEventListener('pointermove', (event) => {
+    const { target, track, thumb, pointerId, dragStartX, dragStartScrollLeft } = stickyHorizontalScrollbarState;
+    if (!target || pointerId === null || event.pointerId !== pointerId) return;
+    event.preventDefault();
+    const maximum = Math.max(0, target.scrollWidth - target.clientWidth);
+    const travel = Math.max(1, track.clientWidth - thumb.offsetWidth);
+    scrollTargetTo(dragStartScrollLeft + (event.clientX - dragStartX) * maximum / travel);
+  });
+
+  const finishDrag = (event) => {
+    const { track, pointerId } = stickyHorizontalScrollbarState;
+    if (pointerId === null || (event?.pointerId !== undefined && event.pointerId !== pointerId)) return;
+    try { track.releasePointerCapture?.(pointerId); } catch {}
+    stickyHorizontalScrollbarState.pointerId = null;
+    bar.classList.remove('is-dragging');
+  };
+  stickyHorizontalScrollbarState.track.addEventListener('pointerup', finishDrag);
+  stickyHorizontalScrollbarState.track.addEventListener('pointercancel', finishDrag);
+
+  stickyHorizontalScrollbarState.track.addEventListener('keydown', (event) => {
+    const target = stickyHorizontalScrollbarState.target;
+    if (!target) return;
+    const maximum = Math.max(0, target.scrollWidth - target.clientWidth);
+    const page = Math.max(80, target.clientWidth * 0.85);
+    const commands = {
+      ArrowLeft: target.scrollLeft - 56,
+      ArrowRight: target.scrollLeft + 56,
+      PageUp: target.scrollLeft - page,
+      PageDown: target.scrollLeft + page,
+      Home: 0,
+      End: maximum
+    };
+    if (!(event.key in commands)) return;
+    event.preventDefault();
+    scrollTargetTo(commands[event.key]);
+  });
+
+  stickyHorizontalScrollbarState.track.addEventListener('wheel', (event) => {
+    const target = stickyHorizontalScrollbarState.target;
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (!target || !delta) return;
+    event.preventDefault();
+    scrollTargetTo(target.scrollLeft + delta);
+  }, { passive: false });
   return bar;
+}
+
+function updateStickyHorizontalScrollbarThumb() {
+  const { target, track, thumb } = stickyHorizontalScrollbarState;
+  if (!target || !track || !thumb) return;
+  const maximum = Math.max(0, target.scrollWidth - target.clientWidth);
+  const trackWidth = Math.max(0, track.clientWidth);
+  const visibleRatio = target.scrollWidth > 0 ? target.clientWidth / target.scrollWidth : 1;
+  const thumbWidth = Math.min(trackWidth, Math.max(44, Math.round(trackWidth * visibleRatio)));
+  const travel = Math.max(0, trackWidth - thumbWidth);
+  const offset = maximum > 0 ? travel * target.scrollLeft / maximum : 0;
+  thumb.style.width = `${thumbWidth}px`;
+  thumb.style.transform = `translateX(${Math.max(0, Math.min(travel, offset))}px)`;
+  track.setAttribute('aria-valuemax', String(Math.round(maximum)));
+  track.setAttribute('aria-valuenow', String(Math.round(target.scrollLeft)));
 }
 
 function updateStickyHorizontalScrollbar() {
@@ -9698,11 +10027,16 @@ function updateStickyHorizontalScrollbar() {
   if (!target) {
     bar.hidden = true;
     bar.setAttribute('aria-hidden', 'true');
+    stickyHorizontalScrollbarState.target?.classList.remove('horizontal-scroll-controlled');
     stickyHorizontalScrollbarState.target = null;
     return;
   }
 
+  if (stickyHorizontalScrollbarState.target && stickyHorizontalScrollbarState.target !== target) {
+    stickyHorizontalScrollbarState.target.classList.remove('horizontal-scroll-controlled');
+  }
   stickyHorizontalScrollbarState.target = target;
+  target.classList.add('horizontal-scroll-controlled');
   const rect = target.getBoundingClientRect();
   const left = Math.max(8, rect.left);
   const right = Math.min(window.innerWidth - 8, rect.right);
@@ -9719,13 +10053,8 @@ function updateStickyHorizontalScrollbar() {
   bar.dataset.targetView = target.closest('.view')?.id || target.closest('[role="dialog"]')?.id || '';
   bar.style.left = `${Math.round(left)}px`;
   bar.style.width = `${Math.round(width)}px`;
-  stickyHorizontalScrollbarState.spacer.style.width = `${Math.max(target.scrollWidth, target.clientWidth + 1)}px`;
-  stickyHorizontalScrollbarState.viewport.setAttribute('aria-valuemin', '0');
-  stickyHorizontalScrollbarState.viewport.setAttribute('aria-valuemax', String(Math.round(maxScroll)));
-  stickyHorizontalScrollbarState.viewport.setAttribute('aria-valuenow', String(Math.round(target.scrollLeft)));
-  if (Math.abs(stickyHorizontalScrollbarState.viewport.scrollLeft - target.scrollLeft) > 0.5) {
-    stickyHorizontalScrollbarState.viewport.scrollLeft = target.scrollLeft;
-  }
+  stickyHorizontalScrollbarState.track.setAttribute('aria-valuemax', String(Math.round(maxScroll)));
+  updateStickyHorizontalScrollbarThumb();
 }
 
 function scheduleStickyHorizontalScrollbarUpdate() {
@@ -9736,11 +10065,15 @@ function scheduleStickyHorizontalScrollbarUpdate() {
 
 function refreshStickyHorizontalScrollbarTargets() {
   stickyHorizontalScrollbarState.refreshScheduled = false;
+  const previousTargets = stickyHorizontalScrollbarState.targets;
   const explicitTargets = $$(horizontalScrollContainerSelector);
   const discoveredTargets = $$('div, section, article, main')
     .filter(isHorizontalScrollContainer);
   const targets = [...new Set([...explicitTargets, ...discoveredTargets])];
   stickyHorizontalScrollbarState.targets = targets;
+  previousTargets.filter((element) => !targets.includes(element)).forEach((element) => {
+    element.classList.remove('horizontal-scroll-target', 'horizontal-scroll-controlled');
+  });
   targets.forEach((element) => element.classList.add('horizontal-scroll-target'));
 
   if (stickyHorizontalScrollbarState.resizeObserver) {
@@ -9795,12 +10128,9 @@ function initStickyHorizontalScrollbar() {
     scheduleStickyHorizontalScrollbarUpdate();
   });
   document.addEventListener('scroll', (event) => {
-    const { target, viewport } = stickyHorizontalScrollbarState;
+    const { target } = stickyHorizontalScrollbarState;
     if (target && event.target === target) {
-      if (Math.abs(viewport.scrollLeft - target.scrollLeft) > 0.5) {
-        viewport.scrollLeft = target.scrollLeft;
-      }
-      viewport.setAttribute('aria-valuenow', String(Math.round(target.scrollLeft)));
+      updateStickyHorizontalScrollbarThumb();
     }
     scheduleStickyHorizontalScrollbarUpdate();
   }, { capture: true, passive: true });

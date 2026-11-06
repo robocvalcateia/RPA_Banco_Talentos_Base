@@ -24,15 +24,26 @@ test('a barra horizontal flutuante cobre tabelas, formularios largos e DTT', () 
 });
 
 test('a barra permanece fixa na area visivel e sincroniza nos dois sentidos', () => {
-  assert.match(styles, /\.sticky-horizontal-scrollbar\s*\{[\s\S]*bottom:\s*max\(8px, env\(safe-area-inset-bottom\)\)[\s\S]*position:\s*fixed[\s\S]*z-index:\s*100/);
-  assert.match(styles, /\.sticky-horizontal-scrollbar-viewport\s*\{[\s\S]*overflow-x:\s*scroll/);
-  assert.match(app, /target\.scrollLeft = viewport\.scrollLeft/);
-  assert.match(app, /viewport\.scrollLeft = target\.scrollLeft/);
-  assert.match(app, /Math\.abs\(target\.scrollLeft - viewport\.scrollLeft\) > 0\.5/);
-  assert.match(app, /Math\.abs\(viewport\.scrollLeft - target\.scrollLeft\) > 0\.5/);
-  assert.doesNotMatch(app, /if \(!target \|\| stickyHorizontalScrollbarState\.syncing\) return/);
+  assert.match(styles, /\.sticky-horizontal-scrollbar\s*\{[\s\S]*bottom:\s*max\(8px, env\(safe-area-inset-bottom\)\)[\s\S]*position:\s*fixed[\s\S]*z-index:\s*10000/);
+  assert.match(styles, /\.sticky-horizontal-scrollbar-track\s*\{[\s\S]*cursor:\s*pointer[\s\S]*touch-action:\s*none/);
+  assert.match(styles, /\.sticky-horizontal-scrollbar-thumb\s*\{[\s\S]*cursor:\s*grab[\s\S]*position:\s*absolute/);
+  assert.match(styles, /\.horizontal-scroll-target\.horizontal-scroll-controlled\s*\{[\s\S]*scrollbar-width:\s*none/);
+  assert.match(app, /track\.addEventListener\('pointerdown'/);
+  assert.match(app, /track\.addEventListener\('pointermove'/);
+  assert.match(app, /target\.scrollLeft = Math\.max/);
+  assert.match(app, /updateStickyHorizontalScrollbarThumb\(\)/);
+  assert.doesNotMatch(app, /sticky-horizontal-scrollbar-viewport/);
   assert.match(app, /document\.addEventListener\('scroll',[\s\S]*capture:\s*true/);
   assert.match(app, /initStickyHorizontalScrollbar\(\)/);
+});
+
+test('a barra aceita mouse, toque, teclado e roda sem depender da barra nativa', () => {
+  assert.match(app, /setPointerCapture/);
+  assert.match(app, /releasePointerCapture/);
+  assert.match(app, /track\.addEventListener\('keydown'/);
+  assert.match(app, /ArrowLeft:[\s\S]*ArrowRight:[\s\S]*Home:\s*0,[\s\S]*End:\s*maximum/);
+  assert.match(app, /track\.addEventListener\('wheel'/);
+  assert.match(app, /aria-orientation="horizontal"/);
 });
 
 test('mudancas de tela, modal, conteudo e tamanho recalculam a barra', () => {
