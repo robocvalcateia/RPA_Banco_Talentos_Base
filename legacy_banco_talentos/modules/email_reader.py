@@ -154,7 +154,7 @@ class EmailReader:
             
             headers = self.graph_config.get_headers()
             params = {
-                '$filter': f"receivedDateTime ge {date_filter}",
+                '$filter': f"receivedDateTime ge {date_filter} and hasAttachments eq true",
                 '$select': 'id,subject,from,receivedDateTime,hasAttachments,parentFolderId',
                 '$orderby': 'receivedDateTime desc',
                 '$top': min(999, self.max_messages) if self.max_messages else 999

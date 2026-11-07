@@ -18,6 +18,7 @@ test('email reprocessing can run bounded folder batches', () => {
   assert.match(readerSource, /self\.max_messages/);
   assert.match(readerSource, /emails\[:self\.max_messages\]/);
   assert.match(readerSource, /'\$orderby': 'receivedDateTime desc'/);
+  assert.match(readerSource, /hasAttachments eq true/);
   assert.match(readerSource, /len\(emails\) \+ len\(folder_emails\) >= self\.max_messages/);
   assert.match(serverSource, /EMAIL_INBOX_MAX_MESSAGES \|\| 200/);
 });
