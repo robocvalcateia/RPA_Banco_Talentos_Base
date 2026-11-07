@@ -56,6 +56,20 @@ test('production inbox processing is scheduled every six hours with log recipien
   assert.match(runtimeSource, /emailProcessingRuns/);
 });
 
+test('Microsoft Graph calls used by inbox processing have bounded timeouts', () => {
+  const readerSource = readRepoFile('legacy_banco_talentos/modules/email_reader.py');
+  const senderSource = readRepoFile('legacy_banco_talentos/utils/email_sender.py');
+
+  assert.match(readerSource, /def _graph_timeout/);
+  assert.match(readerSource, /GRAPH_CONNECT_TIMEOUT_SECONDS/);
+  assert.match(readerSource, /GRAPH_REQUEST_TIMEOUT_SECONDS/);
+  assert.equal(
+    (readerSource.match(/requests\.(?:get|post)\(/g) || []).length,
+    (readerSource.match(/timeout=_graph_timeout\(\)/g) || []).length
+  );
+  assert.match(senderSource, /timeout=\(connect_timeout, read_timeout\)/);
+});
+
 test('admin mail search is read-only and uses Microsoft Graph diagnostics', () => {
   const serverSource = readRepoFile('server.js');
 

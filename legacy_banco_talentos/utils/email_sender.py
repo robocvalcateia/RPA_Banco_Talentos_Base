@@ -190,7 +190,14 @@ def enviar_email_resumo_graph(stats, total_candidatos):
         }
     }
 
-    response = requests.post(url, headers=headers, json=payload)
+    connect_timeout = max(3, int(os.getenv('GRAPH_CONNECT_TIMEOUT_SECONDS', '10') or 10))
+    read_timeout = max(5, int(os.getenv('GRAPH_REQUEST_TIMEOUT_SECONDS', '30') or 30))
+    response = requests.post(
+        url,
+        headers=headers,
+        json=payload,
+        timeout=(connect_timeout, read_timeout)
+    )
 
     if response.status_code != 202:
         raise Exception(f"Erro ao enviar email: {response.text}")

@@ -20,6 +20,13 @@ import os
 load_dotenv()
 EXTENSOES_VALIDAS = {'.pdf', '.doc', '.docx', '.eml'}
 
+
+def _graph_timeout():
+    """Limita conexão e leitura para evitar que a rotina fique presa no Graph."""
+    connect_timeout = max(3, int(os.getenv('GRAPH_CONNECT_TIMEOUT_SECONDS', '10') or 10))
+    read_timeout = max(5, int(os.getenv('GRAPH_REQUEST_TIMEOUT_SECONDS', '30') or 30))
+    return (connect_timeout, read_timeout)
+
 EXTENSOES_IGNORADAS = {
     '.jpg',
     '.jpeg',
@@ -56,7 +63,12 @@ class EmailReader:
         request_params = params
 
         while url:
-            response = requests.get(url, headers=headers, params=request_params)
+            response = requests.get(
+                url,
+                headers=headers,
+                params=request_params,
+                timeout=_graph_timeout()
+            )
             response.raise_for_status()
             payload = response.json()
             folders.extend(payload.get("value", []))
@@ -159,7 +171,12 @@ class EmailReader:
                 request_params = dict(params)
 
                 while url:
-                    response = requests.get(url, headers=headers, params=request_params)
+                    response = requests.get(
+                        url,
+                        headers=headers,
+                        params=request_params,
+                        timeout=_graph_timeout()
+                    )
                     response.raise_for_status()
                     payload = response.json()
                     folder_emails.extend(payload.get('value', []))
@@ -203,7 +220,7 @@ class EmailReader:
             url = f"{self.base_url}/users/{self.email}/messages/{email_id}/attachments"
             headers = self.graph_config.get_headers()
             
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=_graph_timeout())
             response.raise_for_status()
             
             attachments = response.json().get('value', [])
@@ -218,7 +235,7 @@ class EmailReader:
             url = f"{self.base_url}/users/{self.email}/messages/{email_id}/attachments/{attachment_id}?$expand=microsoft.graph.itemAttachment/item"
             headers = self.graph_config.get_headers()
 
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=_graph_timeout())
             response.raise_for_status()
 
             item = response.json().get('item', {})
@@ -311,7 +328,7 @@ class EmailReader:
             url = f"{self.base_url}/users/{self.email}/messages/{email_id}/attachments/{attachment_id}"
             headers = self.graph_config.get_headers()
             
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=_graph_timeout())
             response.raise_for_status()
             
             attachment_data = response.json()
@@ -517,7 +534,7 @@ class EmailReader:
 
             # buscar pasta destino
             folders_url = f"{self.base_url}/users/{self.email}/mailFolders"
-            response = requests.get(folders_url, headers=headers)
+            response = requests.get(folders_url, headers=headers, timeout=_graph_timeout())
             response.raise_for_status()
 
             folders = response.json().get("value", [])
@@ -535,7 +552,12 @@ class EmailReader:
 
             payload = {"destinationId": destination_folder["id"]}
 
-            response = requests.post(move_url, headers=headers, json=payload)
+            response = requests.post(
+                move_url,
+                headers=headers,
+                json=payload,
+                timeout=_graph_timeout()
+            )
 
             if response.status_code == 404:
                 logger.warning(
