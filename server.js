@@ -283,7 +283,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20261106-email-processing-runtime-v4';
+const APP_VERSION = '20261106-email-processing-runtime-v5';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -2756,7 +2756,8 @@ function clipLogs(value, maxLength = 12000) {
 
 const PROCESSING_LOG_RECIPIENTS = Object.freeze([
   'gerson@alcateiaconsulting.com.br',
-  'bruno@alcateiaconsulting.com.br'
+  'bruno@alcateiaconsulting.com.br',
+  'emerson.viana@alcateiaconsulting.com.br'
 ]);
 
 function buildGraphLogRecipients() {
@@ -2786,7 +2787,7 @@ async function notifyScheduledEmailProcessingFailure(outcome = {}) {
       to: PROCESSING_LOG_RECIPIENTS,
       subject: 'ALERTA PROD - Falha no Banco de Talentos',
       text: [
-        'Gerson e Bruno,',
+        'Gerson, Bruno e Emerson,',
         '',
         `A atualizacao automatica do Banco de Talentos terminou com ${statusLabel}.`,
         `Execucao: ${outcome.runId || 'nao identificada'}.`,
@@ -3085,10 +3086,11 @@ function startLegacyEmailProcessing(options = {}) {
   );
   const subjectFilter = String(options.subjectFilter || options.query || '').trim();
   const repeatUntilEmpty = Boolean(options.repeatUntilEmpty || options.repeat_until_empty);
-  const requestedMaxMessages = Number(options.maxMessages || options.limit || process.env.EMAIL_MAX_MESSAGES || 200);
+  const requestedMaxMessages = Number(options.maxMessages || options.limit || process.env.EMAIL_MAX_MESSAGES || 1000);
   const maxMessages = Number.isFinite(requestedMaxMessages)
-    ? Math.max(0, Math.min(500, Math.floor(requestedMaxMessages)))
+    ? Math.max(0, Math.min(1000, Math.floor(requestedMaxMessages)))
     : 0;
+  const receivedSince = String(options.receivedSince || options.received_since || '').trim();
   const foldersFromPayload = Array.isArray(options.folders)
     ? options.folders.map((folder) => String(folder).trim()).filter(Boolean).join(',')
     : String(options.folders || '').trim();
@@ -3108,6 +3110,7 @@ function startLegacyEmailProcessing(options = {}) {
     'Processamento de e-mails iniciado.',
     subjectFilter ? `Filtro: ${subjectFilter}` : '',
     `Pastas: ${emailFolders}`,
+    receivedSince ? `Recebidos desde: ${receivedSince}` : '',
     maxMessages ? `Limite de e-mails: ${maxMessages}` : '',
     repeatUntilEmpty ? 'Repetir em lotes ate a pasta esvaziar.' : '',
     ''
@@ -3122,6 +3125,7 @@ function startLegacyEmailProcessing(options = {}) {
       EMAIL_SUBJECT_FILTER: subjectFilter,
       EMAIL_FOLDERS: emailFolders,
       EMAIL_MAX_MESSAGES: maxMessages ? String(maxMessages) : '',
+      EMAIL_RECEIVED_SINCE: receivedSince,
       MONGODB_COLLECTION: process.env.MONGODB_CURRICULUM_COLLECTION || 'curriculums',
       GRAPH_EMAIL_TO: buildGraphLogRecipients()
     },
@@ -3333,20 +3337,23 @@ function startScheduledInboxEmailProcessingJob() {
   if (String(process.env.EMAIL_INBOX_SCHEDULE_ENABLED || 'true').toLowerCase() === 'false') return;
 
   emailProcessingRuntimeStore = createEmailProcessingRuntimeStore();
-  const maxMessages = Number(process.env.EMAIL_INBOX_MAX_MESSAGES || 200) || 200;
+  const maxMessages = Number(process.env.EMAIL_INBOX_MAX_MESSAGES || 1000) || 1000;
   const scheduler = createEmailProcessingScheduler({
     store: emailProcessingRuntimeStore,
     intervalMs: EMAIL_INBOX_PROCESSING_INTERVAL_MS,
     pollMs: EMAIL_INBOX_PROCESSING_POLL_MS,
     maxRuntimeMs: EMAIL_PROCESSING_MAX_RUNTIME_MS,
     failureRetryMs: EMAIL_PROCESSING_FAILURE_RETRY_MS,
+    overlapMs: Number(process.env.EMAIL_INBOX_OVERLAP_MINUTES || 120) * 60 * 1000,
+    initialLookbackMs: Number(process.env.EMAIL_INBOX_INITIAL_LOOKBACK_HOURS || 48) * 60 * 60 * 1000,
     isProcessing: () => {
       if (emailProcessing.running && isTerminalEmailProcessingState()) emailProcessing.running = false;
       return emailProcessing.running;
     },
-    startProcessing: ({ onSettled, maxRuntimeMs }) => startLegacyEmailProcessing({
+    startProcessing: ({ onSettled, maxRuntimeMs, receivedSince }) => startLegacyEmailProcessing({
       folders: 'inbox',
       maxMessages,
+      receivedSince,
       maxRuntimeMs,
       onSettled
     }),

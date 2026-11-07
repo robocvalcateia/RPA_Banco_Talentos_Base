@@ -131,22 +131,40 @@ export function createEmailProcessingRuntimeStore({
         owner,
         trigger,
         startedAt: startedAt.toISOString(),
+        lastSuccessAt: claimed.lastSuccessAt
+          ? asDate(claimed.lastSuccessAt, startedAt).toISOString()
+          : '',
         leaseExpiresAt: leaseExpiresAt.toISOString()
       };
     },
 
-    async markJob(claim, jobId, now = new Date()) {
+    async markJob(claim, jobId, now = new Date(), metadata = {}) {
       if (!claim?.owner || !claim?.runId) return;
       const at = asDate(now);
+      const receivedSinceAt = metadata?.receivedSinceAt
+        ? asDate(metadata.receivedSinceAt, at)
+        : null;
       const { runtime, runs } = await connect();
       await Promise.all([
         runtime.updateOne(
           { id: RUNTIME_ID, leaseOwner: claim.owner, lastRunId: claim.runId },
-          { $set: { jobId: String(jobId || ''), updatedAt: at } }
+          {
+            $set: {
+              jobId: String(jobId || ''),
+              ...(receivedSinceAt ? { receivedSinceAt } : {}),
+              updatedAt: at
+            }
+          }
         ),
         runs.updateOne(
           { runId: claim.runId, owner: claim.owner },
-          { $set: { jobId: String(jobId || ''), updatedAt: at } }
+          {
+            $set: {
+              jobId: String(jobId || ''),
+              ...(receivedSinceAt ? { receivedSinceAt } : {}),
+              updatedAt: at
+            }
+          }
         )
       ]);
     },
@@ -194,6 +212,9 @@ export function createEmailProcessingRuntimeStore({
       const nextRunAt = new Date(completedAt.getTime() + delayMs);
       const resultSummary = conciseResult(result);
       const errorText = String(error || '').slice(0, 2000);
+      const successFields = normalizedStatus === 'success'
+        ? { lastSuccessAt: completedAt }
+        : {};
       const { runtime, runs } = await connect();
       await Promise.all([
         runtime.updateOne(
@@ -205,6 +226,7 @@ export function createEmailProcessingRuntimeStore({
               lastResult: resultSummary,
               lastError: errorText,
               nextRunAt,
+              ...successFields,
               updatedAt: completedAt
             },
             $unset: { leaseOwner: '', leaseExpiresAt: '', jobId: '' }
@@ -254,6 +276,8 @@ export function createEmailProcessingScheduler({
   maxRuntimeMs = 45 * 60 * 1000,
   failureRetryMs = 15 * 60 * 1000,
   busyRetryMs = 5 * 60 * 1000,
+  overlapMs = 2 * 60 * 60 * 1000,
+  initialLookbackMs = 48 * 60 * 60 * 1000,
   logger = console
 } = {}) {
   if (!store || typeof store.claim !== 'function') throw new Error('Store persistente do agendador nao informado.');
@@ -300,16 +324,27 @@ export function createEmailProcessingScheduler({
         return { skipped: true, reason: 'processor_busy' };
       }
 
+      const startedAt = asDate(claim.startedAt, new Date());
+      const lastSuccessAt = claim.lastSuccessAt ? asDate(claim.lastSuccessAt, startedAt) : null;
+      const receivedSinceAt = new Date(
+        lastSuccessAt
+          ? lastSuccessAt.getTime() - Math.max(0, Number(overlapMs || 0))
+          : startedAt.getTime() - Math.max(60000, Number(initialLookbackMs || 0))
+      ).toISOString();
       const jobId = startProcessing({
         scheduledRunId: claim.runId,
+        receivedSince: receivedSinceAt,
         maxRuntimeMs,
         onSettled: (outcome) => finishAndAlert(claim, outcome).catch((error) => {
           logger.error('[email-scheduler] Falha ao persistir conclusao:', error.message);
         })
       });
-      await store.markJob(claim, jobId, new Date());
-      logger.log(`[email-scheduler] Execucao persistente iniciada: run=${claim.runId}, job=${jobId}.`);
-      return { started: true, runId: claim.runId, jobId };
+      await store.markJob(claim, jobId, new Date(), { receivedSinceAt });
+      logger.log(
+        `[email-scheduler] Execucao persistente iniciada: run=${claim.runId}, job=${jobId}, `
+        + `desde=${receivedSinceAt}.`
+      );
+      return { started: true, runId: claim.runId, jobId, receivedSinceAt };
     } catch (error) {
       logger.error('[email-scheduler] Falha ao iniciar ciclo:', error.message);
       if (claim) {

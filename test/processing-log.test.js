@@ -25,5 +25,7 @@ test('processing summary log is restricted to PROD and approved recipients', () 
   assert.match(emailSenderSource, /PROCESSING_LOG_ALLOWED_RECIPIENTS/);
   assert.match(emailSenderSource, /gerson@alcateiaconsulting\.com\.br/);
   assert.match(emailSenderSource, /bruno@alcateiaconsulting\.com\.br/);
+  assert.match(emailSenderSource, /emerson\.viana@alcateiaconsulting\.com\.br/);
+  assert.match(serverSource, /PROCESSING_LOG_RECIPIENTS[\s\S]*emerson\.viana@alcateiaconsulting\.com\.br/);
   assert.doesNotMatch(combinedSource, /joao\.buso|buso@gmail|joao.*gmail/i);
 });

@@ -9,13 +9,19 @@ function createFakeStore() {
     claims: [],
     jobs: [],
     finishes: [],
-    defers: []
+    defers: [],
+    lastSuccessAt: null
   };
   return {
     state,
     async claim({ trigger }) {
       if (!state.due || state.leased) return null;
-      const claim = { runId: `run-${state.claims.length + 1}`, owner: `owner-${state.claims.length + 1}`, trigger };
+      const claim = {
+        runId: `run-${state.claims.length + 1}`,
+        owner: `owner-${state.claims.length + 1}`,
+        trigger,
+        ...(state.lastSuccessAt ? { lastSuccessAt: state.lastSuccessAt } : {})
+      };
       state.leased = true;
       state.claims.push(claim);
       return claim;
@@ -153,4 +159,44 @@ test('persistent-store outage raises one throttled operational alert', async () 
   assert.equal(second.started, false);
   assert.equal(alerts.length, 1);
   assert.match(alerts[0].error, /controle persistente/);
+});
+
+test('successful checkpoint is read with a two-hour overlap', async () => {
+  const store = createFakeStore();
+  store.state.lastSuccessAt = '2026-11-06T12:00:00.000Z';
+  let processingOptions;
+  const scheduler = createEmailProcessingScheduler({
+    store,
+    startProcessing(options) {
+      processingOptions = options;
+      return 'job-window';
+    },
+    logger: { log() {}, error() {} }
+  });
+
+  const result = await scheduler.tick('schedule');
+
+  assert.equal(result.started, true);
+  assert.equal(processingOptions.receivedSince, '2026-11-06T10:00:00.000Z');
+});
+
+test('first run falls back to a 48-hour safety window', async () => {
+  const store = createFakeStore();
+  let processingOptions;
+  const before = Date.now();
+  const scheduler = createEmailProcessingScheduler({
+    store,
+    startProcessing(options) {
+      processingOptions = options;
+      return 'job-first-window';
+    },
+    logger: { log() {}, error() {} }
+  });
+
+  await scheduler.tick('startup');
+  const after = Date.now();
+  const since = Date.parse(processingOptions.receivedSince);
+
+  assert.ok(since >= before - 48 * 60 * 60 * 1000 - 1000);
+  assert.ok(since <= after - 48 * 60 * 60 * 1000 + 1000);
 });

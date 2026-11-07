@@ -20,7 +20,11 @@ test('email reprocessing can run bounded folder batches', () => {
   assert.match(readerSource, /'\$orderby': 'receivedDateTime desc'/);
   assert.match(readerSource, /hasAttachments eq true/);
   assert.match(readerSource, /len\(emails\) \+ len\(folder_emails\) >= self\.max_messages/);
-  assert.match(serverSource, /EMAIL_INBOX_MAX_MESSAGES \|\| 200/);
+  assert.match(serverSource, /EMAIL_INBOX_MAX_MESSAGES \|\| 1000/);
+  assert.match(serverSource, /EMAIL_INBOX_OVERLAP_MINUTES \|\| 120/);
+  assert.match(serverSource, /EMAIL_INBOX_INITIAL_LOOKBACK_HOURS \|\| 48/);
+  assert.match(readerSource, /EMAIL_RECEIVED_SINCE/);
+  assert.match(readerSource, /def _received_since_filter/);
 });
 
 test('email reprocessing filter also matches attachment filenames', () => {
@@ -58,6 +62,8 @@ test('production inbox processing is scheduled every six hours with log recipien
   assert.match(runtimeSource, /tick\('startup'\)/);
   assert.match(runtimeSource, /leaseExpiresAt/);
   assert.match(runtimeSource, /emailProcessingRuns/);
+  assert.match(runtimeSource, /normalizedStatus === 'success'[\s\S]*lastSuccessAt: completedAt/);
+  assert.match(runtimeSource, /lastSuccessAt\.getTime\(\) - Math\.max/);
 });
 
 test('Microsoft Graph calls used by inbox processing have bounded timeouts', () => {

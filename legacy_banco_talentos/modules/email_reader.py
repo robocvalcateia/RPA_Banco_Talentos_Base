@@ -3,7 +3,7 @@ Mdulo para leitura de e-mails via Microsoft Graph
 """
 import requests
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import email
 import unicodedata
@@ -50,6 +50,7 @@ class EmailReader:
         self.base_url = "https://graph.microsoft.com/v1.0"
         self.email = self.graph_config.get_email()
         self.dias_atras = int(os.getenv('DIAS_ATRAS', 730))
+        self.received_since = os.getenv('EMAIL_RECEIVED_SINCE', '').strip()
         self.subject_filter = os.getenv('EMAIL_SUBJECT_FILTER', '').strip().lower()
         self.max_messages = max(0, int(os.getenv('EMAIL_MAX_MESSAGES', '0') or 0))
         self.folder_names = [
@@ -57,6 +58,22 @@ class EmailReader:
             for folder in os.getenv('EMAIL_FOLDERS', 'inbox').split(',')
             if folder.strip()
         ]
+
+    def _received_since_filter(self):
+        """Usa o checkpoint do agendador; mantém DIAS_ATRAS como contingência manual."""
+        if self.received_since:
+            try:
+                parsed = datetime.fromisoformat(self.received_since.replace('Z', '+00:00'))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+            except ValueError:
+                logger.warning(
+                    f"EMAIL_RECEIVED_SINCE invalido ({self.received_since}); "
+                    f"usando contingencia de {self.dias_atras} dias."
+                )
+        date_limit = datetime.now(timezone.utc) - timedelta(days=self.dias_atras)
+        return date_limit.strftime('%Y-%m-%dT%H:%M:%SZ')
 
     def _get_folder_page(self, url, headers, params=None):
         folders = []
@@ -144,13 +161,12 @@ class EmailReader:
         return filter_text in subject or filter_text in sender_text or filter_text in attachment_text
     
     def get_emails(self):
-        """Obtm lista de e-mails dos ltimos 2 anos"""
+        """Obtém e-mails desde o checkpoint persistente da última execução bem-sucedida."""
         try:
             logger.info(" Iniciando leitura de e-mails...")
             
-            # Calcular data limite
-            date_limit = datetime.now() - timedelta(days=self.dias_atras)
-            date_filter = date_limit.strftime('%Y-%m-%dT%H:%M:%SZ')
+            date_filter = self._received_since_filter()
+            logger.info(f" Janela de leitura iniciada em: {date_filter}")
             
             headers = self.graph_config.get_headers()
             params = {
