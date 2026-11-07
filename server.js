@@ -283,7 +283,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20261106-email-processing-runtime-v2';
+const APP_VERSION = '20261106-email-processing-runtime-v3';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -3085,7 +3085,7 @@ function startLegacyEmailProcessing(options = {}) {
   );
   const subjectFilter = String(options.subjectFilter || options.query || '').trim();
   const repeatUntilEmpty = Boolean(options.repeatUntilEmpty || options.repeat_until_empty);
-  const requestedMaxMessages = Number(options.maxMessages || options.limit || process.env.EMAIL_MAX_MESSAGES || 0);
+  const requestedMaxMessages = Number(options.maxMessages || options.limit || process.env.EMAIL_MAX_MESSAGES || 200);
   const maxMessages = Number.isFinite(requestedMaxMessages)
     ? Math.max(0, Math.min(500, Math.floor(requestedMaxMessages)))
     : 0;
@@ -3333,7 +3333,7 @@ function startScheduledInboxEmailProcessingJob() {
   if (String(process.env.EMAIL_INBOX_SCHEDULE_ENABLED || 'true').toLowerCase() === 'false') return;
 
   emailProcessingRuntimeStore = createEmailProcessingRuntimeStore();
-  const maxMessages = Number(process.env.EMAIL_INBOX_MAX_MESSAGES || 0) || 0;
+  const maxMessages = Number(process.env.EMAIL_INBOX_MAX_MESSAGES || 200) || 200;
   const scheduler = createEmailProcessingScheduler({
     store: emailProcessingRuntimeStore,
     intervalMs: EMAIL_INBOX_PROCESSING_INTERVAL_MS,

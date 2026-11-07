@@ -156,7 +156,8 @@ class EmailReader:
             params = {
                 '$filter': f"receivedDateTime ge {date_filter}",
                 '$select': 'id,subject,from,receivedDateTime,hasAttachments,parentFolderId',
-                '$top': 999
+                '$orderby': 'receivedDateTime desc',
+                '$top': min(999, self.max_messages) if self.max_messages else 999
             }
 
             emails = []
@@ -180,11 +181,19 @@ class EmailReader:
                     response.raise_for_status()
                     payload = response.json()
                     folder_emails.extend(payload.get('value', []))
+                    if self.max_messages and len(emails) + len(folder_emails) >= self.max_messages:
+                        break
                     url = payload.get('@odata.nextLink')
                     request_params = None
 
+                if self.max_messages:
+                    remaining = max(0, self.max_messages - len(emails))
+                    folder_emails = folder_emails[:remaining]
+
                 logger.info(f" {len(folder_emails)} e-mails encontrados em {folder_name}")
                 emails.extend(folder_emails)
+                if self.max_messages and len(emails) >= self.max_messages:
+                    break
 
             if self.subject_filter:
                 before = len(emails)
