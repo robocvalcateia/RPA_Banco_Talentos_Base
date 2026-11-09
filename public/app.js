@@ -5341,24 +5341,86 @@ const taxReformServiceProfiles = {
   }
 };
 
+const taxReformCurrentBasis = Object.freeze({
+  updatedAt: '09/11/2026',
+  cbs2027ReferenceRate: 0.113,
+  ibsPlanningReferenceRate: 0.187,
+  totalReferenceReviewThreshold: 0.265,
+  cbsStatus: '11,3% calculados pelo TCU em 28/10/2026; fixacao pelo Senado ainda pendente.',
+  ibsStatus: '18,7% usados apenas como premissa de planejamento; a aliquota de referencia do IBS ainda nao foi definida.'
+});
+
 const taxReformScenarioPresets = {
-  legal: { label: 'Legal / Base', cbsRate: 8.8, ibsRate: 17.7, creditUtilization: 90, risk: 'Medio' },
-  conservative: { label: 'Conservador', cbsRate: 9.3, ibsRate: 18.7, creditUtilization: 80, risk: 'Alto' },
-  probable: { label: 'Provavel', cbsRate: 8.8, ibsRate: 17.7, creditUtilization: 90, risk: 'Medio' },
-  optimistic: { label: 'Otimista', cbsRate: 8.3, ibsRate: 16.7, creditUtilization: 100, risk: 'Baixo' },
-  custom: { label: 'Personalizado', cbsRate: 8.8, ibsRate: 17.7, creditUtilization: 90, risk: 'A validar' }
+  legal: { label: 'Referencia atual', cbsRate: 11.3, ibsRate: 18.7, creditUtilization: 90, risk: 'Medio' },
+  conservative: { label: 'Conservador', cbsRate: 11.8, ibsRate: 19.2, creditUtilization: 80, risk: 'Alto' },
+  probable: { label: 'Provavel / referencia atual', cbsRate: 11.3, ibsRate: 18.7, creditUtilization: 90, risk: 'Medio' },
+  optimistic: { label: 'Otimista', cbsRate: 10.8, ibsRate: 17.7, creditUtilization: 100, risk: 'Baixo' },
+  custom: { label: 'Personalizado', cbsRate: 11.3, ibsRate: 18.7, creditUtilization: 90, risk: 'A validar' }
 };
 
 const taxReformTransitionFactors = {
-  2026: { pisCofinsLegacy: 1, issLegacy: 1, cbs: 0, ibs: 0, note: 'Ano-teste: CBS/IBS destacados, sem efeito economico.' },
-  2027: { pisCofinsLegacy: 0, issLegacy: 1, cbs: 1, ibs: 0, note: 'CBS substitui PIS/COFINS; ISS permanece integral.' },
-  2028: { pisCofinsLegacy: 0, issLegacy: 1, cbs: 1, ibs: 0, note: 'CBS integral; IBS ainda sem rampa economica municipal no simulador.' },
-  2029: { pisCofinsLegacy: 0, issLegacy: 0.9, cbs: 1, ibs: 0.1, note: 'CBS integral; IBS 10% e ISS 90%.' },
-  2030: { pisCofinsLegacy: 0, issLegacy: 0.8, cbs: 1, ibs: 0.2, note: 'CBS integral; IBS 20% e ISS 80%.' },
-  2031: { pisCofinsLegacy: 0, issLegacy: 0.7, cbs: 1, ibs: 0.3, note: 'CBS integral; IBS 30% e ISS 70%.' },
-  2032: { pisCofinsLegacy: 0, issLegacy: 0.6, cbs: 1, ibs: 0.4, note: 'CBS integral; IBS 40% e ISS 60%.' },
-  2033: { pisCofinsLegacy: 0, issLegacy: 0, cbs: 1, ibs: 1, note: 'Modelo integral pos-Reforma: CBS e IBS integrais; ISS encerrado.' }
+  2026: {
+    pisCofinsLegacy: 1,
+    issLegacy: 1,
+    cbsReferenceShare: 0,
+    ibsReferenceShare: 0,
+    cbsFixedRate: 0.009,
+    ibsFixedRate: 0.001,
+    newTaxEconomicFactor: 0,
+    note: 'Ano-teste: destaque de CBS 0,9% e IBS 0,1%. Efeito economico zerado pela dispensa/compensacao quando cumpridas as obrigacoes acessorias.'
+  },
+  2027: {
+    pisCofinsLegacy: 0,
+    issLegacy: 1,
+    cbsReferenceShare: 1,
+    cbsReferenceReduction: 0.001,
+    ibsReferenceShare: 0,
+    ibsFixedRate: 0.001,
+    newTaxEconomicFactor: 1,
+    note: 'PIS/COFINS extintos; CBS de referencia reduzida em 0,1 p.p.; IBS-teste de 0,1%; ISS permanece integral.'
+  },
+  2028: {
+    pisCofinsLegacy: 0,
+    issLegacy: 1,
+    cbsReferenceShare: 1,
+    cbsReferenceReduction: 0.001,
+    ibsReferenceShare: 0,
+    ibsFixedRate: 0.001,
+    newTaxEconomicFactor: 1,
+    note: 'CBS de referencia reduzida em 0,1 p.p.; IBS-teste de 0,1%; ISS permanece integral.'
+  },
+  2029: { pisCofinsLegacy: 0, issLegacy: 0.9, cbsReferenceShare: 1, ibsReferenceShare: 0.1, newTaxEconomicFactor: 1, note: 'CBS integral; IBS em 10% da referencia e ISS em 90%.' },
+  2030: { pisCofinsLegacy: 0, issLegacy: 0.8, cbsReferenceShare: 1, ibsReferenceShare: 0.2, newTaxEconomicFactor: 1, note: 'CBS integral; IBS em 20% da referencia e ISS em 80%.' },
+  2031: { pisCofinsLegacy: 0, issLegacy: 0.7, cbsReferenceShare: 1, ibsReferenceShare: 0.3, newTaxEconomicFactor: 1, note: 'CBS integral; IBS em 30% da referencia e ISS em 70%.' },
+  2032: { pisCofinsLegacy: 0, issLegacy: 0.6, cbsReferenceShare: 1, ibsReferenceShare: 0.4, newTaxEconomicFactor: 1, note: 'CBS integral; IBS em 40% da referencia e ISS em 60%.' },
+  2033: { pisCofinsLegacy: 0, issLegacy: 0, cbsReferenceShare: 1, ibsReferenceShare: 1, newTaxEconomicFactor: 1, note: 'Modelo integral pos-Reforma: CBS e IBS integrais; ISS encerrado.' }
 };
+
+function resolveTaxReformYearRates(year, cbsReferenceRate, ibsReferenceRate) {
+  const transition = taxReformTransitionFactors[year] || taxReformTransitionFactors[2033];
+  const cbsNominalRate = Number.isFinite(transition.cbsFixedRate)
+    ? transition.cbsFixedRate
+    : Math.max(
+      (cbsReferenceRate * (transition.cbsReferenceShare || 0)) - (transition.cbsReferenceReduction || 0),
+      0
+    );
+  const ibsNominalRate = Number.isFinite(transition.ibsFixedRate)
+    ? transition.ibsFixedRate
+    : Math.max(ibsReferenceRate * (transition.ibsReferenceShare || 0), 0);
+  const economicFactor = Number.isFinite(transition.newTaxEconomicFactor)
+    ? transition.newTaxEconomicFactor
+    : 1;
+
+  return {
+    transition,
+    cbsNominalRate,
+    ibsNominalRate,
+    reformNominalRate: cbsNominalRate + ibsNominalRate,
+    cbsEconomicRate: cbsNominalRate * economicFactor,
+    ibsEconomicRate: ibsNominalRate * economicFactor,
+    reformEconomicRate: (cbsNominalRate + ibsNominalRate) * economicFactor
+  };
+}
 
 function resolveTaxReformProfile(establishmentKey = 'sp-matriz', serviceKey = 'consultoria-ti') {
   const establishment = taxReformEstablishments[establishmentKey] || taxReformEstablishments['sp-matriz'];
@@ -5414,14 +5476,13 @@ function taxReformYearRows(inputs) {
 
   for (let year = inputs.startYear; year <= inputs.endYear; year += 1) {
     const elapsed = year - inputs.startYear;
-    const transition = taxReformTransitionFactors[year] || taxReformTransitionFactors[2033];
+    const yearRates = resolveTaxReformYearRates(year, inputs.cbsRate, inputs.ibsRate);
+    const { transition } = yearRates;
     const costGross = baseCost * ((1 + inputs.costInflation) ** elapsed);
     const creditableExpenses = inputs.creditableExpenses * ((1 + inputs.costInflation) ** elapsed);
     const legacyFederalRate = profile.pisCofinsRate * transition.pisCofinsLegacy;
     const legacyMunicipalRate = profile.issRate * transition.issLegacy;
-    const cbsEconomicRate = inputs.cbsRate * transition.cbs;
-    const ibsEconomicRate = inputs.ibsRate * transition.ibs;
-    const reformEconomicRate = cbsEconomicRate + ibsEconomicRate;
+    const { cbsEconomicRate, ibsEconomicRate, reformEconomicRate } = yearRates;
     const economicRate = legacyFederalRate + legacyMunicipalRate + reformEconomicRate;
     const credits = Math.min(
       creditableExpenses * reformEconomicRate * inputs.creditUtilization,
@@ -5439,7 +5500,7 @@ function taxReformYearRows(inputs) {
       priceBase = inputs.priceCeiling * ((1 + inputs.annualAdjustment) ** elapsed);
     }
 
-    const reformHighlighted = priceBase * reformEconomicRate;
+    const reformHighlighted = priceBase * yearRates.reformNominalRate;
     const noteTotal = priceBase + reformHighlighted;
     const grossEconomicTax = priceBase * economicRate;
     const netEconomicTax = Math.max(grossEconomicTax - credits, 0);
@@ -5457,6 +5518,9 @@ function taxReformYearRows(inputs) {
       transition,
       legacyFederalRate,
       legacyMunicipalRate,
+      cbsNominalRate: yearRates.cbsNominalRate,
+      ibsNominalRate: yearRates.ibsNominalRate,
+      reformNominalRate: yearRates.reformNominalRate,
       cbsEconomicRate,
       ibsEconomicRate,
       priceBase,
@@ -5499,13 +5563,19 @@ function calculateTaxReformSimulation(form) {
   };
 }
 
+function formatTaxReformRate(nominalRate, economicRate) {
+  const nominal = formatRatio(nominalRate * 100);
+  if (Math.abs(nominalRate - economicRate) < 0.0000001) return nominal;
+  return `${nominal} (efeito ${formatRatio(economicRate * 100)})`;
+}
+
 function renderTaxReformSimulator() {
   const simulation = state.taxReformSimulation;
   const table = $('#taxReformResultTable');
   if (!table) return;
 
   if (!simulation?.rows?.length) {
-    table.innerHTML = '<tr><td colspan="9">Informe os parametros e calcule a simulacao.</td></tr>';
+    table.innerHTML = '<tr><td colspan="11">Informe os parametros e calcule a simulacao.</td></tr>';
     return;
   }
 
@@ -5517,6 +5587,8 @@ function renderTaxReformSimulator() {
       <td><strong>${row.year}</strong></td>
       <td>${formatCurrency(row.priceBase)}</td>
       <td>${formatCurrency(row.noteTotal)}</td>
+      <td>${formatTaxReformRate(row.cbsNominalRate, row.cbsEconomicRate)}</td>
+      <td>${formatTaxReformRate(row.ibsNominalRate, row.ibsEconomicRate)}</td>
       <td>${formatCurrency(row.netEconomicTax)}</td>
       <td>${formatCurrency(row.credits)}</td>
       <td>${formatCurrency(row.retentions)}</td>
@@ -5529,16 +5601,29 @@ function renderTaxReformSimulator() {
   const marginDelta = (lastRow.effectiveMargin - firstRow.effectiveMargin) * 100;
   const taxDelta = (lastRow.netTaxRate - firstRow.netTaxRate) * 100;
   const modeLabel = inputs.mode === 'preserveMargin' ? 'preservar margem' : inputs.mode === 'preservePrice' ? 'preservar preco' : 'respeitar preco-teto';
-  $('#taxReformConclusion').textContent = `No cenario ${taxReformScenarioPresets[inputs.scenarioKey]?.label || 'selecionado'}, a simulacao de ${modeLabel} encerra ${inputs.endYear} com margem efetiva de ${formatRatio(lastRow.effectiveMargin * 100)} e carga liquida de ${formatRatio(lastRow.netTaxRate * 100)}. A variacao frente ao ano inicial e de ${formatRatio(marginDelta)} na margem e ${formatRatio(taxDelta)} p.p. na carga. Risco ${risk}: validar creditos, retencoes e fonte fiscal antes de converter em proposta.`;
+  const transitionOpening = firstRow.year === 2026
+    ? ' Em 2026, CBS 0,9% e IBS 0,1% aparecem no destaque, com efeito economico zerado pela dispensa/compensacao condicionada ao cumprimento das obrigacoes acessorias.'
+    : '';
+  $('#taxReformConclusion').textContent = `No cenario ${taxReformScenarioPresets[inputs.scenarioKey]?.label || 'selecionado'}, a simulacao de ${modeLabel} encerra ${inputs.endYear} com margem efetiva de ${formatRatio(lastRow.effectiveMargin * 100)} e carga liquida de ${formatRatio(lastRow.netTaxRate * 100)}. A variacao frente ao ano inicial e de ${formatRatio(marginDelta)} na margem e ${formatRatio(taxDelta)} p.p. na carga.${transitionOpening} Risco ${risk}: validar creditos, retencoes e fonte fiscal antes de converter em proposta.`;
+
+  const combinedReferenceRate = inputs.cbsRate + inputs.ibsRate;
+  const combinedReferenceWarning = combinedReferenceRate > taxReformCurrentBasis.totalReferenceReviewThreshold
+    ? `Alerta de planejamento: CBS + IBS de referencia somam ${formatRatio(combinedReferenceRate * 100)}, acima do parametro de 26,5% que aciona revisao legislativa prevista para 2031; isso nao funciona como teto automatico da simulacao.`
+    : '';
 
   $('#taxReformMemory').innerHTML = [
+    `Base normativa consultada em ${taxReformCurrentBasis.updatedAt}: ${taxReformCurrentBasis.cbsStatus}`,
+    taxReformCurrentBasis.ibsStatus,
     `Filial: ${lastRow.establishment.label}; CNPJ ${lastRow.establishment.cnpj}; municipio ${lastRow.establishment.city}.`,
     `Servico: ${lastRow.profile.label}; CNAE ${lastRow.profile.cnae}; codigo municipal ${lastRow.profile.municipalCode}; origem ${lastRow.profile.origin}.`,
     `Modo: ${modeLabel}; cenario: ${taxReformScenarioPresets[inputs.scenarioKey]?.label || '-'}; CBS ${formatRatio(inputs.cbsRate * 100)}; IBS ${formatRatio(inputs.ibsRate * 100)}.`,
+    `Aplicacao 2027/2028: CBS de referencia menos 0,1 p.p. e IBS-teste de 0,1%, conforme a transicao legal.`,
+    `Inicio ${firstRow.year}: CBS destacada ${formatRatio(firstRow.cbsNominalRate * 100)} e IBS destacado ${formatRatio(firstRow.ibsNominalRate * 100)}; efeitos economicos de ${formatRatio(firstRow.cbsEconomicRate * 100)} e ${formatRatio(firstRow.ibsEconomicRate * 100)}, respectivamente.`,
     `Carga do ano final: PIS/COFINS legado ${formatRatio(lastRow.legacyFederalRate * 100)}, ISS legado ${formatRatio(lastRow.legacyMunicipalRate * 100)}, CBS ${formatRatio(lastRow.cbsEconomicRate * 100)}, IBS ${formatRatio(lastRow.ibsEconomicRate * 100)}.`,
     `Custo bruto final: ${formatCurrency(lastRow.costGross)}; credito estimado: ${formatCurrency(lastRow.credits)}; custo liquido economico: ${formatCurrency(Math.max(lastRow.costGross - lastRow.credits, 0))}.`,
     `Tributos economicos liquidos: ${formatCurrency(lastRow.netEconomicTax)}; retencoes: ${formatCurrency(lastRow.retentions)}; caixa recebido: ${formatCurrency(lastRow.cashReceived)}.`,
     `Transicao ${lastRow.year}: ${lastRow.transition.note}`,
+    combinedReferenceWarning,
     lastRow.profile.requiresFiscalReview ? 'Alerta: perfil fiscal depende de validacao no cadastro municipal antes de virar proposta.' : '',
     inputs.assumption ? `Premissa informada: ${inputs.assumption}` : 'Premissa: parametros em draft exigem validacao contabil/fiscal antes de publicacao.'
   ].filter(Boolean).map((item) => `<li>${escapeHtml(item)}</li>`).join('');
@@ -5606,8 +5691,9 @@ function allocationForecastRows(form = $('#allocationPriceForm')) {
       const numericYear = Number(year);
       const yearsAfterBase = Math.max(numericYear - 2026, 0);
       const adjustedPurchaseValue = inputs.purchaseValue * ((1 + inputs.annualAdjustment) ** yearsAfterBase);
+      const yearRates = resolveTaxReformYearRates(numericYear, cbsRate, ibsRate);
       const legacyEconomicRate = (profile.pisCofinsRate * transition.pisCofinsLegacy) + (profile.issRate * transition.issLegacy);
-      const reformGrossRate = (cbsRate * transition.cbs) + (ibsRate * transition.ibs);
+      const reformGrossRate = yearRates.reformEconomicRate;
       const estimatedCreditRate = profile.creditableExpenseShare
         * reformGrossRate
         * scenario.creditUtilization / 100;
@@ -5623,8 +5709,13 @@ function allocationForecastRows(form = $('#allocationPriceForm')) {
         year: numericYear,
         ratio: inputs.ratio,
         profile,
+        transition,
         purchaseValue: adjustedPurchaseValue,
         baseSaleValue: inputs.saleValue,
+        cbsNominalRate: yearRates.cbsNominalRate,
+        ibsNominalRate: yearRates.ibsNominalRate,
+        cbsEconomicRate: yearRates.cbsEconomicRate,
+        ibsEconomicRate: yearRates.ibsEconomicRate,
         netTaxRate,
         incrementalTaxRate,
         requiredSaleValue,
@@ -5632,7 +5723,7 @@ function allocationForecastRows(form = $('#allocationPriceForm')) {
         viable: denominator > 0
       };
     })
-    .filter((row) => row.year >= 2027 && row.year <= 2033)
+    .filter((row) => row.year >= 2026 && row.year <= 2033)
     .sort((first, second) => first.year - second.year);
 }
 
@@ -5647,7 +5738,7 @@ function renderAllocationPriceResult() {
   const summary = $('#allocationPriceForecastSummary');
   if (summary) {
     summary.textContent = inputs.purchaseValue > 0
-      ? `${profile.label}; razão ${inputs.ratio}, ISS ${formatRatio(profile.issRate * 100)}, reajuste ${formatRatio(inputs.annualAdjustment * 100)} ao ano`
+      ? `${profile.label}; razão ${inputs.ratio}; CBS ref. ${formatRatio(taxReformCurrentBasis.cbs2027ReferenceRate * 100)}; IBS premissa ${formatRatio(taxReformCurrentBasis.ibsPlanningReferenceRate * 100)}; reajuste ${formatRatio(inputs.annualAdjustment * 100)} ao ano`
       : 'Informe valor compra ou venda para projetar';
   }
 
@@ -5663,7 +5754,9 @@ function renderAllocationPriceResult() {
       <span>${row.year}</span>
       <strong>${row.viable ? formatCurrency(row.requiredSaleValue) : 'Inviavel'}</strong>
       <small>Compra ${formatCurrency(row.purchaseValue)}</small>
-      <small>Impacto ${formatRatio(row.incrementalTaxRate * 100)}</small>
+      <small>CBS ${formatTaxReformRate(row.cbsNominalRate, row.cbsEconomicRate)}</small>
+      <small>IBS ${formatTaxReformRate(row.ibsNominalRate, row.ibsEconomicRate)}</small>
+      <small>Impacto liquido ${formatRatio(row.incrementalTaxRate * 100)}</small>
       <small>ISS ${formatRatio(row.profile.issRate * 100)}</small>
       <small>Var. ${formatRatio(row.variation * 100)}</small>
     </article>

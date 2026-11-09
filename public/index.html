@@ -374,9 +374,9 @@
             </label>
             <label>Cenário
               <select name="scenario" id="taxReformScenarioSelect" required>
-                <option value="legal">Legal / Base</option>
+                <option value="legal">Referência atual</option>
                 <option value="conservative">Conservador</option>
-                <option value="probable" selected>Provável</option>
+                <option value="probable" selected>Provável / referência atual</option>
                 <option value="optimistic">Otimista</option>
                 <option value="custom">Personalizado</option>
               </select>
@@ -399,11 +399,11 @@
             <label>Margem desejada (%)
               <input name="targetMargin" type="number" min="0" max="95" step="0.01" value="18" required />
             </label>
-            <label>CBS cenário (%)
-              <input name="cbsRate" type="number" min="0" max="100" step="0.0001" value="8.8" required />
+            <label>CBS referência (%)
+              <input name="cbsRate" type="number" min="0" max="100" step="0.0001" value="11.3" required />
             </label>
-            <label>IBS cenário (%)
-              <input name="ibsRate" type="number" min="0" max="100" step="0.0001" value="17.7" required />
+            <label>IBS referência estimada (%)
+              <input name="ibsRate" type="number" min="0" max="100" step="0.0001" value="18.7" required />
             </label>
             <label>Aproveitamento crédito (%)
               <input name="creditUtilization" type="number" min="0" max="100" step="0.01" value="90" required />
@@ -425,6 +425,9 @@
             </label>
             <button class="primary-action" type="submit">Calcular simulação</button>
           </form>
+          <p class="tax-reform-reference-note">
+            Base atualizada em 09/11/2026: em 2026, destaque de CBS 0,9% e IBS 0,1%, com dispensa/compensação condicionada às obrigações acessórias. Para 2027, o TCU calculou CBS de referência de 11,3%, ainda sujeita à fixação pelo Senado; o cálculo aplica a redução legal de 0,1 p.p. em 2027 e 2028. A referência do IBS permanece como premissa editável de planejamento.
+          </p>
         </section>
 
         <section class="panel">
@@ -441,6 +444,8 @@
                   <th>Ano</th>
                   <th>Preço/base</th>
                   <th>Total nota</th>
+                  <th>CBS</th>
+                  <th>IBS</th>
                   <th>Tributos econômicos</th>
                   <th>Créditos</th>
                   <th>Retenções</th>
@@ -517,6 +522,9 @@
               <input id="allocationPriceResult" readonly />
             </label>
           </form>
+          <p class="tax-reform-reference-note">
+            A projeção começa em 2026 e separa alíquota destacada de impacto econômico. CBS 11,3% é a referência calculada pelo TCU, com redução legal de 0,1 p.p. em 2027 e 2028; IBS 18,7% permanece como premissa de planejamento até definição oficial.
+          </p>
         </section>
         <section class="panel">
           <div class="panel-heading">
@@ -2095,6 +2103,6 @@
     <script src="/vendor/fflate.js"></script>
     <script src="/email-logs.js?v=20260925-email-log"></script>
     <script src="/opportunity-intake.js?v=20261004"></script>
-    <script src="/app.js?v=20261004-dtt-hourly"></script>
+    <script src="/app.js?v=20261109-tax-reform-v2"></script>
   </body>
 </html>
