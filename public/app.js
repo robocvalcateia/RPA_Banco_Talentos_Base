@@ -3365,6 +3365,19 @@ function ensureOpportunityCandidatesModal() {
   return modal;
 }
 
+function opportunityCandidateActionCell(candidate) {
+  const candidateId = escapeHtml(candidate.id || '');
+  const collection = escapeHtml(candidate.linkedCollection || '');
+  const outreachActions = `
+    <button class="primary-action compact-action" type="button" data-outreach-opportunity-candidate="${candidateId}" data-outreach-channel="email" data-outreach-collection="${collection}">E-mail</button>
+    <button class="primary-action compact-action" type="button" data-outreach-opportunity-candidate="${candidateId}" data-outreach-channel="whatsapp" data-outreach-collection="${collection}">WhatsApp</button>`;
+  const workflowActions = candidate.linkedCollection === 'candidates'
+    ? `<button class="ghost-action compact-action" type="button" data-opportunity-move-candidate="${candidateId}">Mover</button><button class="danger-action compact-action" type="button" data-reject-opportunity-candidate="${candidateId}">Reprovado</button>`
+    : `<button class="primary-action compact-action" type="button" data-opportunity-move-selected-candidate="${candidateId}">Mover</button><button class="danger-action compact-action" type="button" data-reject-selected-opportunity-candidate="${candidateId}">Reprovado</button>`;
+  const selectedTag = candidate.linkedCollection === 'selectedCandidates' ? '<span class="tag opportunity-candidate-selected-tag">Selecionado</span>' : '';
+  return `${selectedTag}<div class="stage-actions opportunity-candidate-actions">${outreachActions}${workflowActions}</div>`;
+}
+
 function renderOpportunityCandidatesModal(opportunityId) {
   const modal = ensureOpportunityCandidatesModal();
   const opportunity = state.opportunities.find((item) => item.id === opportunityId);
@@ -3373,8 +3386,50 @@ function renderOpportunityCandidatesModal(opportunityId) {
   const candidates = activeCandidatesForOpportunity(opportunityId);
   $('#opportunityCandidatesSummary', modal).textContent = `${opportunityLabel(opportunity)} · ${candidates.length} candidato(s) ativo(s)`;
   $('#opportunityCandidatesTable', modal).innerHTML = candidates.length ? candidates.map((candidate) => `
-    <tr><td><strong>${escapeHtml(candidate.name || '-')}</strong></td><td><span class="tag">${escapeHtml(candidate.stage || 'Triagem')}</span></td><td><span class="score">${candidate.aderencia ?? candidate.score ?? 0}%</span></td><td>${candidate.linkedCollection === 'candidates' ? `<div class="stage-actions"><button class="ghost-action compact-action" type="button" data-opportunity-move-candidate="${candidate.id}">Mover</button><button class="danger-action compact-action" type="button" data-reject-opportunity-candidate="${candidate.id}">Reprovado</button></div>` : `<div class="stage-actions"><span class="tag">Selecionado</span><button class="primary-action compact-action" type="button" data-opportunity-move-selected-candidate="${candidate.id}">Mover</button><button class="danger-action compact-action" type="button" data-reject-selected-opportunity-candidate="${candidate.id}">Reprovado</button></div>`}</td></tr>`).join('') : '<tr><td colspan="4">Nenhum candidato ativo vinculado a esta oportunidade.</td></tr>';
+    <tr><td><strong>${escapeHtml(candidate.name || '-')}</strong></td><td><span class="tag">${escapeHtml(candidate.stage || 'Triagem')}</span></td><td><span class="score">${candidate.aderencia ?? candidate.score ?? 0}%</span></td><td>${opportunityCandidateActionCell(candidate)}</td></tr>`).join('') : '<tr><td colspan="4">Nenhum candidato ativo vinculado a esta oportunidade.</td></tr>';
   openSurfaceDialog(modal);
+}
+
+async function prepareOpportunityCandidateOutreach(button) {
+  const opportunityId = state.editing.viewingOpportunityCandidatesId;
+  const candidateId = String(button?.dataset.outreachOpportunityCandidate || '').trim();
+  const channel = String(button?.dataset.outreachChannel || '').trim();
+  const collection = String(button?.dataset.outreachCollection || '').trim();
+  if (!opportunityId || !candidateId || !['email', 'whatsapp'].includes(channel)) return;
+
+  const pendingWindow = window.open('about:blank', '_blank');
+  if (pendingWindow) {
+    pendingWindow.opener = null;
+    pendingWindow.document.title = 'Preparando abordagem';
+    pendingWindow.document.body.textContent = channel === 'email'
+      ? 'Preparando rascunho no Outlook...'
+      : 'Preparando conversa no WhatsApp...';
+  }
+
+  const defaultLabel = channel === 'email' ? 'E-mail' : 'WhatsApp';
+  const originalText = setSubmitButtonBusy(button, 'Preparando...');
+  try {
+    const result = await api(`/api/opportunities/${encodeURIComponent(opportunityId)}/candidates/${encodeURIComponent(candidateId)}/outreach`, {
+      method: 'POST',
+      body: JSON.stringify({ channel, collection })
+    });
+    if (result.observation && !(state.recordObservations || []).some((item) => item.id === result.observation.id)) {
+      state.recordObservations.push(result.observation);
+    }
+    if (pendingWindow) {
+      pendingWindow.location.replace(result.url);
+    } else {
+      window.location.href = result.url;
+    }
+    toast(channel === 'email'
+      ? 'Rascunho aberto no Outlook. Nenhum e-mail foi enviado automaticamente.'
+      : 'Conversa aberta no WhatsApp. Nenhuma mensagem foi enviada automaticamente.');
+  } catch (error) {
+    pendingWindow?.close();
+    toast(error.message || `Não foi possível preparar a abordagem por ${defaultLabel}.`);
+  } finally {
+    restoreSubmitButton(button, originalText || defaultLabel);
+  }
 }
 
 function closeOpportunityCandidatesModal() {
@@ -13213,6 +13268,11 @@ function bindEditableRows() {
     if (addCandidatesButton) {
       const opportunityId = state.editing.viewingOpportunityCandidatesId;
       if (opportunityId) openOpportunityCandidateSearch(opportunityId);
+      return;
+    }
+    const outreachButton = event.target.closest('[data-outreach-opportunity-candidate]');
+    if (outreachButton) {
+      await prepareOpportunityCandidateOutreach(outreachButton);
       return;
     }
     const moveButton = event.target.closest('[data-opportunity-move-candidate]');

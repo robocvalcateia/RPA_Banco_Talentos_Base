@@ -3924,3 +3924,26 @@ button[aria-label="Fechar"]:not(.surface-window-control) {
     grid-template-columns: 1fr;
   }
 }
+
+#opportunityCandidatesTable tr {
+  height: auto;
+  max-height: none;
+}
+
+#opportunityCandidatesTable td:last-child {
+  max-width: none;
+  min-width: calc((var(--action-button-width) * 2) + 8px);
+  overflow: visible;
+}
+
+#opportunityCandidatesTable .opportunity-candidate-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, var(--action-button-width));
+  min-width: calc((var(--action-button-width) * 2) + 8px);
+}
+
+.opportunity-candidate-selected-tag {
+  display: inline-flex;
+  margin-bottom: 8px;
+}

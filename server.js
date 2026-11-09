@@ -2127,6 +2127,147 @@ function uniquePhones(values = []) {
   })));
 }
 
+function meaningfulOutreachValue(value) {
+  if (value === null || value === undefined) return '';
+  if (Array.isArray(value)) {
+    return value.map(meaningfulOutreachValue).filter(Boolean).join(', ');
+  }
+  const normalized = repairEncodingArtifacts(String(value)).replace(/\s+/g, ' ').trim();
+  if (!normalized) return '';
+  const placeholder = normalizeLookupText(normalized);
+  if (['-', 'nao informado', 'nao informada', 'nao se aplica', 'n/a', 'selecione'].includes(placeholder)) return '';
+  return normalized;
+}
+
+function opportunityOutreachBoolean(value) {
+  if (value === true || value === 1) return true;
+  return ['true', '1', 'sim', 'yes'].includes(normalizeLookupText(value));
+}
+
+function opportunityOutreachFirst(opportunity, fields = []) {
+  for (const field of fields) {
+    const value = meaningfulOutreachValue(opportunity?.[field]);
+    if (value) return value;
+  }
+  return '';
+}
+
+function formatOutreachDate(value) {
+  const normalized = meaningfulOutreachValue(value);
+  if (!normalized) return '';
+  const match = normalized.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : normalized;
+}
+
+function formatOutreachMoney(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) return '';
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(amount);
+}
+
+function opportunityAllowsClientDisclosure(opportunity = {}) {
+  return ![
+    opportunity.confidential,
+    opportunity.clientConfidential,
+    opportunity.hideClient,
+    opportunity.doNotDiscloseClient
+  ].some(opportunityOutreachBoolean);
+}
+
+export function registeredCandidateContacts(candidate = {}, db = {}) {
+  const curriculum = findCurriculumForSelectedCandidate(candidate, db) || {};
+  const emails = uniqueEmails([
+    candidate.personalEmail,
+    candidate.privateEmail,
+    candidate.email,
+    candidate.emails,
+    candidate.consultantEmail,
+    candidate.candidateEmail,
+    curriculum.personalEmail,
+    curriculum.email,
+    curriculum.emails
+  ]).filter((email) => !email.endsWith(`@${ALCATEIA_EMAIL_DOMAIN}`));
+  const phones = uniquePhones([
+    candidate.whatsapp,
+    candidate.whatsApp,
+    candidate.personalPhone,
+    candidate.mobile,
+    candidate.celular,
+    candidate.telefone,
+    candidate.phone,
+    candidate.phones,
+    curriculum.whatsapp,
+    curriculum.whatsApp,
+    curriculum.personalPhone,
+    curriculum.mobile,
+    curriculum.celular,
+    curriculum.telefone,
+    curriculum.phone,
+    curriculum.phones
+  ]);
+  return { emails, phones, curriculum };
+}
+
+export function buildOpportunityCandidateOutreach({ candidate = {}, opportunity = {}, client = {}, user = {} } = {}) {
+  const opportunityName = meaningfulOutreachValue(opportunity.opportunity) || 'Oportunidade Alcateia';
+  const subject = `Oportunidade | ${opportunityName}`;
+  const userName = meaningfulOutreachValue(user.name) || 'Equipe Alcateia';
+  const candidateName = meaningfulOutreachValue(candidate.name) || 'tudo bem';
+  const jobDescription = meaningfulOutreachValue(opportunity.jobDescription) || opportunityName;
+  const clientName = opportunityAllowsClientDisclosure(opportunity)
+    ? meaningfulOutreachValue(client.customerName || client.name)
+    : '';
+  const disclosedValue = [
+    opportunity.discloseContractValue,
+    opportunity.shareContractValueWithCandidates,
+    opportunity.valueDisclosureAuthorized
+  ].some(opportunityOutreachBoolean)
+    ? formatOutreachMoney(opportunity.contractValue || opportunity.salary || opportunity.candidateRate)
+    : '';
+
+  const details = [
+    ['Cliente', clientName],
+    ['Código', opportunityOutreachFirst(opportunity, ['clientOpportunityCode', 'opportunityCode'])],
+    ['Skill principal', opportunityOutreachFirst(opportunity, ['coreSkill', 'mainSkill', 'principalSkill', 'skill', 'competency'])],
+    ['Senioridade', opportunityOutreachFirst(opportunity, ['seniority', 'seniorityLevel', 'level'])],
+    ['Modelo de trabalho', opportunityOutreachFirst(opportunity, ['workModel', 'workArrangement'])],
+    ['Localidade', opportunityOutreachFirst(opportunity, ['workLocation', 'jobLocation', 'location', 'city'])],
+    ['Tipo de contratação', opportunityOutreachFirst(opportunity, ['contractType', 'hiringType'])],
+    ['Modelo da oportunidade', opportunityOutreachFirst(opportunity, ['model'])],
+    ['Início previsto', formatOutreachDate(opportunityOutreachFirst(opportunity, ['startDate', 'projectStartDate', 'expectedStartDate']))],
+    ['Duração', opportunityOutreachFirst(opportunity, ['duration', 'projectDuration'])],
+    ['Carga horária', opportunityOutreachFirst(opportunity, ['workload', 'workloadHours', 'weeklyHours', 'hours'])],
+    ['Quantidade de vagas', Number(opportunity.quantity) > 0 ? String(Number(opportunity.quantity)) : ''],
+    ['Idioma', opportunityOutreachFirst(opportunity, ['language', 'languages', 'languageRequirement'])],
+    ['Requisitos', opportunityOutreachFirst(opportunity, ['mandatoryRequirements', 'requirements', 'requiredSkills'])],
+    ['Desejáveis', opportunityOutreachFirst(opportunity, ['desirableRequirements', 'desirables', 'niceToHave'])],
+    ['Remuneração/valor', disclosedValue],
+    ['Informações adicionais', opportunityOutreachFirst(opportunity, ['candidateDetails', 'candidateNotes', 'publicObservation', 'additionalCandidateInformation'])]
+  ].filter(([, value]) => meaningfulOutreachValue(value));
+
+  const detailLines = details.map(([label, value]) => `${label}: ${value}`);
+  const body = [
+    `Olá, ${candidateName}.`,
+    '',
+    `Aqui é ${userName}, da Alcateia Consulting.`,
+    'Estamos selecionando profissionais para a oportunidade abaixo, e seu perfil chamou nossa atenção.',
+    '',
+    `Oportunidade: ${opportunityName}`,
+    '',
+    'Descrição da oportunidade:',
+    jobDescription,
+    ...(detailLines.length ? ['', 'Detalhes da oportunidade:', ...detailLines] : []),
+    '',
+    'Você tem interesse nesta oportunidade? Em caso positivo, por favor, envie três opções de dia e horário para uma conversa rápida.',
+    '',
+    'Atenciosamente,',
+    userName,
+    'Alcateia Consulting'
+  ].join('\n').trim();
+
+  return { subject, title: subject, body, details };
+}
+
 async function extractCandidateEmails(candidate, credentials, db) {
   const curriculum = findCurriculumForSelectedCandidate(candidate, db);
   const candidateEmails = uniqueEmails([
@@ -2209,6 +2350,16 @@ function buildCandidateMailto(to, subject, body) {
     .map((email) => encodeURIComponent(email).replace(/%40/g, '@'))
     .join(',');
   return `mailto:${addressList}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
+function buildOutlookComposeLink(to, subject, body) {
+  const recipient = Array.isArray(to) ? to[0] : String(to || '').split(/[;,]/)[0];
+  const params = new URLSearchParams({
+    to: String(recipient || '').trim(),
+    subject,
+    body
+  });
+  return `https://outlook.office.com/mail/deeplink/compose?${params.toString()}`;
 }
 
 function opportunityLabelForCandidate(candidate, db) {
@@ -6468,6 +6619,101 @@ async function handleApi(request, response) {
       syncCandidatesWithOpportunityClosures(db);
       await writeDatabaseCollections(db, ['opportunities', 'candidates']);
       sendJson(response, 201, opportunity);
+      return;
+    }
+
+    if (request.method === 'POST' && /^\/api\/opportunities\/[^/]+\/candidates\/[^/]+\/outreach$/.test(pathname)) {
+      const parts = pathname.split('/');
+      const opportunityId = decodeURIComponent(parts[3] || '');
+      const candidateId = decodeURIComponent(parts[5] || '');
+      const payload = await readJsonBody(request);
+      const channel = String(payload.channel || '').trim().toLowerCase();
+      const requestedCollection = String(payload.collection || '').trim();
+      const db = await readDatabase();
+      const opportunity = db.opportunities.find((item) => item.id === opportunityId);
+
+      if (!opportunity) {
+        sendError(response, 404, 'Oportunidade não encontrada.');
+        return;
+      }
+      if (!['email', 'whatsapp'].includes(channel)) {
+        sendError(response, 422, 'Informe se a abordagem será por e-mail ou WhatsApp.');
+        return;
+      }
+
+      const allowedCollections = requestedCollection === 'selectedCandidates'
+        ? ['selectedCandidates']
+        : requestedCollection === 'candidates'
+          ? ['candidates']
+          : ['candidates', 'selectedCandidates'];
+      let candidate = null;
+      let collection = '';
+      for (const collectionName of allowedCollections) {
+        candidate = (db[collectionName] || []).find((item) => item.id === candidateId && item.opportunityId === opportunityId) || null;
+        if (candidate) {
+          collection = collectionName;
+          break;
+        }
+      }
+
+      if (!candidate) {
+        sendError(response, 404, 'Candidato vinculado à oportunidade não encontrado.');
+        return;
+      }
+      if (normalizeLookupText(candidate.stage || candidate.status) === 'reprovado') {
+        sendError(response, 409, 'O candidato está reprovado nesta oportunidade.');
+        return;
+      }
+
+      const dbWithCurriculums = await databaseWithSelectedCandidateCurriculums(db, [candidate]);
+      const contacts = registeredCandidateContacts(candidate, dbWithCurriculums);
+      const client = db.clients.find((item) => item.id === opportunity.clientId) || {};
+      const message = buildOpportunityCandidateOutreach({ candidate, opportunity, client, user: auth.user });
+      let address = '';
+      let url = '';
+      let mailto = '';
+
+      if (channel === 'email') {
+        address = contacts.emails[0] || '';
+        if (!address) {
+          sendError(response, 422, 'Candidato sem e-mail particular cadastrado.');
+          return;
+        }
+        mailto = buildCandidateMailto(address, message.subject, message.body);
+        url = buildOutlookComposeLink(address, message.subject, message.body);
+      } else {
+        address = contacts.phones[0] || '';
+        if (!address) {
+          sendError(response, 422, 'Candidato sem WhatsApp particular cadastrado.');
+          return;
+        }
+        url = buildWhatsappLink(address, message.body);
+      }
+
+      const channelLabel = channel === 'email' ? 'e-mail' : 'WhatsApp';
+      const observation = appendRecordObservation(
+        db,
+        'candidate',
+        candidate.id,
+        `Abordagem por ${channelLabel} preparada para a oportunidade ${opportunity.opportunity || opportunity.opportunityCode || opportunity.id}. Nenhum envio automático foi realizado.`,
+        auth.user
+      );
+      await writeDatabaseCollections(db, ['recordObservations']);
+
+      sendJson(response, 200, {
+        channel,
+        collection,
+        candidateId: candidate.id,
+        candidateName: candidate.name,
+        opportunityId: opportunity.id,
+        address,
+        subject: message.subject,
+        body: message.body,
+        url,
+        mailto,
+        observation,
+        sent: false
+      });
       return;
     }
 
