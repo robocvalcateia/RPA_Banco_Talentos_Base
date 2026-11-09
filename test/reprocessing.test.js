@@ -46,6 +46,7 @@ test('email processing can repeat 100-message batches until folder is empty', ()
   assert.match(serverSource, /maxMessages/);
   assert.match(serverSource, /EMAIL_PROCESSING_SYNC_TIMEOUT_MS/);
   assert.match(serverSource, /sync_error/);
+  assert.match(serverSource, /EMAIL_PROCESSING_COMPLEMENTARY_SYNC_ENABLED \|\| 'false'/);
 });
 
 test('production inbox processing is scheduled every six hours with log recipients', () => {

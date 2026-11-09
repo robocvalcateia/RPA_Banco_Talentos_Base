@@ -15,6 +15,7 @@ import {
   isAlcateiaSenderEmail,
   resolveCandidateCurriculum,
   shouldSyncLegacyAfterProcessing,
+  isAutomaticComplementarySyncEnabled,
   shouldResetEnvUserPasswords,
   syncApprovedCandidatePlacementsForOpportunity,
   syncApprovedCandidatePlacement
@@ -332,6 +333,13 @@ test('processamento de emails com arquivo dispara sincronizacao', () => {
       candidatos_atualizados: 0,
       sem_mudancas: 1
     }
+  }), true);
+});
+
+test('sincronizacao legada complementar nao atrasa o fluxo automatico por padrao', () => {
+  assert.equal(isAutomaticComplementarySyncEnabled({}), false);
+  assert.equal(isAutomaticComplementarySyncEnabled({
+    EMAIL_PROCESSING_COMPLEMENTARY_SYNC_ENABLED: 'true'
   }), true);
 });
 

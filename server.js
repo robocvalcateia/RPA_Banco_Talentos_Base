@@ -283,7 +283,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20261109-email-processing-runtime-v6';
+const APP_VERSION = '20261109-email-processing-runtime-v7';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -3002,6 +3002,10 @@ export function shouldSyncLegacyAfterProcessing(result) {
   ].some((value) => Number(value) > 0);
 }
 
+export function isAutomaticComplementarySyncEnabled(env = process.env) {
+  return String(env.EMAIL_PROCESSING_COMPLEMENTARY_SYNC_ENABLED || 'false').toLowerCase() === 'true';
+}
+
 function isTerminalEmailProcessingState() {
   return ['finalizado', 'erro'].includes(emailProcessing.status)
     && Boolean(emailProcessing.finishedAt || emailProcessing.resultado || emailProcessing.erro);
@@ -3400,7 +3404,11 @@ function startLegacyEmailProcessing(options = {}) {
       emailProcessing.status = result.success ? 'sincronizando' : 'erro';
       emailProcessing.erro = result.success ? '' : (result.message || `Processamento finalizado com codigo ${code}.`);
 
-      if (shouldSyncLegacyAfterProcessing(result) && isMongoTalentosConfigured()) {
+      if (
+        isAutomaticComplementarySyncEnabled()
+        && shouldSyncLegacyAfterProcessing(result)
+        && isMongoTalentosConfigured()
+      ) {
         try {
           const sync = await withTimeout(
             syncLegacyCandidatesIntoCurriculums(),
