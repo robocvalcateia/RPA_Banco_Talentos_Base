@@ -200,3 +200,110 @@ test('first run falls back to a 48-hour safety window', async () => {
   assert.ok(since >= before - 48 * 60 * 60 * 1000 - 1000);
   assert.ok(since <= after - 48 * 60 * 60 * 1000 + 1000);
 });
+
+test('catch-up run reuses the exact unfinished scan window', async () => {
+  const store = createFakeStore();
+  const originalClaim = store.claim;
+  store.claim = async (options) => ({
+    ...(await originalClaim(options)),
+    resumeReceivedSinceAt: '2026-11-08T08:00:00.000Z'
+  });
+  let processingOptions;
+  const scheduler = createEmailProcessingScheduler({
+    store,
+    startProcessing(options) {
+      processingOptions = options;
+      return 'job-resumed-window';
+    },
+    logger: { log() {}, error() {} }
+  });
+
+  await scheduler.tick('schedule');
+
+  assert.equal(processingOptions.receivedSince, '2026-11-08T08:00:00.000Z');
+});
+
+test('orphaned persistent run is recovered before a new claim', async () => {
+  const store = createFakeStore();
+  const calls = [];
+  store.recoverOrphaned = async (options) => {
+    calls.push(options);
+    return { runId: 'run-orphaned' };
+  };
+  const scheduler = createEmailProcessingScheduler({
+    store,
+    startProcessing() { return 'job-after-recovery'; },
+    logger: { log() {}, error() {} }
+  });
+
+  const result = await scheduler.tick('startup');
+
+  assert.equal(result.started, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].staleAfterMs, 3 * 60 * 1000);
+});
+
+test('live processor is not reclaimed as an orphan', async () => {
+  const store = createFakeStore();
+  let recoveryCalls = 0;
+  store.recoverOrphaned = async () => { recoveryCalls += 1; };
+  const scheduler = createEmailProcessingScheduler({
+    store,
+    isProcessing: () => true,
+    startProcessing() { throw new Error('nao deve iniciar'); },
+    logger: { log() {}, error() {} }
+  });
+
+  await scheduler.tick('schedule');
+
+  assert.equal(recoveryCalls, 0);
+  assert.equal(store.state.defers.length, 1);
+});
+
+test('full successful batch schedules a short catch-up without advancing checkpoint', async () => {
+  const store = createFakeStore();
+  let processingOptions;
+  const scheduler = createEmailProcessingScheduler({
+    store,
+    batchSize: 5,
+    catchUpMs: 2 * 60 * 1000,
+    startProcessing(options) {
+      processingOptions = options;
+      return 'job-full-batch';
+    },
+    logger: { log() {}, error() {} }
+  });
+
+  await scheduler.tick('schedule');
+  await processingOptions.onSettled({
+    status: 'success',
+    result: { success: true, stats: { emails_processados: 5 } }
+  });
+
+  const finish = store.state.finishes[0].outcome;
+  assert.equal(finish.catchUp, true);
+  assert.equal(finish.successDelayMs, 2 * 60 * 1000);
+});
+
+test('scheduler records an immediate heartbeat for a claimed run', async () => {
+  const store = createFakeStore();
+  let heartbeatCalls = 0;
+  let processingOptions;
+  store.heartbeat = async () => {
+    heartbeatCalls += 1;
+    return true;
+  };
+  const scheduler = createEmailProcessingScheduler({
+    store,
+    startProcessing(options) {
+      processingOptions = options;
+      return 'job-heartbeat';
+    },
+    logger: { log() {}, error() {} }
+  });
+
+  await scheduler.tick('schedule');
+  await processingOptions.onSettled({ status: 'success', result: { success: true } });
+
+  assert.equal(heartbeatCalls, 1);
+});

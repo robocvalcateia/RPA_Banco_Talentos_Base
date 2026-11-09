@@ -20,7 +20,7 @@ test('email reprocessing can run bounded folder batches', () => {
   assert.match(readerSource, /'\$orderby': 'receivedDateTime desc'/);
   assert.match(readerSource, /hasAttachments eq true/);
   assert.match(readerSource, /len\(emails\) \+ len\(folder_emails\) >= self\.max_messages/);
-  assert.match(serverSource, /EMAIL_INBOX_MAX_MESSAGES \|\| 1000/);
+  assert.match(serverSource, /EMAIL_INBOX_MAX_MESSAGES \|\| 5/);
   assert.match(serverSource, /EMAIL_INBOX_OVERLAP_MINUTES \|\| 120/);
   assert.match(serverSource, /EMAIL_INBOX_INITIAL_LOOKBACK_HOURS \|\| 48/);
   assert.match(readerSource, /EMAIL_RECEIVED_SINCE/);
@@ -64,6 +64,20 @@ test('production inbox processing is scheduled every six hours with log recipien
   assert.match(runtimeSource, /emailProcessingRuns/);
   assert.match(runtimeSource, /normalizedStatus === 'success'[\s\S]*lastSuccessAt: completedAt/);
   assert.match(runtimeSource, /lastSuccessAt\.getTime\(\) - Math\.max/);
+  assert.match(runtimeSource, /recoverOrphaned/);
+  assert.match(runtimeSource, /lastHeartbeatAt/);
+  assert.match(runtimeSource, /catchUpPending/);
+  assert.match(serverSource, /EMAIL_PROCESSING_ORPHAN_STALE_MINUTES \|\| 3/);
+  assert.match(serverSource, /EMAIL_INBOX_CATCH_UP_MINUTES \|\| 2/);
+});
+
+test('Gemini extraction bounds attempts and each remote call', () => {
+  const extractorSource = readRepoFile('legacy_banco_talentos/modules/gemini_extractor.py');
+
+  assert.match(extractorSource, /GEMINI_MAX_ATTEMPTS", "2"/);
+  assert.match(extractorSource, /GEMINI_RETRY_DELAY_SECONDS", "5"/);
+  assert.match(extractorSource, /GEMINI_ATTEMPT_TIMEOUT_SECONDS", "120"/);
+  assert.match(extractorSource, /signal\.setitimer\(signal\.ITIMER_REAL, attempt_timeout_seconds\)/);
 });
 
 test('Microsoft Graph calls used by inbox processing have bounded timeouts', () => {

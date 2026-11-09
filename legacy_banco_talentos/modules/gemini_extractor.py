@@ -4,6 +4,9 @@ Módulo para extração de dados de CVs usando Gemini API
 import re
 import json
 import time
+import os
+import signal
+import threading
 import logging
 import unicodedata
 from pathlib import Path
@@ -308,7 +311,7 @@ FORMATO FINAL OBRIGATÓRIO:
         else:
             raise ValueError("Formato inesperado de dados retornados.")
     
-    def extract_from_pdf(self, pdf_path, max_tentativas=10, delay_retry=10):
+    def extract_from_pdf(self, pdf_path, max_tentativas=None, delay_retry=None):
         """
         Extrai dados de um PDF usando Gemini
         
@@ -321,6 +324,19 @@ FORMATO FINAL OBRIGATÓRIO:
             dict: Dados extraídos ou None em caso de erro
         """
         
+        max_tentativas = max(
+            1,
+            int(max_tentativas or os.getenv("GEMINI_MAX_ATTEMPTS", "2"))
+        )
+        delay_retry = max(
+            1,
+            int(delay_retry or os.getenv("GEMINI_RETRY_DELAY_SECONDS", "5"))
+        )
+        attempt_timeout_seconds = max(
+            30,
+            int(os.getenv("GEMINI_ATTEMPT_TIMEOUT_SECONDS", "120"))
+        )
+
         if not self.client or not self.model:
             logger.warning("Gemini nao configurado. Usando fallback local.")
             return None
@@ -332,8 +348,24 @@ FORMATO FINAL OBRIGATÓRIO:
             logger.warning(f"Nao foi possivel extrair texto local do PDF antes do Gemini: {e}")
 
         for tentativa in range(1, max_tentativas + 1):
+            previous_handler = None
+            timeout_enabled = (
+                hasattr(signal, "SIGALRM")
+                and hasattr(signal, "setitimer")
+                and threading.current_thread() is threading.main_thread()
+            )
             try:
                 logger.info(f" Processando PDF (tentativa {tentativa}/{max_tentativas}): {pdf_path}")
+
+                if timeout_enabled:
+                    def _raise_attempt_timeout(_signum, _frame):
+                        raise TimeoutError(
+                            f"Tentativa Gemini excedeu {attempt_timeout_seconds} segundos."
+                        )
+
+                    previous_handler = signal.getsignal(signal.SIGALRM)
+                    signal.signal(signal.SIGALRM, _raise_attempt_timeout)
+                    signal.setitimer(signal.ITIMER_REAL, attempt_timeout_seconds)
                 
                 # Fazer upload do PDF
                 uploaded_file = self.client.files.upload(file=pdf_path)
@@ -373,6 +405,8 @@ FORMATO FINAL OBRIGATÓRIO:
                 return dados
                 
             except Exception as e:
+                if timeout_enabled:
+                    signal.setitimer(signal.ITIMER_REAL, 0)
                 tipo_erro = self._classificar_exception(e)
                 self._set_error(
                     tipo_erro,
@@ -405,6 +439,11 @@ FORMATO FINAL OBRIGATÓRIO:
                 else:
                     logger.error(f" Limite de tentativas atingido para {pdf_path}")
                     return None
+            finally:
+                if timeout_enabled:
+                    signal.setitimer(signal.ITIMER_REAL, 0)
+                    if previous_handler is not None:
+                        signal.signal(signal.SIGALRM, previous_handler)
 
     def _extract_text_from_pdf(self, pdf_path):
         text_parts = []

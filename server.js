@@ -283,7 +283,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20261106-email-processing-runtime-v5';
+const APP_VERSION = '20261109-email-processing-runtime-v6';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -3488,13 +3488,17 @@ function startScheduledInboxEmailProcessingJob() {
   if (String(process.env.EMAIL_INBOX_SCHEDULE_ENABLED || 'true').toLowerCase() === 'false') return;
 
   emailProcessingRuntimeStore = createEmailProcessingRuntimeStore();
-  const maxMessages = Number(process.env.EMAIL_INBOX_MAX_MESSAGES || 1000) || 1000;
+  const maxMessages = Number(process.env.EMAIL_INBOX_MAX_MESSAGES || 5) || 5;
   const scheduler = createEmailProcessingScheduler({
     store: emailProcessingRuntimeStore,
     intervalMs: EMAIL_INBOX_PROCESSING_INTERVAL_MS,
     pollMs: EMAIL_INBOX_PROCESSING_POLL_MS,
     maxRuntimeMs: EMAIL_PROCESSING_MAX_RUNTIME_MS,
     failureRetryMs: EMAIL_PROCESSING_FAILURE_RETRY_MS,
+    catchUpMs: Number(process.env.EMAIL_INBOX_CATCH_UP_MINUTES || 2) * 60 * 1000,
+    batchSize: maxMessages,
+    heartbeatMs: Number(process.env.EMAIL_PROCESSING_HEARTBEAT_SECONDS || 30) * 1000,
+    orphanStaleMs: Number(process.env.EMAIL_PROCESSING_ORPHAN_STALE_MINUTES || 3) * 60 * 1000,
     overlapMs: Number(process.env.EMAIL_INBOX_OVERLAP_MINUTES || 120) * 60 * 1000,
     initialLookbackMs: Number(process.env.EMAIL_INBOX_INITIAL_LOOKBACK_HOURS || 48) * 60 * 60 * 1000,
     isProcessing: () => {
@@ -3514,7 +3518,8 @@ function startScheduledInboxEmailProcessingJob() {
   scheduler.start();
   console.log(
     `Processamento persistente da caixa de entrada ativo: intervalo ${EMAIL_INBOX_PROCESSING_INTERVAL_MS / 3600000}h, `
-    + `verificacao ${EMAIL_INBOX_PROCESSING_POLL_MS / 1000}s, limite ${EMAIL_PROCESSING_MAX_RUNTIME_MS / 60000}min.`
+    + `verificacao ${EMAIL_INBOX_PROCESSING_POLL_MS / 1000}s, lote ${maxMessages}, `
+    + `limite ${EMAIL_PROCESSING_MAX_RUNTIME_MS / 60000}min.`
   );
 }
 
