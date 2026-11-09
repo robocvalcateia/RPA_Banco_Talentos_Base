@@ -307,3 +307,28 @@ test('scheduler records an immediate heartbeat for a claimed run', async () => {
 
   assert.equal(heartbeatCalls, 1);
 });
+
+test('successful cycle starts idempotent fit reconciliation for the same scan window', async () => {
+  const store = createFakeStore();
+  let processingOptions;
+  const successCalls = [];
+  const scheduler = createEmailProcessingScheduler({
+    store,
+    onSuccess: async (details) => successCalls.push(details),
+    startProcessing(options) {
+      processingOptions = options;
+      return 'job-fit-catch-up';
+    },
+    logger: { log() {}, error() {} }
+  });
+
+  const started = await scheduler.tick('schedule');
+  await processingOptions.onSettled({
+    status: 'success',
+    result: { success: true, stats: { emails_processados: 0 } }
+  });
+
+  assert.equal(successCalls.length, 1);
+  assert.equal(successCalls[0].runId, started.runId);
+  assert.equal(successCalls[0].receivedSinceAt, started.receivedSinceAt);
+});

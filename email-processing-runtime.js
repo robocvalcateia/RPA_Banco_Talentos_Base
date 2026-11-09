@@ -369,6 +369,7 @@ export function createEmailProcessingScheduler({
   startProcessing,
   isProcessing = () => false,
   notifyFailure = async () => {},
+  onSuccess = async () => {},
   intervalMs = 6 * 60 * 60 * 1000,
   pollMs = 60 * 1000,
   maxRuntimeMs = 45 * 60 * 1000,
@@ -432,6 +433,18 @@ export function createEmailProcessingScheduler({
       catchUp,
       finishedAt: outcome.finishedAt || new Date()
     });
+    if (status === 'success') {
+      try {
+        await onSuccess({
+          runId: claim.runId,
+          receivedSinceAt: claim.receivedSinceAt || '',
+          catchUp,
+          result: outcome.result
+        });
+      } catch (error) {
+        logger.error('[email-scheduler] Falha ao iniciar reconciliacao de aderencia:', error.message);
+      }
+    }
     logger.log(
       `[email-scheduler] Execucao ${claim.runId} finalizada: ${status}`
       + `${catchUp ? '; proximo lote agendado' : ''}.`
@@ -491,6 +504,7 @@ export function createEmailProcessingScheduler({
             ? lastSuccessAt.getTime() - Math.max(0, Number(overlapMs || 0))
             : startedAt.getTime() - Math.max(60000, Number(initialLookbackMs || 0))
         ).toISOString();
+      claim.receivedSinceAt = receivedSinceAt;
       const jobId = startProcessing({
         scheduledRunId: claim.runId,
         receivedSince: receivedSinceAt,

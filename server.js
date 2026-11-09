@@ -283,7 +283,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20261109-email-processing-runtime-v7';
+const APP_VERSION = '20261109-email-processing-runtime-v8';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -3520,6 +3520,14 @@ function startScheduledInboxEmailProcessingJob() {
       maxRuntimeMs,
       onSettled
     }),
+    onSuccess: ({ receivedSinceAt }) => {
+      const since = receivedSinceAt
+        || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const jobId = startCandidateFitReconciliation(since);
+      if (jobId) {
+        console.log(`[email-scheduler] Reconciliacao de aderencia iniciada: job=${jobId}, desde=${since}.`);
+      }
+    },
     notifyFailure: notifyScheduledEmailProcessingFailure,
     logger: console
   });

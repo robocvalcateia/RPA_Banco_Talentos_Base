@@ -68,6 +68,8 @@ test('production inbox processing is scheduled every six hours with log recipien
   assert.match(runtimeSource, /recoverOrphaned/);
   assert.match(runtimeSource, /lastHeartbeatAt/);
   assert.match(runtimeSource, /catchUpPending/);
+  assert.match(runtimeSource, /onSuccess/);
+  assert.match(serverSource, /startCandidateFitReconciliation\(since\)/);
   assert.match(serverSource, /EMAIL_PROCESSING_ORPHAN_STALE_MINUTES \|\| 3/);
   assert.match(serverSource, /EMAIL_INBOX_CATCH_UP_MINUTES \|\| 2/);
 });
