@@ -70,8 +70,22 @@ test('production inbox processing is scheduled every six hours with log recipien
   assert.match(runtimeSource, /catchUpPending/);
   assert.match(runtimeSource, /onSuccess/);
   assert.match(serverSource, /startCandidateFitReconciliation\(since\)/);
+  assert.match(serverSource, /summaryEmailEnabled: false/);
+  assert.match(serverSource, /summarizeEmailProcessingCycle\(runs, since\)/);
+  assert.match(serverSource, /if \(!catchUp\)/);
+  assert.match(serverSource, /Ciclo vazio; resumo nao enviado/);
+  assert.match(serverSource, /Erros tecnicos/);
   assert.match(serverSource, /EMAIL_PROCESSING_ORPHAN_STALE_MINUTES \|\| 3/);
   assert.match(serverSource, /EMAIL_INBOX_CATCH_UP_MINUTES \|\| 2/);
+});
+
+test('automatic batches suppress the legacy per-batch processing email', () => {
+  const serverSource = readRepoFile('server.js');
+  const senderSource = readRepoFile('legacy_banco_talentos/utils/email_sender.py');
+
+  assert.match(serverSource, /PROCESSING_SUMMARY_EMAIL_ENABLED/);
+  assert.match(senderSource, /PROCESSING_SUMMARY_EMAIL_ENABLED/);
+  assert.match(senderSource, /consolidacao controlada pelo agendador/);
 });
 
 test('Gemini extraction bounds attempts and each remote call', () => {

@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createEmailProcessingScheduler } from '../email-processing-runtime.js';
+import {
+  createEmailProcessingScheduler,
+  summarizeEmailProcessingCycle
+} from '../email-processing-runtime.js';
 
 function createFakeStore() {
   const state = {
@@ -331,4 +334,56 @@ test('successful cycle starts idempotent fit reconciliation for the same scan wi
   assert.equal(successCalls.length, 1);
   assert.equal(successCalls[0].runId, started.runId);
   assert.equal(successCalls[0].receivedSinceAt, started.receivedSinceAt);
+});
+
+test('cycle summary consolidates only successful batches from the same scan window', () => {
+  const receivedSinceAt = '2026-11-10T03:48:17.157Z';
+  const summary = summarizeEmailProcessingCycle([
+    {
+      status: 'success',
+      receivedSinceAt,
+      startedAt: '2026-11-10T11:48:41.863Z',
+      finishedAt: '2026-11-10T11:50:37.871Z',
+      result: {
+        totalCandidates: 3690,
+        stats: { emails_processados: 5, arquivos_processados: 5, novos_candidatos: 1, candidatos_atualizados: 4 }
+      }
+    },
+    {
+      status: 'success',
+      receivedSinceAt,
+      startedAt: '2026-11-10T11:52:43.555Z',
+      finishedAt: '2026-11-10T11:54:24.153Z',
+      result: {
+        totalCandidates: 3692,
+        stats: {
+          emails_processados: 4,
+          arquivos_processados: 2,
+          novos_candidatos: 1,
+          candidatos_atualizados: 1,
+          gate_qualidade_reprovados: 2,
+          erros: 2
+        }
+      }
+    },
+    {
+      status: 'success',
+      receivedSinceAt: '2026-11-09T21:31:14.182Z',
+      result: { stats: { emails_processados: 99 } }
+    },
+    {
+      status: 'failed',
+      receivedSinceAt,
+      result: { stats: { emails_processados: 99 } }
+    }
+  ], receivedSinceAt);
+
+  assert.equal(summary.runCount, 2);
+  assert.equal(summary.stats.emails_processados, 9);
+  assert.equal(summary.stats.arquivos_processados, 7);
+  assert.equal(summary.stats.novos_candidatos, 2);
+  assert.equal(summary.stats.candidatos_atualizados, 5);
+  assert.equal(summary.stats.gate_qualidade_reprovados, 2);
+  assert.equal(summary.stats.erros, 2);
+  assert.equal(summary.totalCandidates, 3692);
 });

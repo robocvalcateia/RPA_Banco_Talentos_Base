@@ -2,6 +2,16 @@ import { randomUUID } from 'node:crypto';
 import { MongoClient } from 'mongodb';
 
 const RUNTIME_ID = 'inbox';
+const EMAIL_PROCESSING_STAT_FIELDS = Object.freeze([
+  'emails_processados',
+  'arquivos_baixados',
+  'arquivos_processados',
+  'novos_candidatos',
+  'candidatos_atualizados',
+  'sem_mudancas',
+  'gate_qualidade_reprovados',
+  'erros'
+]);
 
 function asDate(value, fallback = new Date()) {
   const date = value instanceof Date ? value : new Date(value || fallback);
@@ -10,20 +20,38 @@ function asDate(value, fallback = new Date()) {
 
 function conciseResult(result = {}) {
   const stats = result?.stats && typeof result.stats === 'object' ? result.stats : {};
-  const allowedStats = [
-    'emails_processados',
-    'arquivos_baixados',
-    'arquivos_processados',
-    'novos_candidatos',
-    'candidatos_atualizados',
-    'sem_mudancas',
-    'erros'
-  ];
   return {
     success: result?.success === true,
     message: String(result?.message || '').slice(0, 1000),
     totalCandidates: Number(result?.total_candidatos || 0),
-    stats: Object.fromEntries(allowedStats.map((field) => [field, Number(stats[field] || 0)]))
+    stats: Object.fromEntries(EMAIL_PROCESSING_STAT_FIELDS.map((field) => [field, Number(stats[field] || 0)]))
+  };
+}
+
+export function summarizeEmailProcessingCycle(runs = [], receivedSinceAt = '') {
+  const targetTime = asDate(receivedSinceAt, new Date(0)).getTime();
+  const matchingRuns = (Array.isArray(runs) ? runs : [])
+    .filter((run) => run?.status === 'success')
+    .filter((run) => asDate(run?.receivedSinceAt, new Date(0)).getTime() === targetTime)
+    .sort((first, second) => asDate(first.startedAt).getTime() - asDate(second.startedAt).getTime());
+  const stats = Object.fromEntries(EMAIL_PROCESSING_STAT_FIELDS.map((field) => [field, 0]));
+
+  for (const run of matchingRuns) {
+    const runStats = run?.result?.stats || {};
+    for (const field of EMAIL_PROCESSING_STAT_FIELDS) {
+      stats[field] += Number(runStats[field] || 0);
+    }
+  }
+
+  const first = matchingRuns[0] || {};
+  const last = matchingRuns[matchingRuns.length - 1] || {};
+  return {
+    receivedSinceAt: receivedSinceAt || '',
+    runCount: matchingRuns.length,
+    startedAt: first.startedAt || '',
+    finishedAt: last.finishedAt || '',
+    totalCandidates: Number(last?.result?.totalCandidates || 0),
+    stats
   };
 }
 

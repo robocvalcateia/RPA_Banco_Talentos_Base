@@ -139,6 +139,12 @@ def montar_html_erros(stats):
 
 
 def enviar_email_resumo_graph(stats, total_candidatos):
+    if str(os.getenv('PROCESSING_SUMMARY_EMAIL_ENABLED', 'true')).strip().lower() in {
+        '0', 'false', 'no', 'off'
+    }:
+        print("Resumo de processamento nao enviado: consolidacao controlada pelo agendador.")
+        return False
+
     if not is_production_environment():
         print("Resumo de processamento nao enviado: ambiente nao produtivo.")
         return False

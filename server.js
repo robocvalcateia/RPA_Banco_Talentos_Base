@@ -4,7 +4,11 @@ import { createIntakeStore, matchIntakeCandidates } from './opportunity-intake.j
 import { createMongoIntakeAdapter } from './intake-mongo.js';
 import { createHourlyIntake, DTT_MAILBOX, DTT_INBOX_INTERVAL_MS, DTT_REMINDER_INTERVAL_MS } from './intake-hourly.js';
 import { createIntakeTalentReader } from './intake-talent.js';
-import { createEmailProcessingRuntimeStore, createEmailProcessingScheduler } from './email-processing-runtime.js';
+import {
+  createEmailProcessingRuntimeStore,
+  createEmailProcessingScheduler,
+  summarizeEmailProcessingCycle
+} from './email-processing-runtime.js';
 import { DATA_FILE } from './db.js';
 const productionIntake = process.env.LOCAL_INTAKE_MODE !== 'true' && Boolean(process.env.MONGODB_URL || process.env.MONGODB_URI);
 const intakeAdapter = productionIntake ? createMongoIntakeAdapter(createIntakeTalentReader()) : undefined;
@@ -283,7 +287,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20261109-email-processing-runtime-v8';
+const APP_VERSION = '20261110-email-processing-runtime-v9';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -2959,6 +2963,71 @@ async function notifyScheduledEmailProcessingFailure(outcome = {}) {
   }
 }
 
+async function notifyScheduledEmailProcessingSummary(summary = {}) {
+  const stats = summary.stats || {};
+  const activity = [
+    stats.emails_processados,
+    stats.arquivos_baixados,
+    stats.arquivos_processados,
+    stats.novos_candidatos,
+    stats.candidatos_atualizados,
+    stats.sem_mudancas,
+    stats.gate_qualidade_reprovados,
+    stats.erros
+  ].some((value) => Number(value || 0) > 0);
+  if (!activity) return { sent: false, reason: 'empty_cycle' };
+
+  const smtp = getSmtpConfigFromEnv();
+  const rejected = Number(stats.gate_qualidade_reprovados || 0);
+  const technicalErrors = Math.max(0, Number(stats.erros || 0) - rejected);
+  const notification = {
+    id: `email-processing-summary:${summary.receivedSinceAt || randomBytes(8).toString('hex')}`,
+    provider: 'SMTP',
+    source: 'scheduled_email_processing',
+    type: 'email_processing_summary',
+    to: PROCESSING_LOG_RECIPIENTS.join(','),
+    status: 'sending',
+    createdAt: toISODate(),
+    sentAt: '',
+    error: ''
+  };
+
+  try {
+    if (!isSmtpAccountConfigured(smtp)) throw new Error('SMTP nao configurado para o resumo operacional.');
+    await sendMail({
+      ...smtp,
+      to: PROCESSING_LOG_RECIPIENTS,
+      subject: 'Alcateia | Processamento de CVs concluido',
+      text: [
+        'Gerson, Bruno e Emerson,',
+        '',
+        'O ciclo automatico de atualizacao do Banco de Talentos foi concluido.',
+        `Lotes consolidados: ${Number(summary.runCount || 1)}.`,
+        `E-mails processados: ${Number(stats.emails_processados || 0)}.`,
+        `Arquivos baixados: ${Number(stats.arquivos_baixados || 0)}.`,
+        `Arquivos processados: ${Number(stats.arquivos_processados || 0)}.`,
+        `Novos candidatos: ${Number(stats.novos_candidatos || 0)}.`,
+        `Candidatos atualizados: ${Number(stats.candidatos_atualizados || 0)}.`,
+        `Sem mudancas: ${Number(stats.sem_mudancas || 0)}.`,
+        `Reprovados no controle de qualidade: ${rejected}.`,
+        `Erros tecnicos: ${technicalErrors}.`,
+        `Total de candidatos na base: ${Number(summary.totalCandidates || 0)}.`,
+        '',
+        `Diagnostico: ${getPublicBaseUrl()}/api/admin/email-processing-runtime`
+      ].join('\n')
+    });
+    notification.status = 'sent';
+    notification.sentAt = toISODate();
+    return { sent: true };
+  } catch (error) {
+    notification.status = 'failed';
+    notification.error = String(error?.message || error);
+    throw error;
+  } finally {
+    try { await writeEmailLog(notification); } catch {}
+  }
+}
+
 function getHostnameFromUrl(value) {
   try {
     return new URL(String(value || '').trim()).hostname.toLowerCase();
@@ -3281,6 +3350,7 @@ function startLegacyEmailProcessing(options = {}) {
       EMAIL_FOLDERS: emailFolders,
       EMAIL_MAX_MESSAGES: maxMessages ? String(maxMessages) : '',
       EMAIL_RECEIVED_SINCE: receivedSince,
+      PROCESSING_SUMMARY_EMAIL_ENABLED: options.summaryEmailEnabled === false ? 'false' : 'true',
       MONGODB_COLLECTION: process.env.MONGODB_CURRICULUM_COLLECTION || 'curriculums',
       GRAPH_EMAIL_TO: buildGraphLogRecipients()
     },
@@ -3518,14 +3588,25 @@ function startScheduledInboxEmailProcessingJob() {
       maxMessages,
       receivedSince,
       maxRuntimeMs,
+      summaryEmailEnabled: false,
       onSettled
     }),
-    onSuccess: ({ receivedSinceAt }) => {
+    onSuccess: async ({ receivedSinceAt, catchUp }) => {
       const since = receivedSinceAt
         || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const jobId = startCandidateFitReconciliation(since);
       if (jobId) {
         console.log(`[email-scheduler] Reconciliacao de aderencia iniciada: job=${jobId}, desde=${since}.`);
+      }
+      if (!catchUp) {
+        const runs = await emailProcessingRuntimeStore.recentRuns(100);
+        const summary = summarizeEmailProcessingCycle(runs, since);
+        const notification = await notifyScheduledEmailProcessingSummary(summary);
+        console.log(
+          notification.sent
+            ? `[email-scheduler] Resumo consolidado enviado: ${summary.runCount} lote(s).`
+            : '[email-scheduler] Ciclo vazio; resumo nao enviado.'
+        );
       }
     },
     notifyFailure: notifyScheduledEmailProcessingFailure,
