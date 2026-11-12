@@ -10053,10 +10053,26 @@ function setSurfaceMaximized(surface, isMaximized) {
   document.body.classList.toggle('panel-is-maximized', Boolean($('.panel-maximized')));
 }
 
+function promoteSurfaceDialog(dialog) {
+  if (!dialog) return;
+
+  dialog.style.removeProperty('z-index');
+  const baseZIndex = Number.parseInt(window.getComputedStyle(dialog).zIndex, 10) || 40;
+  const topVisibleZIndex = $$('.modal:not(.hidden), .modal-backdrop:not(.hidden)')
+    .filter((surfaceDialog) => surfaceDialog !== dialog)
+    .reduce((highest, surfaceDialog) => {
+      const zIndex = Number.parseInt(window.getComputedStyle(surfaceDialog).zIndex, 10);
+      return Number.isFinite(zIndex) ? Math.max(highest, zIndex) : highest;
+    }, baseZIndex - 1);
+
+  dialog.style.zIndex = String(Math.max(baseZIndex, topVisibleZIndex + 1));
+}
+
 function openSurfaceDialog(dialogOrSelector) {
   const dialog = typeof dialogOrSelector === 'string' ? $(dialogOrSelector) : dialogOrSelector;
   if (!dialog) return;
 
+  promoteSurfaceDialog(dialog);
   dialog.classList.remove('hidden');
   initPanelMaximizeControls();
   $$('.modal-panel, .modal-card', dialog).forEach((surface) => setSurfaceMaximized(surface, true));
@@ -10078,6 +10094,7 @@ function closeSurfaceDialog(dialogOrSelector) {
   $$('.panel-maximized', dialog).forEach((surface) => setSurfaceMaximized(surface, false));
   $$('.surface-minimized', dialog).forEach((surface) => setSurfaceMinimized(surface, false));
   dialog.classList.add('hidden');
+  dialog.style.removeProperty('z-index');
   document.body.classList.toggle('panel-is-maximized', Boolean($('.panel-maximized')));
 }
 

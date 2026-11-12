@@ -76,6 +76,37 @@ test('calculo considera somente Open e inclui toda oportunidade sem candidatos, 
 test('pizzas e card abrem tabela analitica e o modal segue barras padronizadas', () => {
   assert.match(app, /openDashboardAnalytics\(opportunityDetailsDrill\.dataset\.opportunityDetailsDrill\)/);
   assert.match(app, /rows:\s*rows\.map\(\(opportunity\) => opportunityAnalyticsRow\(opportunity, false\)\)/);
+  assert.match(app, /function promoteSurfaceDialog\(dialog\)/);
+  assert.match(app, /dialog\.style\.zIndex = String\(Math\.max\(baseZIndex, topVisibleZIndex \+ 1\)\)/);
+  assert.match(app, /promoteSurfaceDialog\(dialog\);\s*dialog\.classList\.remove\('hidden'\)/);
   assert.match(styles, /\.opportunity-details-legend\s*\{[\s\S]*overflow-y:\s*scroll/);
   assert.match(styles, /\.opportunity-details-modal-card\s*\{[\s\S]*width:\s*min\(96vw, 1600px\)/);
+});
+
+test('detalhamento aberto sobre outro formulario recebe a camada superior', () => {
+  const parentDialog = {
+    style: {
+      zIndex: '45',
+      removeProperty() {}
+    }
+  };
+  const detailDialog = {
+    style: {
+      zIndex: '',
+      removeProperty() { this.zIndex = ''; }
+    }
+  };
+  const context = vm.createContext({
+    window: {
+      getComputedStyle(element) {
+        return { zIndex: element.style.zIndex || '45' };
+      }
+    },
+    $$: () => [parentDialog, detailDialog],
+  });
+  vm.runInContext(extractFunction(app, 'promoteSurfaceDialog'), context);
+
+  context.promoteSurfaceDialog(detailDialog);
+
+  assert.equal(detailDialog.style.zIndex, '46');
 });
