@@ -72,6 +72,7 @@ test('Graph pagination requests text, filters sender and subject, and rejects pe
   await assert.rejects(listDttMessages({token:'fake',since:message.receivedDateTime,until:message.receivedDateTime,fetchImpl:async()=>({ok:true,json:async()=>({value:[], '@odata.nextLink':'https://example.test/steal'})})}),/inválida/);
   assert.equal(isDttMessage({...message,subject:'Outra mensagem'}),false);
   assert.equal(isDttMessage({...message,subject:'ENC: Solicitação de Cotação | nova VAGA 2088',from:{emailAddress:{address:'poolcompras@deloitte.com.br'}}}),true);
+  assert.equal(isDttMessage({...message,subject:'SOLICITAÇÃO DE  COTAÇÃO - VAGA 3014 - Consultor(a) Oracle Fusion Service Cloud Sênior'}),true);
   assert.equal(isDttMessage({...message,subject:'Solicitação de Cotação - Vaga 2088',from:{emailAddress:{address:'pessoa@deloitte.com'}}}),false);
 });
 test('no historical import before activation; simulated run never calls real transport',async t=>{

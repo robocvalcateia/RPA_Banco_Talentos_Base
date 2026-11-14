@@ -13,7 +13,7 @@ const DTT_POOL_SENDER = /^pool[^@]*@deloitte\.com(?:\.br)?$/i;
 export function isDttMessage(message) {
   const sender=String(message.from?.emailAddress?.address || '').trim();
   const subject=String(message.subject || '');
-  return (sender.toLowerCase()===DTT_SENDER || DTT_POOL_SENDER.test(sender)) && /solicita[çc][aã]o de cota[çc][aã]o[\s\S]*\bvaga\b/i.test(subject);
+  return (sender.toLowerCase()===DTT_SENDER || DTT_POOL_SENDER.test(sender)) && /solicita[çc][aã]o\s+de\s+cota[çc][aã]o[\s\S]*\bvaga\b/i.test(subject);
 }
 export async function listDttMessages({ token, since, until, fetchImpl = fetch }) {
   const from = new Date(Date.parse(since) - 5 * 60000).toISOString();
