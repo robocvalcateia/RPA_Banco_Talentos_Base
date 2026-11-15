@@ -55,8 +55,9 @@ test('dashboard e faturamento expõem gross margin e exportação completa', () 
   assert.match(appSource, /function grossMarginChartRows\(\)/);
   assert.match(appSource, /axisMin: 500/);
   assert.match(appSource, /axisMax: 1500/);
-  assert.match(appSource, /axisMin: 5/);
-  assert.match(appSource, /axisMax: 30/);
+  assert.match(appSource, /axisMin: 15/);
+  assert.match(appSource, /axisMax: 45/);
+  assert.match(appSource, /yTicks: \[15, 20, 25, 30, 35, 40, 45\]/);
   assert.match(appSource, /formatMonthShortLabel/);
   assert.match(appSource, /showPointLabels: true/);
   assert.match(appSource, /String\(item\.monthYear\)\.startsWith\(`\$\{currentYear\}-`\)/);

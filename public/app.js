@@ -2307,9 +2307,9 @@ function renderGrossMarginChart() {
     emptyMessage: 'Nenhum dado de Gross Margin carregado para montar o grafico.',
     axisFormatter: formatChartRoundedPercentValue,
     valueFormatter: formatChartRoundedPercentValue,
-    axisMin: 5,
-    axisMax: 30,
-    yTicks: [5, 10, 15, 20, 25, 30],
+    axisMin: 15,
+    axisMax: 45,
+    yTicks: [15, 20, 25, 30, 35, 40, 45],
     showPointLabels: true
   });
 }
