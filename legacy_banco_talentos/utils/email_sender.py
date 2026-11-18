@@ -12,6 +12,7 @@ PROCESSING_LOG_ALLOWED_RECIPIENTS = (
     "gerson@alcateiaconsulting.com.br",
     "bruno@alcateiaconsulting.com.br",
     "emerson.viana@alcateiaconsulting.com.br",
+    "luiz.cesar@alcateiaconsulting.com.br",
 )
 
 

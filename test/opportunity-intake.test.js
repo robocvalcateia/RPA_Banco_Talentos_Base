@@ -50,7 +50,7 @@ test('production receipt and recovery never search CVs inside a transaction',asy
   // Recover an older partial draft without doing the slow search under a lock.
   delete state.opportunityIntakes[0].search;delete state.opportunityIntakes[0].receivedAt;
   await store.receive(receivedEmail,user);assert.equal(searches,2);assert.equal(state.opportunityIntakes.length,1);
-  await store.receive(receivedEmail,user);assert.equal(searches,2);assert.equal(state.intakeNotifications.length,2);
+  await store.receive(receivedEmail,user);assert.equal(searches,2);assert.equal(state.intakeNotifications.length,4);
 });
 async function fixture(t, extra = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'alcateia-intake-test-'));
@@ -143,9 +143,9 @@ test('a new email updates an existing DTT opportunity, preserves edited skill an
   assert.equal(db.opportunities.length, 1);
   assert.equal(db.opportunities[0].quantity, 2);
   assert.equal(db.opportunities[0].intakeDetails.coreSkill, 'Finanças');
-  assert.equal(db.intakeNotifications.filter(entry => entry.type === 'dtt_opportunity_updated').length, 2);
+  assert.equal(db.intakeNotifications.filter(entry => entry.type === 'dtt_opportunity_updated').length, 4);
   await store.receive(update, user);
-  assert.equal((await read()).intakeNotifications.filter(entry => entry.type === 'dtt_opportunity_updated').length, 2);
+  assert.equal((await read()).intakeNotifications.filter(entry => entry.type === 'dtt_opportunity_updated').length, 4);
 });
 test('confirms without candidates; cancellation creates nothing and cannot be confirmed', async t => {
   const { store, read } = await fixture(t);
@@ -216,13 +216,13 @@ test('SMTP is blocked in local pilot before opening any connection', async () =>
   finally { if (previous === undefined) delete process.env.LOCAL_INTAKE_MODE; else process.env.LOCAL_INTAKE_MODE = previous; }
 });
 
-test('receiving an email searches before generating Gerson and Bruno notices with an authenticated deep link', async t => {
+test('receiving an email searches before generating all internal notices with an authenticated deep link', async t => {
   const { store, read, file } = await fixture(t, { users: reviewers });
   const result = await store.receive(receivedEmail, user);
   assert.equal(result.searchReady, true); assert.equal(result.candidates.length, 1);
   assert.equal(result.totalEvaluated, 2); assert.equal(result.draft.fields.requestId, '12345 - SAP FI');
-  assert.equal(result.notifications.length, 2);
-  assert.deepEqual(result.notifications.map(n => n.to), ['gerson@alcateiaconsulting.com.br', 'bruno@alcateiaconsulting.com.br']);
+  assert.equal(result.notifications.length, 4);
+  assert.deepEqual(result.notifications.map(n => n.to), ['gerson@alcateiaconsulting.com.br', 'bruno@alcateiaconsulting.com.br', 'emerson.viana@alcateiaconsulting.com.br', 'luiz.cesar@alcateiaconsulting.com.br']);
   for (const n of result.notifications) {
     assert.equal(n.status, 'simulated'); assert.equal(n.sentAt, null);
     assert.equal(n.link, result.reviewLink); assert.match(n.text, /acesso exige login/);
@@ -232,13 +232,13 @@ test('receiving an email searches before generating Gerson and Bruno notices wit
   assert.equal((await read()).opportunities.length, 0);
   const reloaded = await createIntakeStore(file).get(result.draft.id);
   assert.deepEqual(reloaded.candidates, result.candidates);
-  assert.equal((await createIntakeStore(file).notifications()).length, 2);
+  assert.equal((await createIntakeStore(file).notifications()).length, 4);
 });
 test('concurrent resends share cached search and do not generate more notices', async t => {
   const { store, read } = await fixture(t, { users: reviewers });
   const results = await Promise.all([store.receive(receivedEmail, user), store.receive({ ...receivedEmail, messageId: 'resend' }, user)]);
   assert.equal(results[0].reviewLink, results[1].reviewLink);
-  assert.equal((await read()).intakeNotifications.length, 2);
+  assert.equal((await read()).intakeNotifications.length, 4);
   const searchedAt = results[0].draft.search.searchedAt;
   const again = await store.receive(receivedEmail, user);
   assert.equal(again.draft.search.searchedAt, searchedAt);
@@ -248,7 +248,7 @@ test('different request IDs with identical descriptions create distinct review l
   const first = await store.receive(receivedEmail, user);
   const second = await store.receive({ ...receivedEmail, subject: 'SOLICITAÇÃO DE COTAÇÃO - VAGA 54321 - SAP FI', messageId: 'different' }, user);
   assert.notEqual(first.reviewLink, second.reviewLink);
-  assert.equal((await store.list()).length, 2); assert.equal((await store.notifications()).length, 4);
+  assert.equal((await store.list()).length, 2); assert.equal((await store.notifications()).length, 8);
 });
 test('shared selections survive reload; another reviewer cannot overwrite a stale version', async t => {
   const { store, file } = await fixture(t, { users: reviewers });
@@ -273,11 +273,13 @@ test('saving review preserves search and choices without searching again', async
   assert.deepEqual(updated.candidates.map(c => c.id), ['1']);
   assert.deepEqual((await store.get(draft.id)).candidates.map(c => c.id), ['1']);
 });
-test('invalid receiver configuration, missing subject and nonexistent link fail explicitly', async t => {
+test('notification recipients do not need system accounts; reviewer activation, missing subject and nonexistent link still fail explicitly', async t => {
   const { store, read, file } = await fixture(t, { users: [reviewers[0]] });
   await assert.rejects(store.receive(email, user), { statusCode: 422 });
-  await assert.rejects(store.receive(receivedEmail, user), /Destinatário não cadastrado/);
-  assert.equal((await read()).intakeNotifications?.length || 0, 0);
+  const received = await store.receive(receivedEmail, user);
+  assert.equal(received.notifications.length, 4);
+  assert.equal((await read()).intakeNotifications?.length || 0, 4);
+  await assert.rejects(store.activate(new Date().toISOString(), user), /Revisor não cadastrado/);
   await assert.rejects(store.get('missing'), { statusCode: 404 });
   assert.throws(() => createIntakeStore(file, { baseUrl: 'https://example.com' }), /LOCAL/);
 });
@@ -330,7 +332,7 @@ test('local first-login password change does not overwrite concurrent intake rec
   const db = await read();
   assert.equal(db.users.find(u => u.id === 'bruno').mustChangePassword, false);
   assert.equal(db.users.find(u => u.id === 'gerson').passwordHash, 'before');
-  assert.equal(db.opportunityIntakes.length, 1); assert.equal(db.intakeNotifications.length, 2);
+  assert.equal(db.opportunityIntakes.length, 1); assert.equal(db.intakeNotifications.length, 4);
   await assert.rejects(store.changePassword('bruno', 'before', 'another'), { statusCode: 409 });
 });
 
@@ -350,7 +352,7 @@ test('upgrading pending drafts preserves links, selections and history while app
   assert.equal('responseDeadline' in current.draft.fields, false);
   assert.equal(current.draft.email.sender, 'poolterceiros@deloitte.com');
   assert.ok(current.draft.audit.some(a => a.action === 'selection'));
-  assert.equal((await store.notifications()).length, 2);
+  assert.equal((await store.notifications()).length, 4);
   assert.equal((await store.upgradePending()).updated, 0);
 });
 

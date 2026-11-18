@@ -68,8 +68,8 @@ test('usuario pode assumir oportunidade de outro responsavel com confirmacao e a
   assert.ok(server.includes("/^\\/api\\/opportunities\\/[^/]+\\/claim$/"));
   assert.match(server, /Responsabilidade transferida de \$\{previousOwner \|\| 'Não informado'\} para \$\{currentOwner\}/);
   assert.match(server, /notifyOpportunityResponsibilityTransfer/);
-  assert.match(server, /previous_owner/);
-  assert.match(server, /current_owner/);
+  assert.match(server, /const recipients = INTERNAL_NOTIFICATION_RECIPIENTS/);
+  assert.match(server, /source: 'opportunity_responsibility_transfer'/);
 });
 
 test('revisao DTT abre editavel e rejeicao nao se confunde com cadastro', () => {

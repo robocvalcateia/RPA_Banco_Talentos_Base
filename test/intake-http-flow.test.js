@@ -31,7 +31,7 @@ test('real HTTP intake lifecycle: permissions, zero candidates, concurrency, ide
  const id=created.body.draft.id,route='/api/intake/'+id;
  await t.test('receipt and replay never duplicate opportunity, draft or notifications',async()=>{
    assert.equal((await call('/api/intake/receive','POST',mail(9001))).body.draft.id,id);
-   const db=await qa.read();assert.equal(db.opportunityIntakes.length,1);assert.equal(db.opportunities.length,0);assert.equal(db.intakeNotifications.length,2);
+   const db=await qa.read();assert.equal(db.opportunityIntakes.length,1);assert.equal(db.opportunities.length,0);assert.equal(db.intakeNotifications.length,4);
    assert.ok(db.intakeNotifications.every(n=>n.simulated===true));
  });
  await t.test('stale second reviewer cannot overwrite a saved revision',async()=>{
@@ -54,7 +54,7 @@ test('real HTTP intake lifecycle: permissions, zero candidates, concurrency, ide
    const payload={revision:current.draft.revision,selectedIds:[],acknowledged:true};
    const first=await call(route+'/confirm','POST',payload);assert.equal(first.status,200,JSON.stringify(first.body));assert.equal(first.body.opportunity.status,'Open');
    const second=await call(route+'/confirm','POST',payload,b);assert.equal(second.status,200);assert.equal(second.body.repeated,true);
-   const db=await qa.read();assert.equal(db.opportunities.length,1);assert.equal(db.selectedCandidates.length,0);assert.equal(db.intakeNotifications.length,2);
+   const db=await qa.read();assert.equal(db.opportunities.length,1);assert.equal(db.selectedCandidates.length,0);assert.equal(db.intakeNotifications.length,4);
  });
  await t.test('new vacancy with no candidates is still confirmable and closing is idempotent',async()=>{
    const result=await call('/api/intake/receive','POST',{...mail(9002),subject:'SOLICITAÇÃO DE COTAÇÃO - VAGA 9002 - Tecnologia Inexistente',body:'Vaga: Tecnologia Inexistente'});

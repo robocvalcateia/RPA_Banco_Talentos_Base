@@ -3,11 +3,9 @@ import { promises as fs } from 'node:fs';
 import { compileIntakeRequirements, compareIntakeCurriculum, INTAKE_MATCH_VERSION } from './intake-matching.js';
 import { applySeniority } from './intake-seniority.js';
 import { normalizePlace, locationEligibility, normalizeWorkModel } from './intake-location.js';
+import { INTERNAL_NOTIFICATION_EMAILS, INTERNAL_NOTIFICATION_RECIPIENTS } from './internal-notifications.js';
 export const INTAKE_SENDER = 'poolterceiros@deloitte.com';
-export const DTT_REVIEWER_EMAILS = [
-  'gerson@alcateiaconsulting.com.br',
-  'bruno@alcateiaconsulting.com.br'
-];
+export const DTT_REVIEWER_EMAILS = INTERNAL_NOTIFICATION_EMAILS;
 const DTT_INBOX_INTERVAL_MS = 15 * 60 * 1000;
 const DTT_REMINDER_INTERVAL_MS = 6 * 60 * 60 * 1000;
 import { normalizeSelectedCandidate, normalizeCandidateMovement } from './db.js';
@@ -289,7 +287,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
         } else if (prior && Date.parse(now) - Date.parse(prior.createdAt) < DTT_REMINDER_INTERVAL_MS) return null;
         const entry = { id: randomUUID(), draftId, to, owner, refreshRevision, manualReason, type: 'dtt_opportunity_review', attempt: true, status: 'sending', createdAt: now, sentAt: null, link: reviewLink(draftId), opportunityName: draft.fields.requestId || draft.fields.profile, opportunityCode: requestNumber(draft.fields.requestId), simulated };
         db.intakeNotifications.push(entry);
-        return { ...entry, subject: `Alcateia | Revisão pendente DTT: ${entry.opportunityName}`, text: `Uma oportunidade DTT aguarda confirmação do Gerson ou do Bruno:\n${entry.opportunityName}\n\nConfira os dados e os candidatos já pesquisados:\n${entry.link}\n\nO acesso exige login. Os lembretes são enviados ao Gerson e ao Bruno a cada 6 horas e encerrados imediatamente quando qualquer um dos dois confirmar e salvar a oportunidade, ou quando a solicitação for cancelada.` };
+        return { ...entry, subject: `Alcateia | Revisão pendente DTT: ${entry.opportunityName}`, text: `Uma oportunidade DTT aguarda confirmação do Gerson ou do Bruno:\n${entry.opportunityName}\n\nConfira os dados e os candidatos já pesquisados:\n${entry.link}\n\nO acesso exige login. Os avisos são enviados a Gerson, Bruno, Emerson Viana e Luiz Cesar a cada 6 horas e encerrados imediatamente quando Gerson ou Bruno confirmar e salvar a oportunidade, ou quando a solicitação for cancelada.` };
       });
     },
     finishReminder(id, owner, status, now, error = '') {
@@ -353,11 +351,7 @@ export function createIntakeStore(file, { baseUrl = 'http://127.0.0.1:3010', ada
           await prepareSearch(db, draft, recoveredSearch);
         }
         if (draft.status === 'pending' && !draft.receivedAt) {
-          const recipients = DTT_REVIEWER_EMAILS.map(address => {
-            const account = (db.users || []).find(u => norm(u.email) === address && u.active !== false);
-            if (!account) fail(`Destinatário não cadastrado/ativo na base local: ${address}`);
-            return { name: account.name, email: address };
-          });
+          const recipients = INTERNAL_NOTIFICATION_RECIPIENTS;
           draft.receivedAt = new Date().toISOString();
           draft.reviewRecipients = recipients;
           draft.audit.push({ action: 'received_and_searched', at: draft.receivedAt, userId: user.id, candidateCount: draft.search.candidates.length, simulated });

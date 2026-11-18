@@ -5,6 +5,12 @@ import { createMongoIntakeAdapter } from './intake-mongo.js';
 import { createHourlyIntake, DTT_MAILBOX, DTT_INBOX_INTERVAL_MS, DTT_REMINDER_INTERVAL_MS } from './intake-hourly.js';
 import { createIntakeTalentReader } from './intake-talent.js';
 import {
+  INTERNAL_NOTIFICATION_EMAILS,
+  INTERNAL_NOTIFICATION_GREETING,
+  INTERNAL_NOTIFICATION_RECIPIENTS,
+  INTERNAL_NOTIFICATION_TO
+} from './internal-notifications.js';
+import {
   createEmailProcessingRuntimeStore,
   createEmailProcessingScheduler,
   summarizeEmailProcessingCycle
@@ -27,10 +33,7 @@ async function notifyDttOpportunityCreated(result, user) {
   const opportunity = result.opportunity;
   const label = [opportunity.clientOpportunityCode, opportunity.opportunity].filter(Boolean).join(' - ');
   const systemUrl = `${getPublicBaseUrl()}/?view=opportunities`;
-  const recipients = [
-    { name: 'Gerson', email: 'gerson@alcateiaconsulting.com.br' },
-    { name: 'Bruno', email: 'bruno@alcateiaconsulting.com.br' }
-  ];
+  const recipients = INTERNAL_NOTIFICATION_RECIPIENTS;
   const notifications = [];
 
   for (const recipient of recipients) {
@@ -92,19 +95,16 @@ function opportunityOwnerUser(db, owner) {
 
 async function notifyOpportunityResponsibilityTransfer({ opportunity, client, previousOwnerName, previousUser, currentUser, transferredAt }) {
   const smtp = getSmtpConfigFromEnv();
-  const recipients = [
-    { role: 'previous_owner', user: previousUser },
-    { role: 'current_owner', user: currentUser }
-  ];
+  const recipients = INTERNAL_NOTIFICATION_RECIPIENTS;
   const uniqueEmails = new Set();
   const notifications = [];
   const opportunityLabel = [opportunity.opportunityCode, opportunity.opportunity].filter(Boolean).join(' - ');
   const systemUrl = `${getPublicBaseUrl()}/?view=opportunities`;
 
   for (const recipient of recipients) {
-    const email = String(recipient.user?.email || '').trim().toLowerCase();
+    const email = String(recipient.email || '').trim().toLowerCase();
     const notification = {
-      id: `opportunity-transfer:${opportunity.id}:${transferredAt}:${recipient.role}`,
+      id: `opportunity-transfer:${opportunity.id}:${transferredAt}:${email}`,
       provider: 'SMTP',
       source: 'opportunity_responsibility_transfer',
       type: 'opportunity_responsibility_transfer',
@@ -120,12 +120,7 @@ async function notifyOpportunityResponsibilityTransfer({ opportunity, client, pr
       error: ''
     };
 
-    if (!email) {
-      notification.status = 'missing_recipient';
-      notification.error = recipient.role === 'previous_owner'
-        ? 'Responsável anterior sem e-mail cadastrado.'
-        : 'Novo responsável sem e-mail cadastrado.';
-    } else if (uniqueEmails.has(email)) {
+    if (uniqueEmails.has(email)) {
       notification.status = 'duplicate_recipient';
       notification.error = 'Destinatário já contemplado no mesmo aviso.';
     } else if (!isSmtpAccountConfigured(smtp)) {
@@ -139,7 +134,7 @@ async function notifyOpportunityResponsibilityTransfer({ opportunity, client, pr
           to: email,
           subject: `[Alcateia] Transferência de responsabilidade: ${opportunityLabel}`,
           text: [
-            `Olá, ${recipient.user?.name || 'responsável'}.`,
+            `Olá, ${recipient.name}.`,
             '',
             `A responsabilidade pela oportunidade ${opportunityLabel} foi transferida.`,
             `Empresa: ${client?.customerName || 'Não informada'}.`,
@@ -287,7 +282,7 @@ const UPLOAD_DIR = path.join(PUBLIC_DIR, 'uploads');
 const LEGACY_PROCESSOR_DIR = path.join(__dirname, 'legacy_banco_talentos');
 const CURRICULUM_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'dtt');
 const ALLOCATED_TEMPLATE_DIR = path.join(__dirname, 'assets', 'templates', 'allocateds');
-const APP_VERSION = '20261114-dtt-subject-whitespace-v10';
+const APP_VERSION = '20261117-internal-alert-recipients-v1';
 const ALCATEIA_EMAIL_DOMAIN = 'alcateiaconsulting.com.br';
 const PRODUCTION_RENDER_SERVICE = 'rpa-banco-talentos-5v5r';
 const PRODUCTION_RENDER_HOST = 'rpa-banco-talentos-5v5r.onrender.com';
@@ -1155,8 +1150,7 @@ async function notifyFormRequest(requestItem, definition, action) {
   const config = getSmtpConfigFromEnv();
   if (!isSmtpAccountConfigured(config)) return { sent: false, reason: 'SMTP não configurado.' };
 
-  const to = requestItem.currentApproverEmail || requestItem.requesterEmail || config.testTo;
-  if (!to) return { sent: false, reason: 'Destinatário não informado.' };
+  const to = INTERNAL_NOTIFICATION_TO;
 
   const requestUrl = buildFormRequestUrl(requestItem);
   const workflowActionLabel = resolveFormRequestNotificationAction(requestItem, definition, action);
@@ -1164,6 +1158,7 @@ async function notifyFormRequest(requestItem, definition, action) {
   const text = [
     `Formulário: ${formDefinitionLabel(definition)}`,
     `Requisitante: ${requestItem.requesterName} <${requestItem.requesterEmail}>`,
+    `Responsável atual: ${requestItem.currentApproverEmail || '-'}`,
     `Status: ${requestItem.status}`,
     `Link para consulta/aprovacao: ${requestUrl}`,
     `Acao: ${workflowActionLabel}`,
@@ -1213,17 +1208,9 @@ async function sendDailyFormRequestReminders({ force = false } = {}) {
     return force || requestItem.reminderLastSentDate !== today;
   });
 
-  const groups = new Map();
-  for (const requestItem of pendingRequests) {
-    const email = String(requestItem.currentApproverEmail || '').trim().toLowerCase();
-    if (!email) continue;
-    if (!groups.has(email)) groups.set(email, []);
-    groups.get(email).push(requestItem);
-  }
-
   let sent = 0;
-  for (const [email, requests] of groups.entries()) {
-    const lines = requests.map((requestItem, index) => {
+  if (pendingRequests.length) {
+    const lines = pendingRequests.map((requestItem, index) => {
       const definition = db.formDefinitions.find((item) => item.id === requestItem.formDefinitionId);
       const url = buildFormRequestUrl(requestItem);
       return [
@@ -1231,6 +1218,7 @@ async function sendDailyFormRequestReminders({ force = false } = {}) {
         `   Solicitante: ${requestItem.requesterName || '-'} <${requestItem.requesterEmail || '-'}>`,
         `   Status: ${requestItem.status || '-'}`,
         `   Etapa: ${requestItem.currentStepName || '-'}`,
+        `   Responsável atual: ${requestItem.currentApproverEmail || '-'}`,
         `   SLA: ${requestItem.currentSlaDays || 0} dia(s)`,
         `   Vencimento: ${formRequestDueLabel(requestItem)}`,
         `   Link: ${url}`
@@ -1239,10 +1227,12 @@ async function sendDailyFormRequestReminders({ force = false } = {}) {
 
     await sendMail({
       ...config,
-      to: email,
-      subject: `[Alcateia] ${requests.length} requisicao(oes) em aberto`,
+      to: INTERNAL_NOTIFICATION_TO,
+      subject: `[Alcateia] ${pendingRequests.length} requisicao(oes) em aberto`,
       text: [
-        'Voce possui requisicoes em aberto aguardando acao.',
+        INTERNAL_NOTIFICATION_GREETING,
+        '',
+        'Existem requisicoes em aberto aguardando acao.',
         '',
         ...lines,
         '',
@@ -1250,7 +1240,7 @@ async function sendDailyFormRequestReminders({ force = false } = {}) {
       ].join('\n')
     });
     sent += 1;
-    for (const requestItem of requests) {
+    for (const requestItem of pendingRequests) {
       requestItem.reminderLastSentDate = today;
       requestItem.reminderLastSentAt = toISODate();
     }
@@ -2019,16 +2009,13 @@ function validateWorkHourEntry(response, entry, db = {}, existingId = '', user =
 }
 
 async function notifyAdminsAboutWorkHourClosure(closure, allocated, db) {
-  const admins = (db.users || []).filter((user) => isAdminUser(user) && String(user.email || '').trim());
-  if (!admins.length) return { sent: false, reason: 'Nenhum ADMIN cadastrado.' };
-
   const config = getSmtpConfigFromEnv();
   if (!isSmtpAccountConfigured(config)) {
     return { sent: false, reason: 'SMTP nao configurado.' };
   }
 
   const client = db.clients.find((item) => item.id === allocated.clientId);
-  const to = admins.map((user) => user.email).join(',');
+  const to = INTERNAL_NOTIFICATION_TO;
   await sendMail({
     ...config,
     to,
@@ -2909,11 +2896,7 @@ function clipLogs(value, maxLength = 12000) {
   return text.length > maxLength ? text.slice(text.length - maxLength) : text;
 }
 
-const PROCESSING_LOG_RECIPIENTS = Object.freeze([
-  'gerson@alcateiaconsulting.com.br',
-  'bruno@alcateiaconsulting.com.br',
-  'emerson.viana@alcateiaconsulting.com.br'
-]);
+const PROCESSING_LOG_RECIPIENTS = INTERNAL_NOTIFICATION_EMAILS;
 
 function buildGraphLogRecipients() {
   return PROCESSING_LOG_RECIPIENTS.join(',');
@@ -2942,7 +2925,7 @@ async function notifyScheduledEmailProcessingFailure(outcome = {}) {
       to: PROCESSING_LOG_RECIPIENTS,
       subject: 'ALERTA PROD - Falha no Banco de Talentos',
       text: [
-        'Gerson, Bruno e Emerson,',
+        INTERNAL_NOTIFICATION_GREETING,
         '',
         `A atualizacao automatica do Banco de Talentos terminou com ${statusLabel}.`,
         `Execucao: ${outcome.runId || 'nao identificada'}.`,
@@ -2999,7 +2982,7 @@ async function notifyScheduledEmailProcessingSummary(summary = {}) {
       to: PROCESSING_LOG_RECIPIENTS,
       subject: 'Alcateia | Processamento de CVs concluido',
       text: [
-        'Gerson, Bruno e Emerson,',
+        INTERNAL_NOTIFICATION_GREETING,
         '',
         'O ciclo automatico de atualizacao do Banco de Talentos foi concluido.',
         `Lotes consolidados: ${Number(summary.runCount || 1)}.`,

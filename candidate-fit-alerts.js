@@ -1,10 +1,8 @@
 import { evaluateInternalCandidateForFilter } from './apinfo.js';
 import { hasSkill, interpretVacancy, curriculumProfessionalEvidence } from './candidate-screening.js';
+import { INTERNAL_NOTIFICATION_EMAILS, INTERNAL_NOTIFICATION_GREETING } from './internal-notifications.js';
 
-export const CANDIDATE_FIT_ALERT_RECIPIENTS = Object.freeze([
-  'gerson@alcateiaconsulting.com.br',
-  'bruno@alcateiaconsulting.com.br'
-]);
+export const CANDIDATE_FIT_ALERT_RECIPIENTS = INTERNAL_NOTIFICATION_EMAILS;
 
 const normalize = (value = '') => String(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 
@@ -180,7 +178,7 @@ export function buildCandidateFitAlert({ curriculum, matches, baseUrl }) {
     to: CANDIDATE_FIT_ALERT_RECIPIENTS.join(','),
     subject: `Alcateia | Novo profissional aderente: ${curriculum.nome}`,
     text: [
-      'Gerson e Bruno,',
+      INTERNAL_NOTIFICATION_GREETING,
       '',
       `Um novo currículo inserido no Banco de Talentos apresentou aderência às seguintes oportunidades abertas:`,
       '',

@@ -1,14 +1,12 @@
 import { randomUUID } from 'node:crypto';
+import { INTERNAL_NOTIFICATION_RECIPIENTS } from './internal-notifications.js';
 export const DTT_MAILBOX = 'gerson@alcateiaconsulting.com.br';
 export const DTT_SENDER = 'poolterceiros@deloitte.com';
 export const DTT_INBOX_INTERVAL_MS = 15 * 60000;
 export const DTT_REMINDER_INTERVAL_MS = 6 * 3600000;
 export const DTT_ALERT_INTERVAL_MS = DTT_REMINDER_INTERVAL_MS;
 export const HOUR_MS = DTT_REMINDER_INTERVAL_MS;
-export const DTT_REVIEWERS = [
-  { name: 'Gerson', email: 'gerson@alcateiaconsulting.com.br' },
-  { name: 'Bruno', email: 'bruno@alcateiaconsulting.com.br' }
-];
+export const DTT_REVIEWERS = INTERNAL_NOTIFICATION_RECIPIENTS;
 const DTT_POOL_SENDER = /^pool[^@]*@deloitte\.com(?:\.br)?$/i;
 export function isDttMessage(message) {
   const sender=String(message.from?.emailAddress?.address || '').trim();

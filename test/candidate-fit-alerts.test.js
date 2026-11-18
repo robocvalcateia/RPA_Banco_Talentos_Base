@@ -144,7 +144,7 @@ test('does not treat Kleber development and AI summary as professional purchasin
   assert.deepEqual(matchingOpenOpportunities(kleber, [compras]), []);
 });
 
-test('sends one grouped email to Gerson and Bruno and never duplicates curriculum-vacancy alert', async () => {
+test('sends one grouped email to all internal recipients and never duplicates curriculum-vacancy alert', async () => {
   const logs = [];
   const sent = [];
   const dependencies = {
@@ -163,6 +163,8 @@ test('sends one grouped email to Gerson and Bruno and never duplicates curriculu
   assert.equal(sent.length, 1);
   assert.match(sent[0].to, /gerson@alcateiaconsulting\.com\.br/);
   assert.match(sent[0].to, /bruno@alcateiaconsulting\.com\.br/);
+  assert.match(sent[0].to, /emerson\.viana@alcateiaconsulting\.com\.br/);
+  assert.match(sent[0].to, /luiz\.cesar@alcateiaconsulting\.com\.br/);
   assert.match(sent[0].text, /2100 - Consultor Funcional Tax One Pleno/);
   assert.match(sent[0].text, /view=curriculums&curriculumId=CV-900/);
   assert.equal(logs[0].id, candidateFitAlertId(curriculum, openTaxOne));

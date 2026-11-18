@@ -22,28 +22,28 @@ async function fixture(t){
 }
 test('reads the inbox every fifteen minutes, reminds every six hours and stops after Gerson or Bruno confirms',async t=>{
   const f=await fixture(t);const worker=createHourlyIntake(f.options);
-  const first=await worker.run();assert.equal(first.sent,2);assert.equal((await f.store.list()).length,1);
-  assert.deepEqual(f.sent.map(m=>m.to),['gerson@alcateiaconsulting.com.br','bruno@alcateiaconsulting.com.br']);
+  const first=await worker.run();assert.equal(first.sent,4);assert.equal((await f.store.list()).length,1);
+  assert.deepEqual(f.sent.map(m=>m.to),['gerson@alcateiaconsulting.com.br','bruno@alcateiaconsulting.com.br','emerson.viana@alcateiaconsulting.com.br','luiz.cesar@alcateiaconsulting.com.br']);
   assert.match(f.sent[0].subject,/2054 - SAP FI/);assert.match(f.sent[0].text,/cada 6 horas/);
-  assert.equal((await worker.run()).skipped,true);assert.equal(f.sent.length,2);
-  f.setTime('2026-10-04T13:00:00.000Z');assert.equal((await createHourlyIntake(f.options).run()).received,1);assert.equal(f.sent.length,2);
-  f.setTime('2026-10-04T18:00:00.000Z');await createHourlyIntake(f.options).run();assert.equal(f.sent.length,4);assert.equal((await f.store.list()).length,1);
+  assert.equal((await worker.run()).skipped,true);assert.equal(f.sent.length,4);
+  f.setTime('2026-10-04T13:00:00.000Z');assert.equal((await createHourlyIntake(f.options).run()).received,1);assert.equal(f.sent.length,4);
+  f.setTime('2026-10-04T18:00:00.000Z');await createHourlyIntake(f.options).run();assert.equal(f.sent.length,8);assert.equal((await f.store.list()).length,1);
   const draft=(await f.store.list())[0];await f.store.confirm(draft.id,draft.revision,[],gersonUser,true);
   assert.equal((await f.read()).opportunities[0].clientOpportunityCode,'2054');
-  f.setTime('2026-10-05T00:00:00.000Z');await worker.run();assert.equal(f.sent.length,4);assert.equal(f.logs.length,4);
+  f.setTime('2026-10-05T00:00:00.000Z');await worker.run();assert.equal(f.sent.length,8);assert.equal(f.logs.length,8);
 });
 test('cancellation stops reminders; same vacancy with changed title remains one draft',async t=>{
   const f=await fixture(t);await createHourlyIntake(f.options).run();
   const draft=(await f.store.list())[0];
   f.setTime('2026-10-04T13:00:00.000Z');await createHourlyIntake({...f.options,fetchMessages:async()=>[{...message,id:'other',internetMessageId:'other',subject:'SOLICITAÇÃO DE COTAÇÃO -VAGA 2054 - Título alterado'}]}).run();
   assert.equal((await f.store.list()).length,1);await f.store.cancel(draft.id,draft.revision,user);
-  f.setTime('2026-10-04T18:00:00.000Z');await createHourlyIntake(f.options).run();assert.equal(f.sent.length,2);
+  f.setTime('2026-10-04T18:00:00.000Z');await createHourlyIntake(f.options).run();assert.equal(f.sent.length,4);
 });
 test('SMTP failure is recorded and retries no sooner than six hours',async t=>{
   const f=await fixture(t);const failed=createHourlyIntake({...f.options,send:async()=>{throw Error('do not expose transport secrets');}});
-  await failed.run();assert.equal(f.sent.length,0);assert.equal(f.logs.filter(l=>l.status==='failed').length,2);assert.ok(!JSON.stringify(f.logs).includes('transport secrets'));
+  await failed.run();assert.equal(f.sent.length,0);assert.equal(f.logs.filter(l=>l.status==='failed').length,4);assert.ok(!JSON.stringify(f.logs).includes('transport secrets'));
   f.setTime('2026-10-04T17:59:59.000Z');await failed.run();assert.equal(f.sent.length,0);
-  f.setTime('2026-10-04T18:15:00.000Z');await createHourlyIntake(f.options).run();assert.equal(f.sent.length,2);
+  f.setTime('2026-10-04T18:15:00.000Z');await createHourlyIntake(f.options).run();assert.equal(f.sent.length,4);
 });
 test('manual review resend preserves the draft and is idempotent by reason',async t=>{
   const f=await fixture(t);const worker=createHourlyIntake(f.options);await worker.run();
@@ -51,16 +51,16 @@ test('manual review resend preserves the draft and is idempotent by reason',asyn
   const first=await worker.notify(draft.id,undefined,undefined,undefined,'missing-delivery-2054');
   const duplicate=await worker.notify(draft.id,undefined,undefined,undefined,'missing-delivery-2054');
   const after=(await f.store.get(draft.id)).draft;
-  assert.equal(first.sent,2);assert.equal(duplicate.sent,0);assert.equal(after.revision,revision);assert.equal(after.status,'pending');
+  assert.equal(first.sent,4);assert.equal(duplicate.sent,0);assert.equal(after.revision,revision);assert.equal(after.status,'pending');
 });
 test('concurrent workers share durable cycle claim and reminders are not duplicated',async t=>{
   const f=await fixture(t);const results=await Promise.all([createHourlyIntake(f.options).run(),createHourlyIntake(f.options).run()]);
-  assert.equal(results.filter(r=>r.skipped).length,1);assert.equal(f.sent.length,2);
+  assert.equal(results.filter(r=>r.skipped).length,1);assert.equal(f.sent.length,4);
 });
 test('mailbox failure leaves checkpoint unchanged and still reminds existing pending drafts',async t=>{
   const f=await fixture(t);await createHourlyIntake(f.options).run();const before=await f.store.schedulerStatus();
   f.setTime('2026-10-04T18:00:00.000Z');await createHourlyIntake({...f.options,getToken:async()=>{throw Error('Graph unavailable');}}).run();
-  const after=await f.store.schedulerStatus();assert.equal(after.checkpoint,before.checkpoint);assert.equal(after.status,'error');assert.equal(f.sent.length,4);
+  const after=await f.store.schedulerStatus();assert.equal(after.checkpoint,before.checkpoint);assert.equal(after.status,'error');assert.equal(f.sent.length,8);
 });
 test('Graph pagination requests text, filters sender and subject, and rejects permission errors and untrusted links',async()=>{
   let count=0;
@@ -86,7 +86,7 @@ test('admin recovery only retries failed enabled cycles, preserving the checkpoi
   const before=await f.store.schedulerStatus();await f.store.retryFailedCycle();
   await assert.rejects(f.store.retryFailedCycle(),/Somente/);
   assert.equal((await f.store.schedulerStatus()).checkpoint,before.checkpoint);
-  const result=await createHourlyIntake(f.options).run();assert.equal(result.received,1);assert.equal(result.sent,2);
+  const result=await createHourlyIntake(f.options).run();assert.equal(result.received,1);assert.equal(result.sent,4);
   await assert.rejects(f.store.retryFailedCycle(),/Somente/);
 });
 
@@ -110,9 +110,9 @@ test('explicit refreshed review resends once per revision and normal reminders r
   await assert.rejects(worker.notify(d.id,d.revision),/sem pesquisa/);
   const refreshed=await f.store.refreshSearch(d.id,d.revision,user);
   assert.equal(refreshed.draft.fields.coreSkill,refreshed.draft.fields.profile);
-  assert.equal((await worker.notify(d.id,refreshed.draft.revision)).sent,2);
+  assert.equal((await worker.notify(d.id,refreshed.draft.revision)).sent,4);
   assert.equal((await worker.notify(d.id,refreshed.draft.revision)).sent,0);
-  assert.equal(f.sent.length,4); assert.equal(f.logs.length,4);
+  assert.equal(f.sent.length,8); assert.equal(f.logs.length,8);
   await assert.rejects(f.store.refreshSearch(d.id,d.revision,user),/alterada/);
   assert.equal((await f.read()).opportunities.length,0);
   await f.store.cancel(d.id,refreshed.draft.revision,user);

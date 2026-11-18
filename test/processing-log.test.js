@@ -11,9 +11,10 @@ function readRepoFile(relativePath) {
 
 test('processing summary log is restricted to PROD and approved recipients', () => {
   const serverSource = readRepoFile('server.js');
+  const internalNotificationsSource = readRepoFile('internal-notifications.js');
   const environmentSource = readRepoFile('legacy_banco_talentos/utils/environment.py');
   const emailSenderSource = readRepoFile('legacy_banco_talentos/utils/email_sender.py');
-  const combinedSource = `${serverSource}\n${environmentSource}\n${emailSenderSource}`;
+  const combinedSource = `${serverSource}\n${environmentSource}\n${emailSenderSource}\n${internalNotificationsSource}`;
 
   assert.match(serverSource, /rpa-banco-talentos-5v5r\.onrender\.com/);
   assert.match(serverSource, /APP_ENV:\s*isProductionRuntime\(\)\s*\?\s*'production'\s*:\s*'local'/);
@@ -26,6 +27,9 @@ test('processing summary log is restricted to PROD and approved recipients', () 
   assert.match(emailSenderSource, /gerson@alcateiaconsulting\.com\.br/);
   assert.match(emailSenderSource, /bruno@alcateiaconsulting\.com\.br/);
   assert.match(emailSenderSource, /emerson\.viana@alcateiaconsulting\.com\.br/);
-  assert.match(serverSource, /PROCESSING_LOG_RECIPIENTS[\s\S]*emerson\.viana@alcateiaconsulting\.com\.br/);
+  assert.match(emailSenderSource, /luiz\.cesar@alcateiaconsulting\.com\.br/);
+  assert.match(serverSource, /PROCESSING_LOG_RECIPIENTS\s*=\s*INTERNAL_NOTIFICATION_EMAILS/);
+  assert.match(internalNotificationsSource, /emerson\.viana@alcateiaconsulting\.com\.br/);
+  assert.match(internalNotificationsSource, /luiz\.cesar@alcateiaconsulting\.com\.br/);
   assert.doesNotMatch(combinedSource, /joao\.buso|buso@gmail|joao.*gmail/i);
 });
